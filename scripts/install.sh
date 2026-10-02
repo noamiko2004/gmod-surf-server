@@ -31,6 +31,13 @@ as_gmod mkdir -p "$GMOD_HOME/.steam/sdk32" "$GMOD_HOME/.steam/sdk64"
 as_gmod ln -sf "$STEAMCMD_DIR/linux32/steamclient.so" "$GMOD_HOME/.steam/sdk32/steamclient.so"
 as_gmod ln -sf "$STEAMCMD_DIR/linux64/steamclient.so" "$GMOD_HOME/.steam/sdk64/steamclient.so" || true
 
+# update.sh runs git as root inside a gmod-owned checkout
+if [[ -d "$REPO_DIR/.git" ]]; then
+  git config --system --add safe.directory "$REPO_DIR"
+  chown -R "$GMOD_USER:$GMOD_USER" "$REPO_DIR"
+  chmod 640 "$CONFIG_FILE"
+fi
+
 bash "$REPO_DIR/scripts/deploy.sh"
 
 log "Installing systemd service $SERVICE_NAME"

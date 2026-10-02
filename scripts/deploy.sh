@@ -23,5 +23,10 @@ render "$REPO_DIR/server/cfg/server.cfg" "$GM_DIR/cfg/server.cfg"
 render "$REPO_DIR/server/cfg/mount.cfg" "$GM_DIR/cfg/mount.cfg"
 chmod 600 "$GM_DIR/cfg/server.cfg"
 
+# Owners get superadmin from the gamemode (no admin addon needed)
+mkdir -p "$GM_DIR/data/surfline"
+echo "${OWNER_STEAMIDS:-}" > "$GM_DIR/data/surfline/owners.txt"
+chown -R "$GMOD_USER:$GMOD_USER" "$GM_DIR/data/surfline" 2>/dev/null || true
+
 chown -R "$GMOD_USER:$GMOD_USER" "$GM_DIR/gamemodes/surfline" "$GM_DIR/cfg" 2>/dev/null || true
 log "Deploy complete"

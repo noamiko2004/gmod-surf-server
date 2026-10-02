@@ -37,36 +37,26 @@ CHANGELOG.md            what changed in each session
 
 ## Going live
 
-You need to do these (they need your accounts or money):
+1. **Steam token:** create one at https://steamcommunity.com/dev/managegameservers
+   with App ID **4000**.
+2. **Repo visibility:** the server clones this repo on first boot, so it must be
+   public (it holds no secrets; config.env never gets committed). Otherwise clone
+   it by hand with a read-only GitHub token.
+3. **Hetzner:** Cloud Console, then New project, then Add Server:
+   - Location: closest to your players
+   - Image: Ubuntu 24.04
+   - Type: Shared vCPU, AMD, **CPX21** (CPX31 for more players)
+   - SSH key: optional (without one Hetzner emails a root password)
+   - **Cloud config:** paste `hetzner-cloud-init.yaml` with your Steam token
+     and SteamID64 filled in
+   - Create, and note the IPv4 address.
+4. Wait 15-20 minutes, then connect in GMOD's console with `connect IP:27015`.
+   Owners in `OWNER_STEAMIDS` are superadmin automatically. Place zones on each
+   map with `!zone start` / `!zone end`; maps without zones are free-surf.
 
-1. **Rent a VPS.** Ubuntu 24.04, 2 fast vCPUs, 4 GB RAM, ~40 GB disk, close to
-   your players. GMOD is single-threaded, so clock speed matters more than cores.
-   Hetzner CPX21/CPX31 or OVH are good fits (about $8-15/month).
-2. **Create a Game Server Login Token** at
-   https://steamcommunity.com/dev/managegameservers with App ID **4000**.
-   Without it the server won't show in the public list.
-3. **Make a Steam Workshop collection** with the surf maps you want, plus ULib
-   and ULX for admin tools (search the Workshop for them, by Team Ulysses). Note the
-   collection ID from its URL.
-   Existing GMOD surf collections are a good place to pick maps from.
-4. On the VPS (as root), clone this repo. It's private, so use a GitHub
-   [fine-grained token](https://github.com/settings/personal-access-tokens/new)
-   with read-only Contents access to this repo as the password:
-
-```bash
-apt-get update && apt-get install -y git
-git clone https://github.com/noamiko2004/gmod-surf-server /home/gmod/surfline
-git config --global credential.helper store   # lets the nightly update pull
-cd /home/gmod/surfline
-cp config.env.example config.env && nano config.env   # GSLT, collection, start map, RCON
-chmod 640 config.env
-sudo bash scripts/install.sh
-journalctl -u gmod-surf -f                             # watch it boot
-```
-
-5. Join the server, make yourself superadmin from the server console
-   (`ulx adduser YourName superadmin`), then place zones on each map with
-   `!zone start` / `!zone end`. Maps without zones are free-surf until then.
+Manual install instead: clone to /home/gmod/surfline, copy config.env.example
+to config.env, fill it in, and run `sudo bash scripts/install.sh`.
+Logs: `journalctl -u gmod-surf -f` and /var/log/surfline-install.log.
 
 ## Money (when there are players)
 

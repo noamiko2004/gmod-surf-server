@@ -1,0 +1,13 @@
+#cloud-config
+# Paste this whole file into Hetzner's "Cloud config" box when creating the
+# server. Replace the two PASTE_ values first. The server installs itself on
+# first boot (about 15-20 minutes; progress in /var/log/surfline-install.log).
+runcmd:
+  - |
+    set -e
+    apt-get update -y && apt-get install -y git
+    git clone https://github.com/noamiko2004/gmod-surf-server /home/gmod/surfline
+    cp /home/gmod/surfline/config.env.example /home/gmod/surfline/config.env
+    sed -i 's|^GSLT=.*|GSLT="PASTE_STEAM_TOKEN_HERE"|' /home/gmod/surfline/config.env
+    sed -i 's|^OWNER_STEAMIDS=.*|OWNER_STEAMIDS="PASTE_YOUR_STEAMID64_HERE"|' /home/gmod/surfline/config.env
+    bash /home/gmod/surfline/scripts/install.sh > /var/log/surfline-install.log 2>&1

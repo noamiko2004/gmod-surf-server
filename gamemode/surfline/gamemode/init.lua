@@ -34,7 +34,17 @@ function GM:Initialize()
 	AddWorkshopDownloads()
 end
 
+-- Owners listed in config.env (OWNER_STEAMIDS) become superadmin
+local function IsOwner(ply)
+	local list = file.Read("surfline/owners.txt", "DATA") or ""
+	for id in string.gmatch(list, "%d+") do
+		if id == ply:SteamID64() then return true end
+	end
+	return false
+end
+
 function GM:PlayerInitialSpawn(ply)
+	if IsOwner(ply) and not ply:IsSuperAdmin() then ply:SetUserGroup("superadmin") end
 	ply:SetTeam(TEAM_SURF)
 	ply:SetNW2Int("surf_state", SURF.STATE_IDLE)
 	SURF.DB.LoadPlayer(ply)
