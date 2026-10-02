@@ -1,20 +1,50 @@
--- Server-authoritative run timer. State is networked through NW2 vars so
--- spectators see the timer of whoever they watch.
+-- Server-authoritative run timer with checkpoint splits and bonus tracks.
+-- State is networked through NW2 vars so spectators see the timer of
+-- whoever they watch.
 SURF.Timer = {}
 local T = SURF.Timer
+
+util.AddNetworkString("surf.Split")
 
 local function SetState(ply, state)
 	ply:SetNW2Int("surf_state", state)
 end
 
+local function TrackName(track)
+	return track > 0 and ("Bonus " .. track) or "the map"
+end
+
+-- Loads PB/WR (and their splits) for the track the player is on
+function T.SetTrack(ply, track, force)
+	if ply.SurfTrack == track and not force then return end
+	ply.SurfTrack = track
+	ply:SetNW2Int("surf_track", track)
+	local key = SURF.MapKey(track)
+	local pb, splits = SURF.DB.GetRecord(key, ply:SteamID64())
+	ply.SurfPBSplits = splits or {}
+	ply:SetNW2Float("surf_pb", pb or 0)
+	local wr = SURF.DB.GetWR(key)
+	ply:SetNW2Float("surf_wr", wr and wr.time or 0)
+	ply:SetNW2String("surf_wrname", wr and wr.name or "")
+end
+
+local function ClearRun(ply)
+	ply.SurfSplits = {}
+	ply.SurfLastCP = 0
+	ply:SetNW2Int("surf_cp", 0)
+	SURF.Replay.StopRecording(ply)
+end
+
 function T.Reset(ply)
 	ply.SurfInStart = false
+	ClearRun(ply)
 	ply:SetNW2Float("surf_start", 0)
-	SetState(ply, SURF.Zones.HasTimer() and SURF.STATE_IDLE or SURF.STATE_NOZONES)
+	SetState(ply, SURF.Zones.HasTimer(0) and SURF.STATE_IDLE or SURF.STATE_NOZONES)
 end
 
 function T.Stop(ply, reason)
 	if ply:GetNW2Int("surf_state") == SURF.STATE_RUNNING then
+		ClearRun(ply)
 		SetState(ply, SURF.STATE_IDLE)
 		if reason then
 			SURF.Chat(ply, SURF.Config.Accent, "[Timer] ", color_white, "Timer stopped (" .. reason .. ").")
@@ -32,38 +62,75 @@ local function CapSpeed(ply)
 	end
 end
 
-function T.OnZoneEnter(ply, ztype)
-	if not ply:Alive() or ply:Team() == TEAM_SPECTATOR then return end
-	if not SURF.Zones.HasTimer() then return end
-	if ztype == "start" then
+local function Watchers(ply)
+	local out = { ply }
+	for _, p in ipairs(player.GetHumans()) do
+		if p ~= ply and p:GetObserverTarget() == ply then out[#out + 1] = p end
+	end
+	return out
+end
+
+local function Split(ply, index)
+	local elapsed = CurTime() - ply:GetNW2Float("surf_start")
+	ply.SurfSplits[index] = elapsed
+	ply.SurfLastCP = index
+	ply:SetNW2Int("surf_cp", index)
+
+	local pb = ply.SurfPBSplits and ply.SurfPBSplits[index]
+	local wr = SURF.DB.GetWR(SURF.MapKey(ply.SurfTrack or 0))
+	local wrs = wr and wr.splits and wr.splits[index]
+	net.Start("surf.Split")
+	net.WriteUInt(index, 8)
+	net.WriteFloat(elapsed)
+	net.WriteBool(pb ~= nil)
+	net.WriteFloat(pb and (elapsed - pb) or 0)
+	net.WriteBool(wrs ~= nil)
+	net.WriteFloat(wrs and (elapsed - wrs) or 0)
+	net.Send(Watchers(ply))
+end
+
+function T.OnZoneEnter(ply, zone)
+	if not zone or ply:IsBot() or not ply:Alive() or ply:Team() == TEAM_SPECTATOR then return end
+	if not SURF.Zones.HasTimer(zone.track) then return end
+	local running = ply:GetNW2Int("surf_state") == SURF.STATE_RUNNING
+	if zone.ztype == "start" then
+		T.SetTrack(ply, zone.track)
 		ply.SurfInStart = true
+		ClearRun(ply)
 		ply:SetNW2Float("surf_start", 0)
 		SetState(ply, SURF.STATE_START)
-	elseif ztype == "end" and ply:GetNW2Int("surf_state") == SURF.STATE_RUNNING then
+	elseif zone.ztype == "end" and running and zone.track == ply.SurfTrack then
 		if ply:GetMoveType() == MOVETYPE_NOCLIP then
 			T.Stop(ply, "noclip")
 			return
 		end
 		T.Finish(ply, CurTime() - ply:GetNW2Float("surf_start"))
+	elseif zone.ztype == "cp" and running and zone.track == ply.SurfTrack and zone.index > (ply.SurfLastCP or 0) then
+		Split(ply, zone.index)
 	end
 end
 
-function T.OnZoneLeave(ply, ztype)
-	if ztype ~= "start" or not ply.SurfInStart then return end
+function T.OnZoneLeave(ply, zone)
+	if not zone or zone.ztype ~= "start" or not ply.SurfInStart or zone.track ~= ply.SurfTrack then return end
 	ply.SurfInStart = false
-	if not ply:Alive() or ply:GetMoveType() == MOVETYPE_NOCLIP then return end
+	if ply:IsBot() or not ply:Alive() or ply:GetMoveType() == MOVETYPE_NOCLIP then return end
 	CapSpeed(ply)
+	ClearRun(ply)
 	ply:SetNW2Float("surf_start", CurTime())
 	SetState(ply, SURF.STATE_RUNNING)
+	if zone.track == 0 then SURF.Replay.StartRecording(ply) end
 end
 
 function T.Finish(ply, time)
+	local track = ply.SurfTrack or 0
+	local frames, nframes = SURF.Replay.StopRecording(ply)
 	ply:SetNW2Float("surf_final", time)
 	SetState(ply, SURF.STATE_FINISHED)
 
-	local res = SURF.DB.SubmitTime(ply, time)
+	local res = SURF.DB.SubmitTime(ply, SURF.MapKey(track), time, ply.SurfSplits)
 	local acc, white = SURF.Config.Accent, color_white
 	local gold = Color(255, 200, 40)
+	local where = track > 0 and ("Bonus " .. track .. " of " .. game.GetMap()) or game.GetMap()
 
 	local diff = ""
 	if res.oldPB then
@@ -74,36 +141,67 @@ function T.Finish(ply, time)
 	if res.wr then
 		local wrdiff = res.oldWR > 0 and string.format(" (-%.3f)", res.oldWR - time) or ""
 		SURF.Chat(nil, gold, "[NEW SERVER RECORD] ", team.GetColor(ply:Team()), ply:Nick(), white,
-			" set the record on ", acc, game.GetMap(), white, " with ", gold, SURF.FormatTime(time), white, wrdiff .. "!")
+			" set the record on ", acc, where, white, " with ", gold, SURF.FormatTime(time), white, wrdiff .. "!")
 		for _, p in ipairs(player.GetHumans()) do p:SendLua([[surface.PlaySound("garrysmod/save_load4.wav")]]) end
-		hook.Run("SurfNewRecord", ply, time, res)
+		if track == 0 and frames then SURF.Replay.SetRecord(ply, time, frames, nframes) end
+		hook.Run("SurfNewRecord", ply, time, res, track)
 	elseif res.improved then
-		SURF.Chat(nil, acc, "[Timer] ", team.GetColor(ply:Team()), ply:Nick(), white, " finished in ", acc, SURF.FormatTime(time),
+		SURF.Chat(nil, acc, "[Timer] ", team.GetColor(ply:Team()), ply:Nick(), white, " finished " .. TrackName(track) .. " in ", acc, SURF.FormatTime(time),
 			white, diff .. " and is now rank ", acc, res.rank .. "/" .. res.total, white, ".")
 		ply:SendLua([[surface.PlaySound("buttons/blip1.wav")]])
 	else
-		SURF.Chat(ply, acc, "[Timer] ", white, "You finished in ", acc, SURF.FormatTime(time), white, diff .. ".")
+		SURF.Chat(ply, acc, "[Timer] ", white, "You finished " .. TrackName(track) .. " in ", acc, SURF.FormatTime(time), white, diff .. ".")
 	end
-	hook.Run("SurfFinish", ply, time, res)
+
+	-- Refresh PB/WR display and everyone's WR on this track
+	for _, p in ipairs(player.GetHumans()) do
+		if p == ply or (res.wr and p.SurfTrack == track) then T.SetTrack(p, p.SurfTrack or 0, true) end
+	end
+	if res.improved then timer.Simple(0, SURF.Ranks.Recalc) end
+	hook.Run("SurfFinish", ply, time, res, track)
 end
 
-function T.GoToStart(ply)
+-- Put a player in a start zone (main track by default, or a bonus)
+function T.GoToStart(ply, track)
+	track = track or 0
 	if ply:Team() == TEAM_SPECTATOR then
 		SURF.Spec.Toggle(ply)
 		return
 	end
 	if not ply:Alive() then ply:Spawn() end
-	local pos = SURF.Zones.StartPos()
+	local pos = SURF.Zones.StartPos(track)
 	if not pos then
-		ply:Spawn()
+		if track == 0 then ply:Spawn() end
 		return
 	end
+	if ply:GetMoveType() == MOVETYPE_NOCLIP then ply:SetMoveType(MOVETYPE_WALK) end
 	ply:SetPos(pos)
 	ply:SetLocalVelocity(vector_origin)
 	T.Reset(ply)
+	T.SetTrack(ply, track)
 	-- Already inside the start trigger, so StartTouch may not fire again
-	if SURF.Zones.HasTimer() then
+	if SURF.Zones.HasTimer(track) then
 		ply.SurfInStart = true
 		SetState(ply, SURF.STATE_START)
 	end
 end
+
+-- Teleports used for practice end the current run
+function T.PracticeTeleport(ply, pos, ang, vel)
+	if ply:Team() == TEAM_SPECTATOR or not ply:Alive() then return end
+	T.Stop(ply)
+	ply.SurfInStart = false
+	SetState(ply, SURF.Zones.HasTimer(0) and SURF.STATE_IDLE or SURF.STATE_NOZONES)
+	ply:SetPos(pos)
+	if ang then ply:SetEyeAngles(ang) end
+	ply:SetLocalVelocity(vel or vector_origin)
+end
+
+-- Key presses for the spectator key display
+hook.Add("SetupMove", "surf_keys", function(ply, mv)
+	local keys = bit.band(mv:GetButtons(), IN_FORWARD + IN_BACK + IN_MOVELEFT + IN_MOVERIGHT + IN_JUMP + IN_DUCK)
+	if ply.SurfKeys ~= keys then
+		ply.SurfKeys = keys
+		ply:SetNW2Int("surf_keys", keys)
+	end
+end)

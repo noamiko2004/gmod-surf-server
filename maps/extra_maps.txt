@@ -1,0 +1,12 @@
+# Popular surf maps without bundled zones that should still be installed.
+# Zone them in game with !zone start / !zone end.
+surf_utopia_v3
+surf_mesa
+surf_kitsune2
+surf_rookie
+surf_ski_2
+surf_greatriver
+surf_classics
+surf_beginner2
+surf_calycate2
+surf_rebel_scaz_njv

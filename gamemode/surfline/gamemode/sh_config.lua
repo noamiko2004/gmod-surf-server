@@ -43,6 +43,17 @@ SURF.Config = {
 		{ id = "smoke", name = "Smoke", mat = "trails/smoke", color = Color(255, 255, 255), vip = true },
 	},
 
+	-- Titles by points (see sv_ranks.lua). Shown in chat and on the scoreboard.
+	Titles = {
+		{ points = 0, name = "Newbie", color = Color(170, 170, 170) },
+		{ points = 30, name = "Rookie", color = Color(140, 220, 140) },
+		{ points = 120, name = "Surfer", color = Color(80, 200, 255) },
+		{ points = 300, name = "Skilled", color = Color(120, 140, 255) },
+		{ points = 600, name = "Pro", color = Color(200, 120, 255) },
+		{ points = 1200, name = "Elite", color = Color(255, 120, 60) },
+		{ points = 2500, name = "Legend", color = Color(255, 200, 40) },
+	},
+
 	-- Where players can support the server. Shown by !vip / !store.
 	StoreURL = "",
 	DiscordURL = "",

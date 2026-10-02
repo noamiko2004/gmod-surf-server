@@ -28,13 +28,13 @@ end
 
 function ENT:StartTouch(ent)
 	if IsValid(ent) and ent:IsPlayer() then
-		SURF.Timer.OnZoneEnter(ent, self.ztype)
+		SURF.Timer.OnZoneEnter(ent, self.zone)
 	end
 end
 
 function ENT:EndTouch(ent)
 	if IsValid(ent) and ent:IsPlayer() then
-		SURF.Timer.OnZoneLeave(ent, self.ztype)
+		SURF.Timer.OnZoneLeave(ent, self.zone)
 	end
 end
 

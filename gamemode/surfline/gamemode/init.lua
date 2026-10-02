@@ -11,6 +11,8 @@ include("sv_util.lua")
 include("sv_db.lua")
 include("sv_zones.lua")
 include("sv_timer.lua")
+include("sv_replay.lua")
+include("sv_ranks.lua")
 include("sv_vip.lua")
 include("sv_trails.lua")
 include("sv_mapvote.lua")
@@ -20,6 +22,11 @@ include("sv_commands.lua")
 -- Make clients download the current map's workshop addon and any extras
 local function AddWorkshopDownloads()
 	local map = game.GetMap()
+	-- Maps installed by scripts/maps.py ("map wsid" per line)
+	for line in string.gmatch(file.Read("surfline/map_ws.txt", "DATA") or "", "[^\n]+") do
+		local name, id = string.match(line, "^(%S+)%s+(%d+)")
+		if name == map then resource.AddWorkshop(id) end
+	end
 	for _, addon in ipairs(engine.GetAddons()) do
 		if addon.mounted and addon.wsid and file.Exists("maps/" .. map .. ".bsp", addon.title) then
 			resource.AddWorkshop(addon.wsid)
@@ -34,6 +41,18 @@ function GM:Initialize()
 	AddWorkshopDownloads()
 end
 
+-- Some maps are built for a higher sv_maxvelocity (zones/maxvel.txt)
+hook.Add("InitPostEntity", "surf_maxvel", function()
+	local vel = 3500
+	for line in string.gmatch(file.Read("surfline/maxvel.txt", "DATA") or "", "[^\n]+") do
+		local name, v = string.match(line, "^(%S+)%s+(%d+)")
+		if name == game.GetMap() then vel = tonumber(v) end
+	end
+	RunConsoleCommand("sv_maxvelocity", tostring(vel))
+	-- server.cfg may run after this on some map loads, so set it again
+	timer.Simple(5, function() RunConsoleCommand("sv_maxvelocity", tostring(vel)) end)
+end)
+
 -- Owners listed in config.env (OWNER_STEAMIDS) become superadmin
 local function IsOwner(ply)
 	local list = file.Read("surfline/owners.txt", "DATA") or ""
@@ -44,10 +63,13 @@ local function IsOwner(ply)
 end
 
 function GM:PlayerInitialSpawn(ply)
-	if IsOwner(ply) and not ply:IsSuperAdmin() then ply:SetUserGroup("superadmin") end
 	ply:SetTeam(TEAM_SURF)
+	if ply:IsBot() then return end
+	if IsOwner(ply) and not ply:IsSuperAdmin() then ply:SetUserGroup("superadmin") end
 	ply:SetNW2Int("surf_state", SURF.STATE_IDLE)
 	SURF.DB.LoadPlayer(ply)
+	SURF.Timer.SetTrack(ply, 0, true)
+	SURF.Ranks.Apply(ply)
 end
 
 -- The client says when its Lua is loaded, so net messages aren't dropped
@@ -69,6 +91,12 @@ function GM:PlayerSpawn(ply)
 	ply:SetupHands()
 	ply:StripWeapons()
 
+	if ply:IsBot() then
+		SURF.Replay.bot = ply
+		SURF.Replay.SetupBot(ply)
+		return
+	end
+
 	ply:SetWalkSpeed(SURF.Config.WalkSpeed)
 	ply:SetRunSpeed(SURF.Config.WalkSpeed)
 	ply:SetMaxSpeed(SURF.Config.WalkSpeed)
@@ -80,6 +108,10 @@ function GM:PlayerSpawn(ply)
 
 	SURF.Timer.Reset(ply)
 	SURF.Trails.Apply(ply)
+	-- Spawn in the start zone when the map has one
+	timer.Simple(0, function()
+		if IsValid(ply) and ply:Alive() and SURF.Zones.StartPos(0) then SURF.Timer.GoToStart(ply, 0) end
+	end)
 end
 
 function GM:PlayerSetModel(ply)
@@ -104,6 +136,7 @@ end
 
 function GM:PlayerDeathThink(ply)
 	if ply:Team() == TEAM_SPECTATOR then return end
+	if ply:IsBot() then ply:Spawn() return end
 	if CurTime() >= (ply.SurfRespawnAt or 0) then
 		ply:Spawn()
 	end
@@ -118,6 +151,7 @@ end
 function GM:CanPlayerSuicide(ply) return ply:Team() ~= TEAM_SPECTATOR end
 
 function GM:PlayerDisconnected(ply)
+	if ply:IsBot() then return end
 	SURF.DB.SavePlayer(ply)
 	SURF.MapVote.OnDisconnect(ply)
 end

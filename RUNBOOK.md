@@ -11,6 +11,8 @@ For Claude (or anyone) picking up the server for a scheduled update.
 
 ## 2. Make changes
 - Pick 1-3 roadmap items or fixes. Keep VIP cosmetic only.
+- Run `python3 tests/mock_gmod.py` (mock GMOD server; must pass) and add a
+  check for whatever you change.
 - Syntax-check all Lua with LuaJIT before shipping (GMOD runs LuaJIT 2.1).
   Avoid GMOD-only syntax (`!=`, `//`, `continue`) so the check works:
   `python3 -m pip install lupa`, then loadstring() each file.
@@ -20,7 +22,9 @@ For Claude (or anyone) picking up the server for a scheduled update.
 
 ## 3. Ship
 - Bump CHANGELOG.md with the date and what changed.
-- On the VPS: copy the new files (or `git pull`), then `sudo bash scripts/update.sh`.
+- On the VPS (Hetzner web console, root): `sudo bash /home/gmod/surfline/scripts/update.sh`
+  (pulls from GitHub, updates GMOD + maps, restarts). The nightly 05:00 cron does
+  the same, so pushed changes go live by the next morning anyway.
   Without a restart, `sudo bash scripts/deploy.sh` applies on the next map change.
 - Backups are in /home/gmod/backups. To roll back the DB: stop the service,
   copy a `sv_*.db` over `garrysmod/sv.db`, start it.

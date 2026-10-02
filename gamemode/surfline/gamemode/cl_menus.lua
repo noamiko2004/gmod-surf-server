@@ -35,6 +35,16 @@ function Menus.records(data)
 	if #(data.rows or {}) == 0 then l:AddLine("", "No times yet. Be the first!", "", "") end
 end
 
+function Menus.players(data)
+	local f = Frame("Top players (" .. (data.total or 0) .. " ranked)", 520, 520)
+	local l = List(f, { { "#", 40 }, { "Player" }, { "Title", 110 }, { "Points", 80 } })
+	for i, r in ipairs(data.rows or {}) do
+		local t = SURF.Config.Titles[r.title] or SURF.Config.Titles[1]
+		l:AddLine(i, r.name, t.name, r.points)
+	end
+	if #(data.rows or {}) == 0 then l:AddLine("", "Nobody ranked yet. Finish a map!", "", "") end
+end
+
 function Menus.help(data)
 	local f = Frame("Commands", 560, 520)
 	local l = List(f, { { "Command", 220 }, { "What it does" } })

@@ -1,4 +1,5 @@
 -- SQLite storage (garrysmod/sv.db). Back it up with scripts/backup.sh.
+-- Times are keyed by "map" for the main track and "map#bN" for bonus N.
 SURF.DB = {}
 
 local function q(str, ...)
@@ -17,11 +18,21 @@ local function q(str, ...)
 end
 SURF.DB.Query = q
 
+local function HasColumn(tbl, col)
+	for _, r in ipairs(sql.Query("PRAGMA table_info(" .. tbl .. ")") or {}) do
+		if r.name == col then return true end
+	end
+	return false
+end
+
 local function Setup()
 	q([[CREATE TABLE IF NOT EXISTS surf_times (
 		map TEXT NOT NULL, steamid TEXT NOT NULL, name TEXT, time REAL NOT NULL,
 		date INTEGER, completions INTEGER DEFAULT 1, PRIMARY KEY (map, steamid))]])
 	q([[CREATE INDEX IF NOT EXISTS surf_times_map_time ON surf_times (map, time)]])
+	if not HasColumn("surf_times", "splits") then
+		q("ALTER TABLE surf_times ADD COLUMN splits TEXT")
+	end
 	q([[CREATE TABLE IF NOT EXISTS surf_zones (
 		map TEXT NOT NULL, ztype TEXT NOT NULL,
 		x1 REAL, y1 REAL, z1 REAL, x2 REAL, y2 REAL, z2 REAL, PRIMARY KEY (map, ztype))]])
@@ -31,6 +42,28 @@ local function Setup()
 		playtime INTEGER DEFAULT 0, firstseen INTEGER, lastseen INTEGER)]])
 end
 Setup()
+
+function SURF.MapKey(track)
+	track = track or 0
+	return game.GetMap() .. (track > 0 and ("#b" .. track) or "")
+end
+
+-- Splits are stored as [[cp, seconds], ...] so JSON keeps the numbers intact
+local function EncodeSplits(splits)
+	local arr = {}
+	for idx, t in pairs(splits or {}) do arr[#arr + 1] = { idx, t } end
+	table.sort(arr, function(a, b) return a[1] < b[1] end)
+	return util.TableToJSON(arr)
+end
+
+local function DecodeSplits(str)
+	local out = {}
+	if not str or str == "" or str == "NULL" then return out end
+	for _, pair in ipairs(util.JSONToTable(str) or {}) do
+		if pair[1] and pair[2] then out[tonumber(pair[1])] = tonumber(pair[2]) end
+	end
+	return out
+end
 
 -- Players ------------------------------------------------------------------
 
@@ -54,7 +87,7 @@ function SURF.DB.LoadPlayer(ply)
 end
 
 function SURF.DB.SavePlayer(ply)
-	if not ply.SurfJoinTime then return end
+	if not ply.SurfJoinTime or ply:IsBot() then return end
 	local played = os.time() - ply.SurfJoinTime
 	ply.SurfJoinTime = os.time()
 	q("UPDATE surf_players SET name = %s, trail = %s, autohop = %d, playtime = playtime + %d, lastseen = %d WHERE steamid = %s",
@@ -63,64 +96,82 @@ end
 
 -- Times --------------------------------------------------------------------
 
-local function RefreshWR()
-	local row = q("SELECT name, time FROM surf_times WHERE map = %s ORDER BY time ASC LIMIT 1", game.GetMap())
-	if row and row[1] then
-		SetGlobal2Float("surf_wr", tonumber(row[1].time))
-		SetGlobal2String("surf_wr_name", row[1].name or "?")
-	else
-		SetGlobal2Float("surf_wr", 0)
-		SetGlobal2String("surf_wr_name", "")
+local wrCache = {}
+
+function SURF.DB.GetWR(key)
+	if wrCache[key] == nil then
+		local row = q("SELECT name, time, splits FROM surf_times WHERE map = %s ORDER BY time ASC LIMIT 1", key)
+		if row and row[1] then
+			wrCache[key] = { time = tonumber(row[1].time), name = row[1].name or "?", splits = DecodeSplits(row[1].splits) }
+		else
+			wrCache[key] = false
+		end
 	end
+	return wrCache[key] or nil
+end
+
+function SURF.DB.GetRecord(key, sid)
+	local row = q("SELECT time, splits FROM surf_times WHERE map = %s AND steamid = %s", key, sid)
+	if row and row[1] then
+		return tonumber(row[1].time), DecodeSplits(row[1].splits)
+	end
+end
+
+local function RefreshWR()
+	wrCache = {}
+	local wr = SURF.DB.GetWR(SURF.MapKey(0))
+	SetGlobal2Float("surf_wr", wr and wr.time or 0)
+	SetGlobal2String("surf_wr_name", wr and wr.name or "")
 end
 hook.Add("InitPostEntity", "surf_db_wr", RefreshWR)
 
+-- Main-track PB, shown on the scoreboard
 function SURF.DB.RefreshPB(ply)
-	local row = q("SELECT time FROM surf_times WHERE map = %s AND steamid = %s", game.GetMap(), ply:SteamID64())
-	ply:SetNW2Float("surf_pb", (row and row[1]) and tonumber(row[1].time) or 0)
+	ply:SetNW2Float("surf_mainpb", SURF.DB.GetRecord(SURF.MapKey(0), ply:SteamID64()) or 0)
 end
 
-function SURF.DB.Count(map)
-	local row = q("SELECT COUNT(*) AS c FROM surf_times WHERE map = %s", map)
+function SURF.DB.Count(key)
+	local row = q("SELECT COUNT(*) AS c FROM surf_times WHERE map = %s", key)
 	return row and tonumber(row[1].c) or 0
 end
 
-function SURF.DB.RankOf(map, time)
-	local row = q("SELECT COUNT(*) AS c FROM surf_times WHERE map = %s AND time < %.6f", map, time)
+function SURF.DB.RankOf(key, time)
+	local row = q("SELECT COUNT(*) AS c FROM surf_times WHERE map = %s AND time < %.6f", key, time)
 	return (row and tonumber(row[1].c) or 0) + 1
 end
 
 -- Returns { improved, oldPB, rank, total, wr, oldWR }
-function SURF.DB.SubmitTime(ply, time)
-	local map, sid = game.GetMap(), ply:SteamID64()
-	local oldWR = GetGlobal2Float("surf_wr", 0)
-	local row = q("SELECT time FROM surf_times WHERE map = %s AND steamid = %s", map, sid)
-	local oldPB = (row and row[1]) and tonumber(row[1].time) or nil
+function SURF.DB.SubmitTime(ply, key, time, splits)
+	local sid = ply:SteamID64()
+	local wr = SURF.DB.GetWR(key)
+	local oldWR = wr and wr.time or 0
+	local oldPB = SURF.DB.GetRecord(key, sid)
 	local improved = false
 
 	if not oldPB then
-		q("INSERT INTO surf_times (map, steamid, name, time, date) VALUES (%s, %s, %s, %.6f, %d)", map, sid, ply:Nick(), time, os.time())
+		q("INSERT INTO surf_times (map, steamid, name, time, date, splits) VALUES (%s, %s, %s, %.6f, %d, %s)",
+			key, sid, ply:Nick(), time, os.time(), EncodeSplits(splits))
 		improved = true
 	elseif time < oldPB then
-		q("UPDATE surf_times SET time = %.6f, name = %s, date = %d, completions = completions + 1 WHERE map = %s AND steamid = %s",
-			time, ply:Nick(), os.time(), map, sid)
+		q("UPDATE surf_times SET time = %.6f, name = %s, date = %d, splits = %s, completions = completions + 1 WHERE map = %s AND steamid = %s",
+			time, ply:Nick(), os.time(), EncodeSplits(splits), key, sid)
 		improved = true
 	else
-		q("UPDATE surf_times SET completions = completions + 1, name = %s WHERE map = %s AND steamid = %s", ply:Nick(), map, sid)
+		q("UPDATE surf_times SET completions = completions + 1, name = %s WHERE map = %s AND steamid = %s", ply:Nick(), key, sid)
 	end
 
-	SURF.DB.RefreshPB(ply)
 	local best = improved and time or oldPB
 	local isWR = improved and (oldWR == 0 or time < oldWR)
 	if isWR then RefreshWR() end
+	SURF.DB.RefreshPB(ply)
 	return {
-		improved = improved, oldPB = oldPB, rank = SURF.DB.RankOf(map, best),
-		total = SURF.DB.Count(map), wr = isWR, oldWR = oldWR,
+		improved = improved, oldPB = oldPB, rank = SURF.DB.RankOf(key, best),
+		total = SURF.DB.Count(key), wr = isWR, oldWR = oldWR,
 	}
 end
 
-function SURF.DB.Top(map, limit)
-	local rows = q("SELECT name, steamid, time, date, completions FROM surf_times WHERE map = %s ORDER BY time ASC LIMIT %d", map, limit or 10)
+function SURF.DB.Top(key, limit)
+	local rows = q("SELECT name, steamid, time, date, completions FROM surf_times WHERE map = %s ORDER BY time ASC LIMIT %d", key, limit or 10)
 	local out = {}
 	for i, r in ipairs(rows or {}) do
 		out[i] = { name = r.name, steamid = r.steamid, time = tonumber(r.time), date = tonumber(r.date), completions = tonumber(r.completions) }
@@ -128,10 +179,14 @@ function SURF.DB.Top(map, limit)
 	return out
 end
 
-function SURF.DB.DeleteTime(map, steamid)
-	q("DELETE FROM surf_times WHERE map = %s AND steamid = %s", map, steamid)
+function SURF.DB.DeleteTime(key, steamid)
+	q("DELETE FROM surf_times WHERE map = %s AND steamid = %s", key, steamid)
 	RefreshWR()
-	for _, p in ipairs(player.GetAll()) do SURF.DB.RefreshPB(p) end
+	for _, p in ipairs(player.GetHumans()) do
+		SURF.DB.RefreshPB(p)
+		SURF.Timer.SetTrack(p, p.SurfTrack or 0, true)
+	end
+	SURF.Ranks.Recalc()
 end
 
 -- Save playtime/settings periodically so a crash loses little

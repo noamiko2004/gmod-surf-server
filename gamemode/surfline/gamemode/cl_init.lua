@@ -22,35 +22,31 @@ net.Receive("surf.Chat", function()
 	chat.AddText(unpack(args))
 end)
 
--- Chat line with VIP / admin tags
+-- Chat line with title / VIP / admin tags
 function GM:OnPlayerChat(ply, text, teamChat, dead)
 	local parts = {}
+	local function add(col, str) parts[#parts + 1] = col parts[#parts + 1] = str end
 	if IsValid(ply) then
+		local title = SURF.Config.Titles[ply:GetNW2Int("surf_title", 1)] or SURF.Config.Titles[1]
+		add(title.color, "[" .. title.name .. "] ")
 		if ply:IsAdmin() then
-			parts[#parts + 1] = Color(255, 80, 80)
-			parts[#parts + 1] = "[ADMIN] "
+			add(Color(255, 80, 80), "[ADMIN] ")
 		elseif SURF.IsVIP(ply) then
-			parts[#parts + 1] = Color(255, 200, 40)
-			parts[#parts + 1] = "[VIP] "
+			add(Color(255, 200, 40), "[VIP] ")
 		end
-		if ply:Team() == TEAM_SPECTATOR then
-			parts[#parts + 1] = Color(160, 160, 160)
-			parts[#parts + 1] = "*SPEC* "
-		end
-		parts[#parts + 1] = SURF.IsVIP(ply) and Color(255, 220, 120) or team.GetColor(ply:Team())
-		parts[#parts + 1] = ply:Nick()
+		if ply:Team() == TEAM_SPECTATOR then add(Color(160, 160, 160), "*SPEC* ") end
+		add(SURF.IsVIP(ply) and Color(255, 220, 120) or team.GetColor(ply:Team()), ply:Nick())
 	else
-		parts[#parts + 1] = Color(160, 160, 160)
-		parts[#parts + 1] = "Console"
+		add(Color(160, 160, 160), "Console")
 	end
-	parts[#parts + 1] = color_white
-	parts[#parts + 1] = ": " .. text
+	add(color_white, ": " .. text)
 	chat.AddText(unpack(parts))
 	return true
 end
 
 -- Client-only toggles
 local hidePlayers = CreateClientConVar("surf_hideplayers", "0", true, false)
+local showKeys = CreateClientConVar("surf_showkeys", "1", true, false)
 
 net.Receive("surf.Action", function()
 	local action = net.ReadString()
@@ -58,6 +54,10 @@ net.Receive("surf.Action", function()
 		local on = not hidePlayers:GetBool()
 		RunConsoleCommand("surf_hideplayers", on and "1" or "0")
 		chat.AddText(SURF.Config.Accent, "[Settings] ", color_white, "Other players are now " .. (on and "hidden" or "visible") .. ".")
+	elseif action == "keys" then
+		local on = not showKeys:GetBool()
+		RunConsoleCommand("surf_showkeys", on and "1" or "0")
+		chat.AddText(SURF.Config.Accent, "[Settings] ", color_white, "Key display " .. (on and "on" or "off") .. ".")
 	end
 end)
 
@@ -79,15 +79,35 @@ timer.Create("surf_hide_trails", 0.5, 0, function()
 	end
 end)
 
--- Draw zone outlines
-local zones = {}
-net.Receive("surf.Zones", function() zones = net.ReadTable() end)
+-- Zones: drawn as floor outlines (start green, end red, bonuses blue/purple)
+SURF.ClientZones = {}
+net.Receive("surf.Zones", function()
+	local list = {}
+	for _, z in ipairs(net.ReadTable()) do
+		list[#list + 1] = { ztype = z.t, track = z.k, index = z.i, min = z.a, max = z.b }
+	end
+	SURF.ClientZones = list
+end)
 
-local ZONE_COLORS = { start = Color(0, 255, 120), ["end"] = Color(255, 60, 60) }
+function SURF.ClientCPCount(track)
+	local n = 0
+	for _, z in ipairs(SURF.ClientZones) do
+		if z.ztype == "cp" and z.track == track then n = math.max(n, z.index) end
+	end
+	return n
+end
+
+local ZONE_COLORS = {
+	start = Color(0, 255, 120), ["end"] = Color(255, 60, 60),
+	bstart = Color(60, 160, 255), bend = Color(200, 90, 255),
+}
 hook.Add("PostDrawTranslucentRenderables", "surf_zones", function(depth, skybox)
 	if skybox then return end
-	for ztype, z in pairs(zones) do
-		render.DrawWireframeBox(vector_origin, angle_zero, z.min, Vector(z.max.x, z.max.y, z.min.z + 2), ZONE_COLORS[ztype] or color_white, true)
+	for _, z in ipairs(SURF.ClientZones) do
+		if z.ztype ~= "cp" then
+			local key = (z.track > 0 and "b" or "") .. z.ztype
+			render.DrawWireframeBox(vector_origin, angle_zero, z.min, Vector(z.max.x, z.max.y, z.min.z + 2), ZONE_COLORS[key] or color_white, true)
+		end
 	end
 end)
 

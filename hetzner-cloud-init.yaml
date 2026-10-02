@@ -1,7 +1,7 @@
 #cloud-config
 # Paste this whole file into Hetzner's "Cloud config" box when creating the
 # server. Replace the two PASTE_ values first. The server installs itself on
-# first boot (about 15-20 minutes; progress in /var/log/surfline-install.log).
+# first boot (about 20-30 minutes; progress in /var/log/surfline-install.log).
 runcmd:
   - |
     set -e

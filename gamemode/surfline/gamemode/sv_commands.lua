@@ -31,23 +31,79 @@ end
 
 local acc, white = SURF.Config.Accent, color_white
 
-Add({ "r", "restart", "start" }, "Go back to the start", function(ply) SURF.Timer.GoToStart(ply) end)
+Add({ "r", "restart", "start" }, "Go back to the start", function(ply) SURF.Timer.GoToStart(ply, 0) end)
 
-Add({ "wr", "top", "records" }, "Top 10 times on this map", function(ply, args)
+Add({ "b", "bonus" }, "!b [number] goes to a bonus start", function(ply, args)
+	local bonuses = SURF.Zones.Bonuses()
+	local n = tonumber(args[1] or "") or bonuses[1]
+	if not n or not SURF.Zones.HasTimer(n) then
+		SURF.Chat(ply, acc, "[Timer] ", white, #bonuses > 0 and ("Bonuses on this map: " .. table.concat(bonuses, ", ")) or "This map has no bonuses.")
+		return
+	end
+	SURF.Timer.GoToStart(ply, n)
+end)
+
+Add({ "stage", "s" }, "!stage <number> practice from a stage/checkpoint", function(ply, args)
+	local n = tonumber(args[1] or "")
+	local pos = n and (n <= 1 and SURF.Zones.StartPos(0) or SURF.Zones.StagePos(n))
+	if not pos then
+		local count = SURF.Zones.cpCount[0] or 0
+		SURF.Chat(ply, acc, "[Practice] ", white, count > 0 and ("Stages/checkpoints here: 1-" .. count) or "This map has no stages.")
+		return
+	end
+	if n <= 1 then return SURF.Timer.GoToStart(ply, 0) end
+	SURF.Timer.PracticeTeleport(ply, pos)
+	SURF.Chat(ply, acc, "[Practice] ", white, "Stage " .. n .. ". Your timer is off until you go back with !r.")
+end)
+
+Add({ "saveloc", "cp", "save" }, "Save your position for practice", function(ply)
+	if not ply:Alive() or ply:Team() == TEAM_SPECTATOR then return end
+	ply.SurfSaves = ply.SurfSaves or {}
+	table.insert(ply.SurfSaves, { pos = ply:GetPos(), ang = ply:EyeAngles(), vel = ply:GetVelocity() })
+	if #ply.SurfSaves > 20 then table.remove(ply.SurfSaves, 1) end
+	SURF.Chat(ply, acc, "[Practice] ", white, "Saved #" .. #ply.SurfSaves .. ". !tele goes back (stops your timer).")
+end)
+
+Add({ "tele", "tp", "load" }, "!tele [number] goes back to a saved position", function(ply, args)
+	local saves = ply.SurfSaves or {}
+	local s = saves[tonumber(args[1] or "") or #saves]
+	if not s then return SURF.Chat(ply, acc, "[Practice] ", white, "Nothing saved yet. Use !saveloc first.") end
+	SURF.Timer.PracticeTeleport(ply, s.pos, s.ang, s.vel)
+end)
+
+Add({ "wr", "records", "maptop" }, "Top times on this map (!wr <map>)", function(ply, args)
 	local map = args[1] and string.lower(args[1]) or game.GetMap()
 	SURF.Menu.Open(ply, "records", { map = map, rows = SURF.DB.Top(map, 50), total = SURF.DB.Count(map) })
 end)
 
-Add({ "pb", "rank" }, "Your best time and rank here", function(ply)
-	local pb = ply:GetNW2Float("surf_pb", 0)
-	if pb <= 0 then
-		SURF.Chat(ply, acc, "[Timer] ", white, "You haven't finished " .. game.GetMap() .. " yet.")
+Add({ "bwr", "btop" }, "Top times on a bonus (!bwr [number])", function(ply, args)
+	local n = tonumber(args[1] or "") or SURF.Zones.Bonuses()[1] or 1
+	local key = SURF.MapKey(n)
+	SURF.Menu.Open(ply, "records", { map = game.GetMap() .. " bonus " .. n, rows = SURF.DB.Top(key, 50), total = SURF.DB.Count(key) })
+end)
+
+Add({ "pb" }, "Your best time and rank here", function(ply)
+	local track = ply.SurfTrack or 0
+	local key = SURF.MapKey(track)
+	local pb = SURF.DB.GetRecord(key, ply:SteamID64())
+	local where = track > 0 and ("bonus " .. track) or game.GetMap()
+	if not pb then
+		SURF.Chat(ply, acc, "[Timer] ", white, "You haven't finished " .. where .. " yet.")
 		return
 	end
-	local map = game.GetMap()
-	SURF.Chat(ply, acc, "[Timer] ", white, "Your best: ", acc, SURF.FormatTime(pb), white,
-		" (rank " .. SURF.DB.RankOf(map, pb) .. "/" .. SURF.DB.Count(map) .. ")")
+	SURF.Chat(ply, acc, "[Timer] ", white, "Your best on " .. where .. ": ", acc, SURF.FormatTime(pb), white,
+		" (rank " .. SURF.DB.RankOf(key, pb) .. "/" .. SURF.DB.Count(key) .. ")")
 end)
+
+Add({ "rank", "points" }, "Your points, title and server rank", function(ply) SURF.Ranks.Describe(ply) end)
+
+Add({ "top", "toplist", "leaderboard" }, "Best players on the server", function(ply)
+	SURF.Menu.Open(ply, "players", { rows = SURF.Ranks.TopMenuData(50), total = #SURF.Ranks.list })
+end)
+
+Add({ "replay", "wrbot" }, "Watch the server record replay", function(ply) SURF.Replay.Spectate(ply) end)
+
+Add({ "keys", "showkeys" }, "Show or hide the key display", function(ply) SURF.ClientAction(ply, "keys") end)
 
 Add({ "spec", "spectate" }, "Spectate other players (again to return)", function(ply) SURF.Spec.Toggle(ply) end)
 
@@ -90,7 +146,7 @@ Add({ "help", "commands", "cmds" }, "Show this list", function(ply) SURF.Menu.Op
 
 -- Admin -----------------------------------------------------------------
 
-Add({ "zone", "zones" }, "Place start/end zones", function(ply, args) SURF.Zones.EditCommand(ply, args) end, true)
+Add({ "zone", "zones" }, "Place zones (!zone start|end|delete|reset|info)", function(ply, args) SURF.Zones.EditCommand(ply, args) end, true)
 
 Add({ "deltime" }, "!deltime <steamid64> removes a time on this map", function(ply, args)
 	if not args[1] then return SURF.Chat(ply, white, "Usage: !deltime <steamid64>") end

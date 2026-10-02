@@ -5,20 +5,43 @@ update scripts, server configs, and a custom surf gamemode (`surfline`).
 "Surfline" is a working name; change it in `config.env` (server browser) and
 `gamemode/surfline/gamemode/sh_config.lua` (in-game).
 
-## What players get (v1)
+## What players get
 
-- CS:S-style surf movement (100 tick, airaccelerate 150, autohop toggle)
-- Server-side timer with start/end zones, speed cap leaving the start
-- Personal bests, ranks, server records with announcements (`!wr`, `!pb`)
-- HUD with timer, speed, PB and WR; custom scoreboard ranked by best time
-- `!r` restart, `!spec` spectating (click to cycle, jump to change view)
-- `!rtv`, `!nominate`, `!maps`, automatic map vote every 40 minutes with extend option
+- Classic surf maps (kitsune, utopia, mesa, beginner, deathstar, lux, ...)
+  installed straight from the Workshop, with ready-made start/end/stage/bonus
+  zones for 81 maps (KSF-style zoning, see zones/README.md)
+- CS:S-style surf movement (100 tick, airaccelerate 150, per-map maxvelocity, autohop toggle)
+- Server-side timer, speed cap leaving the start, checkpoint splits vs your PB
+  and the server record, bonus tracks (`!b`, `!bwr`)
+- Server record replay bot that loops the WR run (`!replay`)
+- Points, titles (Newbie to Legend) and a server leaderboard (`!rank`, `!top`)
+- Practice: `!saveloc` / `!tele`, `!stage <n>` (timer turns off)
+- HUD with timer, speed that turns green/red when gaining/losing, CP progress,
+  key display (`!keys`), PB/WR; scoreboard with titles and points
+- `!r` restart, `!spec` spectating, `!rtv`, `!nominate`, `!maps`, map vote every
+  40 minutes (zoned maps first) with extend option
 - `!hide` other players, `!trail` trails, colored chat tags
 - Cosmetic VIP (trails, gold tag and name). No pay to win.
 
 Admin: `!zone start` / `!zone end` (two corners each), `!zone delete start`,
-`!deltime <steamid64>`, `!forcevote`. Console: `surf_givevip <id> <days>`,
-`surf_removevip <id>`.
+`!zone reset` (back to ready-made zones), `!zone info`, `!deltime <steamid64>`,
+`!forcevote`. Console: `surf_givevip <id> <days>`, `surf_removevip <id>`.
+
+## Maps
+
+`scripts/maps.py` (run by every deploy/update) reads `maps/sources.txt`, asks
+the Steam API which items are Garry's Mod surf maps we want (every map in
+`zones/` plus `maps/extra_maps.txt`), downloads the most-subscribed match per
+map with SteamCMD, and unpacks only the .bsp and models. Clients get each map
+from the Workshop automatically. Log: /home/gmod/maps.log. To add maps, add
+Workshop IDs (items or collections) to `maps/sources.txt` and names to
+`maps/extra_maps.txt`.
+
+## Tests
+
+`python3 tests/mock_gmod.py` (needs `pip install lupa`) runs the server-side
+gamemode in LuaJIT against a mock GMOD API and a real SQLite database: zone
+loading for every bundled map, the timer, splits, records, bonuses and ranks.
 
 ## Layout
 
@@ -28,6 +51,9 @@ scripts/install.sh      one-time VPS setup (SteamCMD, GMOD, CS:S, systemd, cron,
 scripts/update.sh       git pull + SteamCMD update + deploy + restart (nightly at 05:00)
 scripts/deploy.sh       copy gamemode/configs into the server
 scripts/backup.sh       sv.db + data backups (nightly at 04:30, keeps 14)
+scripts/maps.py         installs surf maps from the Workshop (maps/sources.txt)
+zones/                  ready-made zones for 81 surf maps + per-map maxvelocity
+tests/mock_gmod.py      runs the gamemode against a mock GMOD API
 scripts/start.sh        launch command used by systemd
 server/cfg/             server.cfg and mount.cfg templates
 gamemode/surfline/      the gamemode
@@ -50,7 +76,7 @@ CHANGELOG.md            what changed in each session
    - **Cloud config:** paste `hetzner-cloud-init.yaml` with your Steam token
      and SteamID64 filled in
    - Create, and note the IPv4 address.
-4. Wait 15-20 minutes, then connect in GMOD's console with `connect IP:27015`.
+4. Wait 20-30 minutes, then connect in GMOD's console with `connect IP:27015`.
    Owners in `OWNER_STEAMIDS` are superadmin automatically. Place zones on each
    map with `!zone start` / `!zone end`; maps without zones are free-surf.
 

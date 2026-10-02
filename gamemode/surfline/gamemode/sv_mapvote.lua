@@ -21,6 +21,24 @@ function MV.MapList()
 	return maps
 end
 
+-- Maps with zones (ready-made or placed in game) come first in votes
+function MV.HasZones(map)
+	if file.Exists("surfline/zones/" .. map .. ".json", "DATA") then return true end
+	local row = SURF.DB.Query("SELECT 1 FROM surf_zones WHERE map = %s LIMIT 1", map)
+	return row ~= nil and row ~= false
+end
+
+local function VotePool()
+	local zoned, other = {}, {}
+	for _, m in ipairs(MV.MapList()) do
+		if MV.HasZones(m) then zoned[#zoned + 1] = m else other[#other + 1] = m end
+	end
+	table.Shuffle(zoned)
+	table.Shuffle(other)
+	for _, m in ipairs(other) do zoned[#zoned + 1] = m end
+	return zoned
+end
+
 local function ResolveMap(query)
 	query = string.lower(query or "")
 	if query == "" then return nil end
@@ -98,9 +116,7 @@ function MV.Start(allowExtend)
 			used[map] = true
 		end
 	end
-	local pool = MV.MapList()
-	table.Shuffle(pool)
-	for _, map in ipairs(pool) do
+	for _, map in ipairs(VotePool()) do
 		if #choices >= SURF.Config.MapVoteChoices then break end
 		if not used[map] then
 			choices[#choices + 1] = map
@@ -166,12 +182,12 @@ end)
 hook.Add("InitPostEntity", "surf_bootmap", function()
 	if string.StartWith(game.GetMap(), SURF.Config.MapPrefix) then return end
 	timer.Simple(10, function()
-		local maps = MV.MapList()
+		local maps = VotePool()
 		if #maps == 0 then
-			print("[Surfline] No " .. SURF.Config.MapPrefix .. "* maps found. Check WORKSHOP_COLLECTION in config.env.")
+			print("[Surfline] No " .. SURF.Config.MapPrefix .. "* maps found. Check maps.log on the server.")
 			return
 		end
-		local pick = maps[math.random(#maps)]
+		local pick = maps[1]
 		print("[Surfline] Not on a surf map, switching to " .. pick)
 		RunConsoleCommand("changelevel", pick)
 	end)

@@ -1,0 +1,45 @@
+# Where the map installer (scripts/maps.py) looks for surf maps.
+# One Steam Workshop ID per line: a single map item or a collection.
+# Everything is checked against the Steam API on the server: only Garry's Mod
+# items whose title names a wanted map are installed (wanted = every map in
+# zones/ plus maps/extra_maps.txt). The most-subscribed match wins.
+
+# Single maps found on the Workshop (unchecked until the server verifies them)
+727029951   surf_kitsune
+3076153623  surf_kitsune (alt)
+607186931   surf_beginner
+2580702799  surf_utopia_njv
+156054906   surf_utopia_v3
+212209628   surf_mesa
+1300131429  surf_deathstar
+1193970046  surf_lux
+675048330   surf_lux (alt)
+3088413071  surf_ace
+1193945370  surf_ace_fix
+3129698096  surf_nyx
+3296258256  surf_whiteout
+1085185507  surf_forgotten
+3136165565  surf_2pacisalive
+841046833   surf_calycate_ksf
+841043841   surf_calycate2
+706542036   surf_lessons
+259296700   surf_rebel_scaz_njv
+3713522613  surf_year3000
+292670479   surf_year3000 (remastered)
+3650611306  surf_summit
+1672702362  surf_egypt2
+583302535   surf_kitsune2
+3082548297  surf_rookie
+
+# Collections from GMOD surf servers (expanded and filtered on the server)
+2156453614  tier 1-6 surf maps
+2227347243  Tier 1-2 Surf
+676558292   Surf tier 1-3
+2352104553  Surf Maps (Tier 1-2)
+1630128377  Jozzu Server Maps
+730007814   All Surf Maps for Gmod
+2643126446  TheLoveSurf
+2349750143  CoffeeShop Server Maps
+673991355   Surf maps
+2273582179  Surf maps
+2186879567  Surf
