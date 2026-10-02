@@ -49,10 +49,14 @@ You need to do these (they need your accounts or money):
    and ULX for admin tools (search the Workshop for them, by Team Ulysses). Note the
    collection ID from its URL.
    Existing GMOD surf collections are a good place to pick maps from.
-4. Copy this folder to the VPS (e.g. `scp -r gmod-server root@IP:/home/gmod/surfline`),
-   then on the VPS:
+4. On the VPS (as root), clone this repo. It's private, so use a GitHub
+   [fine-grained token](https://github.com/settings/personal-access-tokens/new)
+   with read-only Contents access to this repo as the password:
 
 ```bash
+apt-get update && apt-get install -y git
+git clone https://github.com/noamiko2004/gmod-surf-server /home/gmod/surfline
+git config --global credential.helper store   # lets the nightly update pull
 cd /home/gmod/surfline
 cp config.env.example config.env && nano config.env   # GSLT, collection, start map, RCON
 chmod 640 config.env
