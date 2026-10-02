@@ -1,0 +1,8 @@
+"surfline"
+{
+	"base"		"base"
+	"title"		"Surfline"
+	"maps"		"^surf_"
+	"category"	"other"
+	"menusystem"	"0"
+}

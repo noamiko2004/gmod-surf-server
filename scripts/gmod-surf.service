@@ -1,0 +1,15 @@
+[Unit]
+Description=Garry's Mod surf server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=@GMOD_USER@
+WorkingDirectory=@SERVER_DIR@
+ExecStart=/bin/bash @REPO_DIR@/scripts/start.sh
+Restart=always
+RestartSec=10
+LimitNOFILE=100000
+
+[Install]
+WantedBy=multi-user.target
