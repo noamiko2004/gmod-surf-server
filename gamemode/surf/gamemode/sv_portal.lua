@@ -150,6 +150,29 @@ ACTIONS.removevip = function(c)
 	return true, "removed VIP from " .. KnownName(c.steamid)
 end
 
+ACTIONS.givecoins = function(c)
+	if not ValidID(c.steamid) then return false, "bad steamid" end
+	local amount = math.Clamp(math.floor(tonumber(c.amount) or 0), -1000000, 1000000)
+	if amount == 0 then return false, "amount is 0" end
+	local bal = SURF.Shop.GiveCoins(c.steamid, amount, c.by == "tebex" and "store purchase" or "given on the website")
+	return true, string.format("%s%d coins for %s (now %d)", amount > 0 and "+" or "", amount, KnownName(c.steamid), bal)
+end
+
+ACTIONS.giveitem = function(c)
+	if not ValidID(c.steamid) then return false, "bad steamid" end
+	local key = tostring(c.item or "")
+	if not SURF.Shop.Grant(c.steamid, key, c.by == "tebex" and "store" or "website") then return false, "unknown item" end
+	return true, "gave " .. SURF.ItemByKey[key].name .. " to " .. KnownName(c.steamid)
+end
+
+ACTIONS.removeitem = function(c)
+	if not ValidID(c.steamid) then return false, "bad steamid" end
+	local key = tostring(c.item or "")
+	if not SURF.ItemByKey[key] then return false, "unknown item" end
+	SURF.Shop.Revoke(c.steamid, key)
+	return true, "removed " .. SURF.ItemByKey[key].name .. " from " .. KnownName(c.steamid)
+end
+
 -- Record keys: surf_x, surf_x#b2, surf_x@sw, surf_x#b2@sw
 local function ValidKey(key)
 	local base, style = string.match(key, "^(.-)@(%w+)$")

@@ -1,7 +1,8 @@
 SURF.Trails = {}
 
+-- Free, bought, or VIP (sv_shop.lua)
 function SURF.Trails.CanUse(ply, trail)
-	return trail ~= nil and (not trail.vip or SURF.IsVIP(ply))
+	return SURF.Shop.CanUse(ply, trail)
 end
 
 function SURF.Trails.Apply(ply)
@@ -24,11 +25,9 @@ net.Receive("surf.SetTrail", function(_, ply)
 	local id = net.ReadString()
 	local trail = SURF.TrailByID[id]
 	if not trail then return end
-	if not SURF.Trails.CanUse(ply, trail) then
-		SURF.Chat(ply, Color(255, 200, 40), "[VIP] ", color_white, trail.name .. " is a VIP trail. Type !vip to find out more.")
+	if not SURF.Shop.Equip(ply, "trail", id) then
+		SURF.Chat(ply, SURF.Config.Accent, "[Trails] ", color_white, trail.name .. (trail.price and (" costs " .. trail.price .. " coins in !shop.") or " is a VIP trail. Type !vip to find out more."))
 		return
 	end
-	ply.SurfTrail = id
-	SURF.Trails.Apply(ply)
 	SURF.Chat(ply, SURF.Config.Accent, "[Trails] ", color_white, "Trail set to " .. trail.name .. ".")
 end)

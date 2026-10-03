@@ -32,6 +32,32 @@ function SURF.IsVIP(ply)
 	return IsValid(ply) and ply:GetNW2Bool("surf_vip", false)
 end
 
+-- Shop items: free ones need no coins and no VIP
+function SURF.ItemFree(it)
+	return not it.price and not it.vip
+end
+
+-- Equipped chat tag and name color (the server only sets these when the
+-- player may use the item)
+function SURF.ChatTagOf(ply)
+	local id = ply:GetNW2String("surf_tag", "")
+	return id ~= "" and SURF.ItemByKey["tag:" .. id] or nil
+end
+
+function SURF.NameColorOf(ply)
+	local id = ply:GetNW2String("surf_color", "")
+	return id ~= "" and SURF.ItemByKey["color:" .. id] or nil
+end
+
+-- The color to draw a name in right now (Rainbow cycles; offset shifts the hue)
+function SURF.ItemColor(it, offset)
+	if it.rainbow and HSVToColor then
+		local c = HSVToColor((CurTime() * 90 + (offset or 0)) % 360, 0.65, 1)
+		return Color(c.r, c.g, c.b)
+	end
+	return it.color
+end
+
 function SURF.StyleOf(ply)
 	return SURF.StyleByID[ply:GetNW2String("surf_style", "n")] or SURF.StyleByID.n
 end

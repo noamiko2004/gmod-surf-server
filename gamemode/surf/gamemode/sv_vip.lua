@@ -1,5 +1,6 @@
--- VIP is cosmetic only (trails, chat tag, name color). Facepunch's server
--- guidelines allow selling cosmetics and access; nothing here affects runs.
+-- VIP is cosmetic only (VIP trails, chat tags and name color, a gold name,
+-- and 50% more coins for the cosmetic shop). Facepunch's server guidelines
+-- allow selling cosmetics and access; nothing here affects runs.
 --
 -- Grant from the server console, RCON, or a store like Tebex:
 --   surf_givevip <steamid64 or STEAM_0:x:y> <days, 0 = permanent>
@@ -42,6 +43,7 @@ function SURF.VIP.Give(sid64, days)
 	if IsValid(ply) then
 		SURF.VIP.Load(ply)
 		SURF.Trails.Apply(ply)
+		SURF.Shop.ApplyLooks(ply)
 		SURF.Chat(nil, Color(255, 200, 40), "[VIP] ", color_white, ply:Nick() .. " just became a VIP. Thank you for supporting the server!")
 	end
 	return expires
@@ -53,6 +55,7 @@ function SURF.VIP.Remove(sid64)
 	if IsValid(ply) then
 		SURF.VIP.Load(ply)
 		SURF.Trails.Apply(ply)
+		SURF.Shop.ApplyLooks(ply)
 	end
 end
 
@@ -87,6 +90,7 @@ timer.Create("surf_vip_check", 600, 0, function()
 			p.SurfVIPExpires = nil
 			SURF.VIP.Load(p)
 			SURF.Trails.Apply(p)
+			SURF.Shop.ApplyLooks(p)
 		end
 	end
 end)

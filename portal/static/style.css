@@ -737,6 +737,35 @@ pre.log {
   .prow-sub .muted { display: none; }
 }
 
+
+/* Shop. Item colors come from /shop.css as --c on .it-<cat>-<id>. */
+.shop-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.wallet-top { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.wallet-coins { font-size: 40px; font-weight: 800; line-height: 1.1; margin: 4px 0; }
+.wallet-how { color: var(--text-2); margin: 0; }
+.coin-log, .earn-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.coin-log li { display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; gap: 12px; align-items: baseline; padding: 6px 0; border-top: 1px solid var(--line); }
+.coin-log .ok { color: var(--ok); }
+.earn-list li { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-top: 1px solid var(--line); }
+.earn-list li:first-child, .coin-log li:first-child { border-top: 0; }
+.vip-card p { color: var(--text-2); }
+.items { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; }
+.item { --c: var(--accent); display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: var(--radius-sm); background: var(--surface-2); border: 1px solid var(--line); min-width: 0; }
+.item .badge { margin-left: auto; flex: none; }
+.item-prev { flex: none; display: flex; align-items: center; justify-content: center; min-width: 44px; }
+.item-txt { display: grid; gap: 2px; min-width: 0; }
+.item-name { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.item-price { font-size: 13px; color: var(--text-2); }
+.ip-trail { display: block; width: 44px; height: 8px; border-radius: 99px; background: linear-gradient(90deg, transparent, var(--c)); box-shadow: 0 0 12px var(--c); }
+.ip-tag { color: var(--c); font-weight: 800; white-space: nowrap; }
+.ip-name { color: var(--c); font-weight: 800; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ip-name.rainbow { background: linear-gradient(90deg, #ff5a5a, #ffc828, #5aff8c, #28d2ff, #b45aff); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.ip-sound { display: flex; width: 32px; height: 32px; border-radius: 50%; align-items: center; justify-content: center; color: var(--accent); background: var(--accent-soft); }
+@media (max-width: 760px) {
+  .shop-grid { grid-template-columns: minmax(0, 1fr); }
+  .wallet-coins { font-size: 32px; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }

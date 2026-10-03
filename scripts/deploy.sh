@@ -17,6 +17,7 @@ add_setting BRAND_NAME "SURF" "Short server name shown on the HUD and in chat"
 add_setting MAX_MAPS "100" "Most surf maps to install from the Workshop (each is 20-100 MB)"
 add_setting DISCORD_URL "" "Discord invite link (https://...), shown by !discord"
 add_setting STORE_URL "" "Store link for VIP (https://...), shown by !vip"
+add_setting TEBEX_SECRET "" "Tebex store secret key (Tebex > Integrations > Game servers). Keep it secret. The portal then hands out VIP, coins and items people buy, see README.md"
 add_setting DISCORD_WEBHOOK "" "Discord webhook URL (https://discord.com/api/webhooks/...): new server records are posted there. Leave empty when the Discord bot runs; it posts them itself"
 add_setting PORTAL_ENABLED "1" "Web portal with Steam login and admin page (1 on, 0 off), see portal/README.md"
 # The first install used a placeholder name; give it the current default

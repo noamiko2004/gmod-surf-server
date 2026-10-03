@@ -10,12 +10,15 @@ import sqlite3
 import sys
 import threading
 import time
+import re
 import urllib.parse
 
 from .fmt import (MAPNAME_RE, STYLE_NAMES, as_dict, as_list, clean_text, key_points, make_key, opt_num,
                   parse_key, style_order, title_index, title_index_by_name, to_bool, to_float, to_int, to_str,
                   valid_steamid)
 
+SHOP_ID_RE = re.compile(r"^[a-z0-9_]{1,32}$")
+HEX_RE = re.compile(r"^#[0-9a-f]{6}$")
 STALE_AFTER = 30
 RANK_TTL = 30
 MAPS_TTL = 10
@@ -509,6 +512,47 @@ class Store:
         out = [{"steamid": sid, "expires": exp, "name": names.get(sid, "")} for sid, exp in self.vip_map().items()]
         out.sort(key=lambda d: (d["expires"] != 0, d["expires"]))
         return out
+
+    # ------------------------------------------------------------ shop
+    def shop_catalog(self):
+        """The item catalog the game writes (portal/shop.json), cleaned; None before the game wrote it."""
+        raw = as_dict(read_json(os.path.join(self.portal_dir, "shop.json")))
+        if not raw:
+            return None
+        cats = []
+        for c in as_list(raw.get("categories")):
+            c = as_dict(c)
+            cid = to_str(c.get("id"), "", 16)
+            if not SHOP_ID_RE.match(cid):
+                continue
+            items = []
+            for it in as_list(c.get("items")):
+                it = as_dict(it)
+                iid = to_str(it.get("id"), "", 32)
+                if not SHOP_ID_RE.match(iid):
+                    continue
+                color = to_str(it.get("color"), "", 7).lower()
+                items.append({"key": f"{cid}:{iid}", "id": iid, "cat": cid, "name": to_str(it.get("name"), iid, 48),
+                              "price": max(0, to_int(it.get("price"))), "vip": to_bool(it.get("vip")),
+                              "color": color if HEX_RE.match(color) else "", "rainbow": to_bool(it.get("rainbow"))})
+            cats.append({"id": cid, "name": to_str(c.get("name"), cid, 32), "items": items})
+        coins = {k: to_float(v) for k, v in as_dict(raw.get("coins")).items() if isinstance(k, str) and k.isalnum()}
+        return {"categories": cats, "coins": coins, "updated": to_int(raw.get("updated"))}
+
+    def wallet(self, sid):
+        """Coins, owned and equipped items and recent coin changes of one player (empty when unknown)."""
+        rows = self.query("SELECT coins, earned FROM surf_coins WHERE steamid = ?", (sid,))
+        coins = max(0, to_int(rows[0]["coins"])) if rows else 0
+        earned = max(0, to_int(rows[0]["earned"])) if rows else 0
+        owned = {to_str(r["item"], "", 64) for r in self.query("SELECT item FROM surf_items WHERE steamid = ?", (sid,))}
+        equipped = {to_str(r["slot"], "", 16): to_str(r["item"], "", 32)
+                    for r in self.query("SELECT slot, item FROM surf_equipped WHERE steamid = ?", (sid,))}
+        trail = self.query("SELECT trail FROM surf_players WHERE steamid = ?", (sid,))
+        if trail and trail[0]["trail"]:
+            equipped["trail"] = to_str(trail[0]["trail"], "", 32)
+        log_rows = self.query("SELECT amount, reason, date FROM surf_coin_log WHERE steamid = ? ORDER BY id DESC LIMIT 10", (sid,))
+        log = [{"amount": to_int(r["amount"]), "reason": to_str(r["reason"], "", 120), "date": to_int(r["date"])} for r in log_rows]
+        return {"coins": coins, "earned": earned, "owned": owned, "equipped": equipped, "log": log}
 
     # ------------------------------------------------------------ portal files
     def read_results(self):

@@ -65,6 +65,12 @@ def player_action_forms(ctx, sid, name, back, online=True, vip=False, banned=Fal
     out.append(form(ctx, "givevip", sid_field(sid) +
                     '<label class="field w-sm"><span>VIP days</span><input name="days" type="number" min="0" max="3650" value="30" required></label>'
                     '<button class="btn btn-gold btn-sm" type="submit">Give VIP</button>', back, "row-form"))
+    out.append(form(ctx, "givecoins", sid_field(sid) +
+                    '<label class="field w-sm"><span>Coins</span><input name="amount" type="number" min="-1000000" max="1000000" value="500" required></label>'
+                    '<button class="btn btn-ghost btn-sm" type="submit">Give coins</button>', back, "row-form"))
+    out.append(form(ctx, "giveitem", sid_field(sid) +
+                    '<label class="field grow"><span>Shop item</span><input name="item" maxlength="49" pattern="[a-z0-9_]+:[a-z0-9_]+" placeholder="trail:gold" required></label>'
+                    '<button class="btn btn-ghost btn-sm" type="submit">Give item</button>', back, "row-form"))
     if vip:
         out.append(form(ctx, "removevip", sid_field(sid) + '<button class="btn btn-ghost btn-sm" type="submit">Remove VIP</button>',
                         back, "row-form", f"Remove VIP from {name}?"))
@@ -235,6 +241,9 @@ def player_detail(ctx, sid):
             f'<div class="kv"><span>VIP</span><b>{e(vip_txt)}</b></div>'
             f'<div class="kv"><span>Ban</span><b class="{"bad" if ban else ""}">{e(ban_txt)}</b></div>')
     if p:
+        w = app.store.wallet(sid)
+        info += (f'<div class="kv"><span>Coins</span><b class="gold">{fmt_int(w["coins"])}</b></div>'
+                 f'<div class="kv"><span>Shop items</span><b>{e(", ".join(sorted(w["owned"])) or "None")}</b></div>')
         info += (f'<div class="kv"><span>Points</span><b>{fmt_int(p["points"])} {title_chip(p["title_idx"])}</b></div>'
                  f'<div class="kv"><span>Playtime</span><b>{e(fmt_duration(p["playtime"]))}</b></div>'
                  f'<div class="kv"><span>Last seen</span><b>{"Online now" if online else when(p["lastseen"])}</b></div>')

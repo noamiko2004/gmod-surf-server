@@ -163,7 +163,7 @@ def community_card(app):
     if store:
         btns += f'<a class="btn btn-gold btn-sm" href="{e(store)}" rel="noopener noreferrer">{icon("cart")}<span>VIP store</span></a>'
     return (f'<section class="card community-card"><header class="card-h"><h2>{icon("users")}Community</h2></header>'
-            f'<p class="muted">New maps, record alerts and events. VIP is cosmetic only: trails, a gold name and tag.</p>'
+            f'<p class="muted">New maps, record alerts and events. VIP is cosmetic only: VIP trails, a gold name and tag, and more coins for the <a href="/shop">shop</a>.</p>'
             f'<div class="btn-row">{btns}</div></section>')
 
 

@@ -7,6 +7,7 @@ local function Add(names, help, fn, adminOnly)
 	for _, n in ipairs(names) do C.list[n] = entry end
 	C.order[#C.order + 1] = entry
 end
+C.Add = Add
 
 function C.Run(ply, name, args)
 	local entry = C.list[string.lower(name)]
@@ -174,7 +175,7 @@ end)
 
 Add({ "zonefx" }, "Glowing zones on or off", function(ply) SURF.ClientAction(ply, "zonefx") end)
 
-Add({ "trail", "trails" }, "Pick a trail", function(ply) SURF.Menu.Open(ply, "trails") end)
+Add({ "trail", "trails" }, "Pick a trail", function(ply) SURF.Shop.OpenMenu(ply, "trail") end)
 
 Add({ "rtv", "rockthevote" }, "Vote to change the map", function(ply) SURF.MapVote.RTV(ply) end)
 
