@@ -307,9 +307,25 @@ class FCat(FChanMixin, discord.CategoryChannel):
         return [c for c in self.guild.chans if c.category_id == self.id]
 
 
+class FMember:
+    def __init__(self, uid, name):
+        self.id, self.display_name, self.name, self.roles, self.dms = uid, name, name, [], []
+
+    async def add_roles(self, *roles, reason=None):
+        self.roles += [r for r in roles if r not in self.roles]
+
+    async def remove_roles(self, *roles, reason=None):
+        self.roles = [r for r in self.roles if r not in roles]
+
+    async def send(self, text):
+        self.dms.append(text)
+
+
 class FGuild:
     def __init__(self, community=False):
         self.id = 42
+        self.owner_id = 500
+        self.members = {500: FMember(500, "Noam"), 600: FMember(600, "Kitsu"), 700: FMember(700, "Gus")}
         self.calls, self.chans, self.invs, self.automod_rules = [], [], [], []
         self.features = ["COMMUNITY"] if community else []
         self.icon = None
@@ -340,6 +356,14 @@ class FGuild:
     @property
     def voice_channels(self):
         return [c for c in self.chans if isinstance(c, FVoice)]
+
+    def get_member(self, uid):
+        return None  # like Discord without the member cache: the bot must fetch
+
+    async def fetch_member(self, uid):
+        if uid not in self.members:
+            raise discord.NotFound(type("R", (), {"status": 404, "reason": "nf"})(), "Unknown Member")
+        return self.members[uid]
 
     def get_role(self, rid):
         return next((r for r in self.roles if r.id == rid), None)
@@ -445,6 +469,12 @@ check(status_vc._ows[guild.default_role].connect is False, "nobody can join the 
 order = [r.name for r in sorted(guild.roles, key=lambda r: -r.position)]
 check(order[:len(L.ROLES) + 1] == ["Surf Bot"] + [r["name"] for r in L.ROLES], f"roles ordered under the bot: {order}")
 print("  first build:", len(notes), "notes")
+owner = guild.members[500]
+check(guild.get_role(state["roles"]["admin"]) in owner.roles and surfer in owner.roles, "the server owner gets Admin and Surfer")
+check([r["name"] for r in L.ROLES if r.get("title") is not None][0] == "\u2605 Legend" and
+      guild.get_role(state["roles"]["title_6"]).position > guild.get_role(state["roles"]["title_0"]).position,
+      "rank roles exist, Legend above Newbie")
+check(guild.get_channel(state["channels"]["game_chat"]) is not None, "game-chat channel exists")
 
 created_before = [c for c in guild.calls if c[0].startswith("create") or c[0] in ("automod", "delete")]
 guild.calls.clear()
@@ -476,6 +506,120 @@ async def _hist():
 asyncio.run(build(g2, {}))
 check(any(c.name == "general" for c in g2.chans), "a starter #general with real messages is kept")
 
+# ------------------------------------------------------------------ bridge files
+from surfbot import bridge as BR  # noqa: E402
+
+br = BR.Bridge(data)
+br.ensure()
+with open(os.path.join(br.inbox, "1_0001.json"), "w") as f:
+    json.dump({"t": "chat", "sid": P1, "name": "Kitsu", "text": "hi"}, f)
+with open(os.path.join(br.inbox, "2_0001.json"), "w") as f:
+    f.write('{"t": "chat", "na')  # half written, fresh: left for the next tick
+with open(os.path.join(br.inbox, "3_0001.tmp.txt"), "w") as f:
+    f.write("{}")
+evs = br.read_events()
+check([e["text"] for e in evs] == ["hi"] and os.path.exists(os.path.join(br.inbox, "2_0001.json")),
+      "bridge reads finished events and leaves a half-written one")
+old = time.time() - 60
+os.utime(os.path.join(br.inbox, "2_0001.json"), (old, old))
+check(br.read_events() == [] and not os.path.exists(os.path.join(br.inbox, "2_0001.json")), "an old broken file is dropped")
+br.send({"t": "chat", "name": "N", "text": "yo"})
+outs = os.listdir(br.outbox)
+check(len(outs) == 1 and outs[0].endswith(".json"), "messages for the game are written as one .json file")
+for i in range(BR.MAX_QUEUED + 20):
+    br.send({"t": "chat", "name": "N", "text": str(i)})
+check(len(os.listdir(br.outbox)) == BR.MAX_QUEUED, "the queue for the game is capped while nothing reads it")
+for n in os.listdir(br.outbox):
+    os.remove(os.path.join(br.outbox, n))
+check(BR.one_line("a\nb\u202e\tc  d" + "x" * 300) == ("a b c d" + "x" * 300)[:200], "one_line strips newlines, bidi, caps length")
+check(BR.webhook_name("Discord King") == "disc0rd King" and BR.webhook_name("\u200b") == "Player", "webhook names Discord accepts")
+pend = {}
+code = BR.new_code(pend)
+pend[code] = {"user": "600", "exp": time.time() + 600}
+pend["OLDOLD"] = {"user": "700", "exp": time.time() - 1}
+check(BR.take_code(pend, code.lower()) == "600" and code not in pend and "OLDOLD" not in pend, "link code use and expiry")
+check(BR.take_code(pend, "NOPE00") is None, "unknown code")
+
+# ------------------------------------------------------------------ linking and rank roles on the bot
+for n in os.listdir(br.outbox):
+    os.remove(os.path.join(br.outbox, n))
+db.execute("CREATE TABLE IF NOT EXISTS surf_vip (steamid TEXT PRIMARY KEY, expires INTEGER NOT NULL)")
+db.execute("INSERT INTO surf_vip VALUES (?, 0)", (P1,))
+db.commit()
+game.store.invalidate()
+bot = B.SurfBot(os.path.join(tmp, "botdata"), game=game)
+os.makedirs(bot.data_dir, exist_ok=True)
+bot.home = guild
+bot.state = {"guild_id": guild.id, "guild": state}
+pend = bot.state.setdefault("link_codes", {})
+pend["ABC234"] = {"user": "600", "exp": time.time() + 600}
+
+
+async def link_flow():
+    await bot.game_link({"t": "link", "sid": P1, "name": "Kitsu", "code": "abc234"})
+    await bot.game_link({"t": "link", "sid": P2, "name": "x", "code": "WRONG1"})
+
+asyncio.run(link_flow())
+kitsu = guild.members[600]
+msgs = [json.load(open(os.path.join(br.outbox, n))) for n in sorted(os.listdir(br.outbox))]
+check(bot.links() == {P1: "600"}, "a valid in-game code links the accounts")
+check([m["t"] for m in msgs] == ["linked", "linkfail"] and msgs[0]["discord"] == "Kitsu", "the game hears linked / linkfail")
+pts = game.store.ranking()["by_sid"][P1]["points"]
+want_title = f"title_{G.fmt.title_index(pts)}"
+check(guild.get_role(state["roles"][want_title]) in kitsu.roles, f"linked player gets their rank role ({want_title}, {pts} pts)")
+check(guild.get_role(state["roles"]["vip"]) in kitsu.roles, "in-game VIP shows as the VIP role")
+check(kitsu.dms and "Linked" in kitsu.dms[0], "linked player gets a DM")
+db.execute("DELETE FROM surf_vip")
+db.commit()
+asyncio.run(bot.roles_tick())
+check(guild.get_role(state["roles"]["vip"]) not in kitsu.roles, "VIP the bot gave is taken away when it expires")
+gus = guild.members[700]
+gus.roles.append(guild.get_role(state["roles"]["vip"]))
+bot.links()[P2] = "700"
+asyncio.run(bot.roles_tick())
+check(guild.get_role(state["roles"]["vip"]) in gus.roles, "a VIP role an admin gave by hand stays")
+check(sum(1 for r in gus.roles if r.name.startswith("\u2605")) == 1, "exactly one rank role")
+
+
+class FMsg:
+    def __init__(self, channel, text, bot_author=False):
+        self.channel, self.clean_content, self.attachments, self.webhook_id = channel, text, [], None
+        self.author = type("A", (), {"bot": bot_author, "display_name": "Noam\nX", "name": "noam"})()
+
+
+for n in os.listdir(br.outbox):
+    os.remove(os.path.join(br.outbox, n))
+gc = guild.get_channel(state["channels"]["game_chat"])
+asyncio.run(bot.on_message(FMsg(gc, "hello game")))
+asyncio.run(bot.on_message(FMsg(gc, "from a bot", True)))
+asyncio.run(bot.on_message(FMsg(general, "wrong channel")))
+msgs = [json.load(open(os.path.join(br.outbox, n))) for n in sorted(os.listdir(br.outbox))]
+check(msgs == [{"t": "chat", "name": "Noam X", "text": "hello game"}], f"only #game-chat messages from people go to the game {msgs}")
+asyncio.run(bot.game_notice({"t": "map", "map": "surf_kitsune", "tier": 2}))
+asyncio.run(bot.game_notice({"t": "join", "name": EVIL, "count": 3, "max": 24}))
+notice_map, notice_join = gc.sent[-2].embeds, gc.sent[-1].embeds  # the fake keeps the text here
+check("surf\\_kitsune" in notice_map and "(Tier 2)" in notice_map, f"map notice text {notice_map!r}")
+check("\\@everyone" in notice_join and "joined (3/24)" in notice_join, f"join notice escapes names {notice_join!r}")
+check(len(gc.sent) == 2, "map and join notices go to #game-chat")
+
+
+class FakeCh:
+    def __init__(self):
+        self.sent = []
+
+    async def send(self, text, allowed_mentions=None):
+        self.sent.append(text)
+
+
+busy = FakeCh()
+bot.chan = lambda k, _c=bot.chan: busy if k == "general" else _c(k)
+base = {"online": True, "map": "surf_kitsune", "changing": False}
+asyncio.run(bot.busy_ping({**base, "count": 3}))
+asyncio.run(bot.busy_ping({**base, "count": 9}))
+asyncio.run(bot.busy_ping({**base, "count": 3}))
+asyncio.run(bot.busy_ping({**base, "count": 10}))
+check(len(busy.sent) == 1 and "9 people" in busy.sent[0], "busy ping once when the server fills up, not again within 6 hours")
+
 # ------------------------------------------------------------------ bot helpers
 sp = os.path.join(tmp, "state.json")
 B.save_state(sp, {"a": 1})
@@ -485,7 +629,8 @@ with open(os.path.join(tmp, "bot.env"), "w") as f:
 check(B.read_env(os.path.join(tmp, "bot.env")) == {"DISCORD_TOKEN": "abc.def", "GUILD_ID": "5"}, "bot.env parsing")
 check("client_id=99&permissions=8" in B.invite_url(99), "invite URL asks for Administrator")
 cmds = sorted(c.name for c in B.SurfBot(tmp, game=game).tree.get_commands())
-check(cmds == sorted(["status", "connect", "top", "map", "player", "recent", "vip", "setup", "announce"]), f"slash commands {cmds}")
+check(cmds == sorted(["status", "connect", "top", "map", "player", "recent", "vip", "setup", "announce", "link", "unlink"]),
+      f"slash commands {cmds}")
 
 print()
 print(f"{len(fails)} failure(s)" if fails else "All Discord bot tests passed")
