@@ -1,12 +1,11 @@
 -- The shop menu (!shop, F3, !vip), hats on players, and admin price changes.
 -- Left: categories and VIP. Middle: the items. Right: a live preview of the
 -- selected item (3D for hats and skins) with its Buy / Equip button.
+-- Built with the shared theme in cl_ui.lua.
 local Menus = SURF.Menus
-local GOLD = Color(255, 200, 40)
-local DIM = Color(170, 180, 195)
-local MUTED = Color(120, 128, 140)
-local PANEL = Color(255, 255, 255, 8)
-local HOVER = Color(255, 255, 255, 18)
+local UI = SURF.UI
+local C, S = UI.Col, UI.S
+local GOLD, DIM, MUTED, PANEL = C.gold, C.dim, C.faint, C.card
 local shopFrame
 
 local function Acc(a) local c = SURF.Config.Accent return Color(c.r, c.g, c.b, a or 255) end
@@ -135,17 +134,17 @@ local function DrawChatLine(x, y, tag, nameIt)
 	local parts = {}
 	if tag then parts[#parts + 1] = { "[" .. tag.name .. "] ", tag.color } end
 	parts[#parts + 1] = { "[" .. title.name .. "] ", title.color or DIM }
-	surface.SetFont("SurfMedium")
+	surface.SetFont("SurfUI_Body")
 	for _, p in ipairs(parts) do
-		draw.SimpleText(p[1], "SurfMedium", x, y, p[2], TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
+		draw.SimpleText(p[1], "SurfUI_Body", x, y, p[2], TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
 		x = x + surface.GetTextSize(p[1])
 	end
 	local name = ply:Nick()
-	if nameIt then DrawName(nameIt, name, "SurfMedium", x, y)
-	else draw.SimpleText(name, "SurfMedium", x, y, Color(160, 210, 255), TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER) end
-	surface.SetFont("SurfMedium")
+	if nameIt then DrawName(nameIt, name, "SurfUI_Body", x, y)
+	else draw.SimpleText(name, "SurfUI_Body", x, y, Color(160, 210, 255), TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER) end
+	surface.SetFont("SurfUI_Body")
 	x = x + surface.GetTextSize(name)
-	draw.SimpleText(": gg, nice run", "SurfMedium", x, y, color_white, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
+	draw.SimpleText(": gg, nice run", "SurfUI_Body", x, y, color_white, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
 end
 
 -- Item state ----------------------------------------------------------------
@@ -169,30 +168,19 @@ local function Visible(it, owned)
 	return it.id ~= "none" and (not it.hidden or owned[it.key])
 end
 
--- Menu ----------------------------------------------------------------------
 
-local function Button(parent, text, col, click)
-	local b = vgui.Create("DButton", parent)
-	b:SetText("")
-	b.label = text
-	b.Paint = function(self, w, h)
-		local c = isfunction(col) and col() or col
-		local t = isfunction(self.label) and self.label() or self.label
-		draw.RoundedBox(6, 0, 0, w, h, self:IsHovered() and Color(c.r, c.g, c.b, 255) or Color(c.r, c.g, c.b, 210))
-		draw.SimpleText(t, "SurfMedium", w / 2, h / 2, Color(10, 12, 18), TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
-	end
-	b.DoClick = click
-	return b
-end
+-- Menu ----------------------------------------------------------------------
 
 local BuildBody
 
+-- Categories down the left, with how many items of each you have
 local function Sidebar(f, data, owned)
 	local side = vgui.Create("DPanel", f)
 	side:Dock(LEFT)
-	side:SetWide(170)
-	side:DockMargin(0, 0, 10, 0)
-	side.Paint = nil
+	side:SetWide(S(190))
+	side:DockMargin(0, 0, S(14), 0)
+	side:DockPadding(S(6), S(6), S(6), S(6))
+	side.Paint = function(_, w, h) draw.RoundedBox(8, 0, 0, w, h, C.panel) end
 	local tabs = {}
 	for _, c in ipairs(SURF.ShopCategories) do tabs[#tabs + 1] = { id = c.id, name = c.name, list = c.list } end
 	tabs[#tabs + 1] = { id = "vip", name = "VIP" }
@@ -207,100 +195,109 @@ local function Sidebar(f, data, owned)
 		end
 		local b = vgui.Create("DButton", side)
 		b:Dock(TOP)
-		b:DockMargin(0, 0, 0, 6)
-		b:SetTall(44)
+		b:DockMargin(0, 0, 0, S(2))
+		b:SetTall(S(46))
 		b:SetText("")
 		b.Paint = function(self, w, h)
 			local cur = f.tab == t.id
-			draw.RoundedBox(6, 0, 0, w, h, cur and Acc(70) or (self:IsHovered() and HOVER or PANEL))
-			if cur then draw.RoundedBox(2, 0, 8, 3, h - 16, Acc()) end
-			draw.SimpleText(t.name, "SurfMedium", 14, t.list and 15 or h / 2, t.id == "vip" and GOLD or color_white, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
+			local hv = UI.Hover(self, self:IsHovered())
+			local acc = UI.Accent()
+			if cur then
+				draw.RoundedBox(6, 0, 0, w, h, UI.Alpha(acc, 45))
+				draw.RoundedBox(2, 0, S(9), S(3), h - S(18), acc)
+			elseif hv > 0.01 then
+				draw.RoundedBox(6, 0, 0, w, h, Color(255, 255, 255, 12 * hv))
+			end
+			local tcol = t.id == "vip" and GOLD or ((cur or hv > 0.5) and C.text or DIM)
 			if t.list then
-				draw.SimpleText(have .. " / " .. total .. " yours", "SurfSmall", 14, 32, DIM, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
-			elseif data.vip then
-				draw.SimpleText("active", "SurfSmall", w - 12, h / 2, GOLD, TEXT_ALIGN_RIGHT, TEXT_ALIGN_CENTER)
+				draw.SimpleText(t.name, "SurfUI_Body", S(14), h / 2 - S(8), tcol, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
+				draw.SimpleText(have .. " / " .. total .. " yours", "SurfUI_Small", S(14), h / 2 + S(10), MUTED, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
+			else
+				draw.SimpleText(t.name, "SurfUI_Body", S(14), h / 2, tcol, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
+				if data.vip then draw.SimpleText("active", "SurfUI_Small", w - S(12), h / 2, GOLD, TEXT_ALIGN_RIGHT, TEXT_ALIGN_CENTER) end
 			end
 		end
 		b.DoClick = function()
 			if f.tab == t.id then return end
+			UI.Click()
 			f.tab, f.sel = t.id, nil
-			surface.PlaySound("ui/buttonclick.wav")
 			BuildBody(f)
 		end
 	end
 	local how = vgui.Create("DLabel", side)
 	how:Dock(BOTTOM)
-	how:SetTall(84)
+	how:DockMargin(S(8), 0, S(8), S(6))
+	how:SetTall(S(90))
 	how:SetWrap(true)
 	how:SetContentAlignment(1)
-	how:SetFont("SurfSmall")
-	how:SetTextColor(DIM)
+	how:SetFont("SurfUI_Small")
+	how:SetTextColor(MUTED)
 	how:SetText("Earn coins by finishing maps, beating your best, daily visits and playing. Type !coins for the rates.")
 	return side
+end
+
+local function Equip(cat, id)
+	net.Start("surf.ShopEquip") net.WriteString(cat) net.WriteString(id) net.SendToServer()
 end
 
 -- Preview of the selected item, with its action button
 local function Preview(parent, it, data, owned)
 	local p = vgui.Create("DPanel", parent)
 	p:Dock(RIGHT)
-	p:SetWide(280)
-	p:DockMargin(10, 0, 0, 0)
-	p.Paint = function(_, w, h) draw.RoundedBox(8, 0, 0, w, h, PANEL) end
+	p:SetWide(S(290))
+	p:DockMargin(S(14), 0, 0, 0)
+	p.Paint = function(_, w, h) draw.RoundedBox(8, 0, 0, w, h, C.panel) end
 	if not it then
-		local l = vgui.Create("DLabel", p)
-		l:Dock(FILL)
-		l:SetContentAlignment(5)
-		l:SetFont("SurfMedium")
-		l:SetTextColor(DIM)
-		l:SetText("Pick an item to see it")
+		UI.Empty(p, "Pick an item to see it")
 		return
 	end
+	-- name, price and button along the bottom (docked before the stage)
 	local info = vgui.Create("DPanel", p)
 	info:Dock(BOTTOM)
-	info:SetTall(132)
-	info:DockPadding(14, 0, 14, 14)
+	info:SetTall(S(132))
+	info:DockPadding(S(14), 0, S(14), S(14))
 	local on, have, free = State(it, data, owned)
 	info.Paint = function(_, w)
-		draw.SimpleText(it.cat == "tag" and ("[" .. it.name .. "]") or it.name, "SurfLarge", 14, 18, it.cat == "tag" and it.color or color_white)
+		surface.SetDrawColor(C.line)
+		surface.DrawRect(S(14), 0, w - S(28), 1)
+		local name = it.cat == "tag" and ("[" .. it.name .. "]") or it.name
+		draw.SimpleText(UI.Fit(name, "SurfUI_Title", w - S(28)), "SurfUI_Title", S(14), S(26), it.cat == "tag" and it.color or C.text, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
 		local sub
 		if on then sub = "You have it on."
 		elseif have then sub = free and "Free for everyone." or (owned[it.key] and "Yours." or "Free with your VIP.")
 		elseif it.price then sub = string.Comma(it.price) .. " coins" .. (it.vip and ", or free with VIP" or "")
 		else sub = "Only for VIPs." end
-		draw.SimpleText(sub, "SurfMedium", 14, 52, (it.price and not have) and GOLD or DIM)
-		if it.cat == "hat" or it.cat == "skin" then
-			draw.SimpleText("Drag to turn it around", "SurfSmall", w - 14, 22, MUTED, TEXT_ALIGN_RIGHT)
-		end
+		draw.SimpleText(sub, "SurfUI_Body", S(14), S(56), (it.price and not have) and GOLD or DIM, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
 	end
 	local act
 	if on then
-		act = Button(info, "Take it off", DIM, function()
-			net.Start("surf.ShopEquip") net.WriteString(it.cat) net.WriteString("none") net.SendToServer()
-		end)
+		act = UI.Button(info, "Take it off", "ghost", function() Equip(it.cat, "none") end)
 	elseif have then
-		act = Button(info, "Put it on", Acc(), function()
-			net.Start("surf.ShopEquip") net.WriteString(it.cat) net.WriteString(it.id) net.SendToServer()
-		end)
+		act = UI.Button(info, "Put it on", "primary", function() Equip(it.cat, it.id) end)
 	elseif it.price then
 		local armed = 0
-		act = Button(info, function()
-			if (data.coins or 0) < it.price then return "Need " .. string.Comma(it.price - (data.coins or 0)) .. " more coins" end
+		local short = (data.coins or 0) < it.price
+		act = UI.Button(info, function()
+			if short then return "Need " .. string.Comma(it.price - (data.coins or 0)) .. " more coins" end
 			return armed > CurTime() and "Click again to buy" or ("Buy for " .. string.Comma(it.price))
-		end, function() return (data.coins or 0) >= it.price and GOLD or MUTED end, function()
-			if (data.coins or 0) < it.price then return surface.PlaySound("buttons/button10.wav") end
+		end, "gold", function()
 			if armed > CurTime() then
 				armed = 0
 				net.Start("surf.ShopBuy") net.WriteString(it.key) net.SendToServer()
 			else
 				armed = CurTime() + 3
-				surface.PlaySound("ui/buttonclick.wav")
 			end
 		end)
+		if short then act:SetEnabled(false) end
 	else
-		act = Button(info, "See VIP", GOLD, function() parent:GetParent().tab = "vip" BuildBody(parent:GetParent()) end)
+		act = UI.Button(info, "See VIP", "gold", function()
+			local f = parent:GetParent()
+			f.tab = "vip"
+			BuildBody(f)
+		end)
 	end
 	act:Dock(BOTTOM)
-	act:SetTall(42)
+	act:SetTall(S(42))
 
 	local stage
 	if it.cat == "skin" or it.cat == "hat" then
@@ -321,9 +318,10 @@ local function Preview(parent, it, data, owned)
 			stage:SetCamPos(Vector(110, 0, 48))
 			stage:SetLookAt(Vector(0, 0, 36))
 		end
+		-- turns slowly; drag to turn it yourself
 		stage.yaw = 25
 		stage.LayoutEntity = function(self, e)
-			if self:IsDown() then
+			if self.Depressed then
 				local x = gui.MouseX()
 				self.yaw = self.yaw + (x - (self.lastX or x)) * 0.6
 				self.lastX = x
@@ -334,28 +332,33 @@ local function Preview(parent, it, data, owned)
 			e:SetAngles(Angle(0, self.yaw, 0))
 			self:RunAnimation()
 		end
-		stage.IsDown = function(self) return self.Depressed or input.IsMouseDown(MOUSE_LEFT) and self:IsHovered() end
+		local paint = stage.Paint
+		stage.Paint = function(self, w, h)
+			draw.RoundedBoxEx(8, 0, 0, w, h, Color(0, 0, 0, 70), true, true, false, false)
+			paint(self, w, h)
+			draw.SimpleText("Drag to turn", "SurfUI_Small", w - S(12), S(16), MUTED, TEXT_ALIGN_RIGHT, TEXT_ALIGN_CENTER)
+		end
 	else
 		stage = vgui.Create("DPanel", p)
 		stage.Paint = function(_, w, h)
-			draw.RoundedBox(8, 8, 8, w - 16, h - 16, Color(0, 0, 0, 90))
+			draw.RoundedBox(8, S(10), S(10), w - S(20), h - S(20), Color(0, 0, 0, 90))
 			if it.cat == "trail" then
-				DrawTrail(it, 8, 8, w - 16, h - 16)
+				DrawTrail(it, S(10), S(10), w - S(20), h - S(20))
 			elseif it.cat == "tag" then
-				draw.SimpleText("In chat", "SurfSmall", 20, 26, DIM)
-				DrawChatLine(20, h / 2, it, SURF.NameColorOf(LocalPlayer()))
+				draw.SimpleText("In chat", "SurfUI_Small", S(22), S(30), DIM)
+				DrawChatLine(S(22), h / 2, it, SURF.NameColorOf(LocalPlayer()))
 			elseif it.cat == "color" then
-				DrawName(it, LocalPlayer():Nick(), "SurfLarge", w / 2, h / 2 - 12, true)
-				DrawChatLine(20, h / 2 + 30, SURF.ChatTagOf(LocalPlayer()), it)
+				DrawName(it, LocalPlayer():Nick(), "SurfUI_Big", w / 2, h / 2 - S(14), true)
+				DrawChatLine(S(22), h / 2 + S(32), SURF.ChatTagOf(LocalPlayer()), it)
 			elseif it.cat == "sound" then
-				draw.SimpleText("Plays where you are", "SurfSmall", w / 2, h / 2 - 40, DIM, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
-				draw.SimpleText("when you finish a run", "SurfSmall", w / 2, h / 2 - 22, DIM, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+				draw.SimpleText("Plays where you are", "SurfUI_Small", w / 2, h / 2 - S(42), DIM, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+				draw.SimpleText("when you finish a run", "SurfUI_Small", w / 2, h / 2 - S(24), DIM, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
 			end
 		end
 		if it.cat == "sound" then
-			local play = Button(stage, "Play", Acc(), function() surface.PlaySound(it.sound) end)
-			play:SetSize(110, 38)
-			stage.PerformLayout = function(self, w, h) play:SetPos(w / 2 - 55, h / 2 + 4) end
+			local play = UI.Button(stage, "Play", "primary", function() surface.PlaySound(it.sound) end)
+			play:SetSize(S(110), S(38))
+			stage.PerformLayout = function(self, w, h) play:SetPos(w / 2 - S(55), h / 2) end
 		end
 	end
 	stage:Dock(FILL)
@@ -363,129 +366,129 @@ end
 
 local function Tile(grid, it, data, owned, f)
 	local t = grid:Add("DButton")
-	t:SetSize(128, 116)
+	t:SetSize(S(128), S(118))
 	t:SetText("")
 	local on = State(it, data, owned)
 	if it.cat == "skin" or it.cat == "hat" then
 		local icon = vgui.Create("SpawnIcon", t)
-		icon:SetSize(64, 64)
-		icon:SetPos(32, 8)
+		icon:SetSize(S(64), S(64))
+		icon:SetPos(S(32), S(8))
 		icon:SetModel(it.model)
 		icon:SetMouseInputEnabled(false)
 		icon:SetTooltip(false)
 	end
 	t.Paint = function(self, w, h)
 		local sel = f.sel == it.key
-		draw.RoundedBox(8, 0, 0, w, h, sel and Acc(60) or (self:IsHovered() and HOVER or PANEL))
+		local hv = UI.Hover(self, self:IsHovered())
+		local acc = UI.Accent()
+		draw.RoundedBox(8, 0, 0, w, h, sel and UI.Alpha(acc, 50) or Color(255, 255, 255, 7 + 12 * hv))
 		if sel or on then
-			surface.SetDrawColor(on and Acc() or Acc(150))
+			surface.SetDrawColor(UI.Alpha(acc, on and 255 or 150))
 			surface.DrawOutlinedRect(0, 0, w, h, 2)
 		end
 		if it.cat == "trail" then
-			DrawTrail(it, 6, 10, w - 12, 60, self:IsHovered() and 6 or 2)
+			DrawTrail(it, S(6), S(10), w - S(12), S(60), self:IsHovered() and 6 or 2)
 		elseif it.cat == "tag" then
-			draw.SimpleText("[" .. it.name .. "]", "SurfMedium", w / 2, 40, it.color, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+			draw.SimpleText(UI.Fit("[" .. it.name .. "]", "SurfUI_Body", w - S(8)), "SurfUI_Body", w / 2, S(40), it.color, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
 		elseif it.cat == "color" then
-			DrawName(it, "Name", "SurfLarge", w / 2, 40, true)
+			DrawName(it, "Name", "SurfUI_Head", w / 2, S(40), true)
 		elseif it.cat == "sound" then
-			local c = self:IsHovered() and Acc() or DIM
+			local c = self:IsHovered() and acc or DIM
 			surface.SetDrawColor(c.r, c.g, c.b, 255)
 			draw.NoTexture()
-			surface.DrawPoly({ { x = w / 2 - 9, y = 28 }, { x = w / 2 + 13, y = 40 }, { x = w / 2 - 9, y = 52 } })
+			surface.DrawPoly({ { x = w / 2 - S(9), y = S(28) }, { x = w / 2 + S(13), y = S(40) }, { x = w / 2 - S(9), y = S(52) } })
 		end
 		if it.cat ~= "tag" then
-			draw.SimpleText(it.name, "SurfSmall", w / 2, 82, color_white, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+			draw.SimpleText(UI.Fit(it.name, "SurfUI_Small", w - S(8)), "SurfUI_Small", w / 2, S(84), C.text, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
 		end
 		local txt, col = PriceText(it, data, owned)
-		draw.SimpleText(txt, "SurfSmall", w / 2, 100, col, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
-		if it.hidden then draw.SimpleText("retired", "SurfSmall", w - 6, 4, MUTED, TEXT_ALIGN_RIGHT) end
+		draw.SimpleText(txt, "SurfUI_Small", w / 2, S(102), col, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+		if it.hidden then draw.SimpleText("retired", "SurfUI_Tiny", w - S(6), S(4), MUTED, TEXT_ALIGN_RIGHT) end
 	end
 	t.DoClick = function()
+		UI.Click()
 		f.sel = it.key
 		if it.cat == "sound" then surface.PlaySound(it.sound) end
 		BuildBody(f)
 	end
 	t.DoDoubleClick = function()
 		local _, have = State(it, data, owned)
-		if have then
-			net.Start("surf.ShopEquip") net.WriteString(it.cat) net.WriteString(on and "none" or it.id) net.SendToServer()
-		end
+		if have then Equip(it.cat, on and "none" or it.id) end
 	end
 end
 
 local function VIPBody(body, data)
 	local wrap = vgui.Create("DPanel", body)
 	wrap:Dock(FILL)
-	wrap:DockPadding(18, 16, 18, 16)
+	wrap:DockPadding(S(20), S(18), S(20), S(18))
 	local exp = data.expires
 	local permanent = data.vip and not (exp and exp > 0)
 	local bonus = math.floor(((data.rates or SURF.Config.Coins).VIPBonus or 0.5) * 100)
+	local perks = {
+		"Every VIP trail, hat, skin, chat tag and name color",
+		"A gold [VIP] tag in chat and a gold name on the scoreboard",
+		bonus .. "% more coins from everything you do",
+		"Keeps the server online for everyone",
+	}
 	wrap.Paint = function(_, w, h)
-		draw.RoundedBox(8, 0, 0, w, h, PANEL)
-		draw.SimpleText("VIP", "SurfTimer", 18, 34, GOLD, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
+		draw.RoundedBox(8, 0, 0, w, h, C.panel)
+		draw.SimpleText("VIP", "SurfUI_Big", S(20), S(36), GOLD, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
 		local status
 		if permanent then status = "You have VIP for good. Thank you!"
 		elseif data.vip then status = "You are a VIP until " .. os.date("%Y-%m-%d", exp) .. ". Buying more adds days."
 		else status = "Purely cosmetic: it never changes your times." end
-		draw.SimpleText(status, "SurfMedium", 100, 34, data.vip and GOLD or DIM, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
-		local perks = {
-			"Every VIP trail, hat, skin, chat tag and name color",
-			"A gold [VIP] tag in chat and a gold name on the scoreboard",
-			bonus .. "% more coins from everything you do",
-			"Keeps the server online for everyone",
-		}
+		local x = S(32) + UI.TextWidth("VIP", "SurfUI_Big")
+		draw.SimpleText(UI.Fit(status, "SurfUI_Body", w - x - S(20)), "SurfUI_Body", x, S(37), data.vip and GOLD or DIM, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
 		for i, line in ipairs(perks) do
-			draw.RoundedBox(4, 24, 66 + i * 26, 8, 8, GOLD)
-			draw.SimpleText(line, "SurfMedium", 46, 70 + i * 26, color_white, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
+			local y = S(58) + i * S(28)
+			draw.RoundedBox(4, S(24), y - S(4), S(8), S(8), GOLD)
+			draw.SimpleText(line, "SurfUI_Body", S(44), y, C.text, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
 		end
-		draw.SimpleText("Buy VIP with coins", "SurfLarge", 18, 226, color_white, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
+		draw.SimpleText("Buy VIP with coins", "SurfUI_Head", S(20), S(232), C.text, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
 	end
 	local row = vgui.Create("DPanel", wrap)
 	row:Dock(TOP)
-	row:DockMargin(0, 228, 0, 0)
-	row:SetTall(96)
+	row:DockMargin(0, S(236), 0, 0)
+	row:SetTall(S(96))
 	row.Paint = nil
 	local packs = data.vipPackages or SURF.Config.VIPPackages or {}
 	for _, pack in ipairs(packs) do
 		local armed = 0
 		local b = vgui.Create("DButton", row)
 		b:Dock(LEFT)
-		b:SetWide(180)
-		b:DockMargin(0, 0, 12, 0)
+		b:SetWide(S(190))
+		b:DockMargin(0, 0, S(12), 0)
 		b:SetText("")
 		local can = (data.coins or 0) >= pack.price and not permanent
 		b.Paint = function(self, w, h)
-			draw.RoundedBox(8, 0, 0, w, h, (self:IsHovered() and can) and Color(255, 200, 40, 50) or Color(255, 200, 40, 22))
-			surface.SetDrawColor(255, 200, 40, can and 200 or 60)
+			local hv = UI.Hover(self, self:IsHovered() and can)
+			draw.RoundedBox(8, 0, 0, w, h, UI.Alpha(GOLD, 20 + 30 * hv))
+			surface.SetDrawColor(UI.Alpha(GOLD, can and 200 or 60))
 			surface.DrawOutlinedRect(0, 0, w, h, 2)
-			draw.SimpleText(pack.days .. " days", "SurfLarge", w / 2, 26, color_white, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
-			draw.SimpleText(string.Comma(pack.price) .. " coins", "SurfMedium", w / 2, 52, can and GOLD or MUTED, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+			draw.SimpleText(pack.days .. " days", "SurfUI_Title", w / 2, S(26), C.text, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+			draw.SimpleText(string.Comma(pack.price) .. " coins", "SurfUI_Body", w / 2, S(52), can and GOLD or MUTED, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
 			local sub = permanent and "You have VIP" or (not can and ("Need " .. string.Comma(pack.price - (data.coins or 0)) .. " more"))
 				or (armed > CurTime() and "Click again to buy" or "Click to buy")
-			draw.SimpleText(sub, "SurfSmall", w / 2, 76, armed > CurTime() and GOLD or DIM, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+			draw.SimpleText(sub, "SurfUI_Small", w / 2, S(76), armed > CurTime() and GOLD or DIM, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
 		end
 		b.DoClick = function()
 			if not can then return surface.PlaySound("buttons/button10.wav") end
+			UI.Click()
 			if armed > CurTime() then
 				armed = 0
 				net.Start("surf.ShopBuyVIP") net.WriteUInt(pack.days, 16) net.SendToServer()
 			else
 				armed = CurTime() + 3
-				surface.PlaySound("ui/buttonclick.wav")
 			end
 		end
 	end
 	if #packs == 0 then
-		local l = vgui.Create("DLabel", row)
-		l:Dock(FILL)
-		l:SetFont("SurfMedium")
-		l:SetTextColor(DIM)
-		l:SetText("VIP isn't sold for coins right now.")
+		UI.Label(row, "VIP isn't sold for coins right now.", "SurfUI_Body", DIM):Dock(FILL)
 	end
 	if data.url and data.url ~= "" then
-		local store = Button(wrap, "Get VIP in the store (supports the server)", GOLD, function() gui.OpenURL(data.url) end)
+		local store = UI.Button(wrap, "Get VIP in the store (supports the server)", "gold", function() gui.OpenURL(data.url) end)
 		store:Dock(BOTTOM)
-		store:SetTall(42)
+		store:SetTall(S(42))
 	end
 end
 
@@ -509,42 +512,26 @@ BuildBody = function(f)
 		f.sel = (eq and eq ~= "none" and SURF.ItemByKey[cat.id .. ":" .. eq]) and (cat.id .. ":" .. eq) or (items[1] and items[1].key)
 	end
 	Preview(body, SURF.ItemByKey[f.sel or ""], data, owned)
-	local scroll = vgui.Create("DScrollPanel", body)
-	scroll:Dock(FILL)
+	local scroll = UI.Scroll(body)
 	local grid = vgui.Create("DIconLayout", scroll)
 	grid:Dock(FILL)
-	grid:SetSpaceX(8)
-	grid:SetSpaceY(8)
+	grid:SetSpaceX(S(8))
+	grid:SetSpaceY(S(8))
 	for _, it in ipairs(items) do Tile(grid, it, data, owned, f) end
 end
 
 function Menus.shop(data)
 	if data.refresh and not IsValid(shopFrame) then return end
 	if not IsValid(shopFrame) then
-		local f = vgui.Create("DFrame")
-		f:SetSize(math.min(ScrW() - 40, 1000), math.min(ScrH() - 40, 640))
-		f:Center()
-		f:SetTitle("")
-		f:MakePopup()
-		f:DockPadding(14, 52, 14, 14)
-		f.Paint = function(self, pw, ph)
-			draw.RoundedBox(10, 0, 0, pw, ph, Color(10, 12, 18, 245))
-			draw.RoundedBoxEx(10, 0, 0, pw, 40, Color(255, 255, 255, 6), true, true, false, false)
-			draw.SimpleText("SHOP", "SurfLarge", 16, 20, Acc(), TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
-			draw.SimpleText("Cosmetics only. Nothing here changes how you surf.", "SurfSmall", 86, 21, MUTED, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
-			local d = self.data or {}
-			surface.SetFont("SurfLarge")
-			local coins = string.Comma(d.coins or 0)
-			draw.SimpleText(coins, "SurfLarge", pw - 44, 20, GOLD, TEXT_ALIGN_RIGHT, TEXT_ALIGN_CENTER)
-			local cw = surface.GetTextSize(coins)
-			draw.SimpleText("coins", "SurfSmall", pw - 50 - cw, 21, DIM, TEXT_ALIGN_RIGHT, TEXT_ALIGN_CENTER)
-			if d.vip then
-				draw.RoundedBox(4, pw - 150 - cw, 9, 44, 22, GOLD)
-				draw.SimpleText("VIP", "SurfSmall", pw - 128 - cw, 20, Color(10, 12, 18), TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
-			end
-		end
-		f.tab = data.tab or "trail"
-		shopFrame = f
+		shopFrame = UI.Frame("Shop", 1040, 660, {
+			id = "shop",
+			sub = "Cosmetics only. Nothing here changes how you surf.",
+			right = function(self)
+				local d = self.data or {}
+				return string.Comma(d.coins or 0) .. " coins" .. (d.vip and "  ·  VIP" or ""), GOLD
+			end,
+		})
+		shopFrame.tab = data.tab or "trail"
 	elseif not data.refresh then
 		shopFrame.tab = data.tab or shopFrame.tab
 		shopFrame.sel = nil
@@ -559,7 +546,7 @@ function Menus.shop(data)
 	BuildBody(f)
 end
 
--- Old servers or other code may still open "vip" directly
+-- !vip and the main menu's VIP entry open the shop on its VIP tab
 function Menus.vip(data)
 	data.tab = "vip"
 	data.coins = data.coins or LocalPlayer():GetNW2Int("surf_coins", 0)

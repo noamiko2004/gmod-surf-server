@@ -34,6 +34,10 @@ function HSVToColor(h, s, v) return Color(h % 255, 100, 100) end
 function isfunction(f) return type(f) == "function" end
 function istable(t) return type(t) == "table" end
 function isstring(t) return type(t) == "string" end
+function Lerp(t, a, b) return a + (b - a) * t end
+table.RemoveByValue = function(t, v) for i, x in ipairs(t) do if x == v then table.remove(t, i) return i end end end
+math.Round = function(n, d) local m = 10 ^ (d or 0) return math.floor(n * m + 0.5) / m end
+math.Clamp = function(n, a, b) return math.min(math.max(n, a), b) end
 function CurTime() return 100 end
 function RealTime() return 100 end
 function FrameTime() return 0.016 end
@@ -69,7 +73,7 @@ chat = { AddText = noop }
 net = { Receive = function(n, f) netrecv = netrecv or {} netrecv[n] = f end,
 	Start = function(n) netlog[#netlog + 1] = n end, WriteString = function(s) netlog[#netlog + 1] = s end,
 	WriteUInt = function(v) netlog[#netlog + 1] = v end, SendToServer = noop }
-hook = { Add = function(ev, name, fn) hooks = hooks or {} hooks[ev] = fn end }
+hook = { Add = function(ev, name, fn) hooks = hooks or {} if name ~= "surf_ui" and name ~= "surf_ui_toasts" then hooks[ev] = fn end end }
 ent = { LookupSequence = function() return 3 end, ResetSequence = noop, SetAngles = noop, LookupAttachment = function() return 1 end,
 	GetAttachment = function() return { Pos = Vector(0, 0, 64), Ang = Angle() } end }
 function ClientsideModel() return setmetatable({}, { __index = function() return noop end }) end
@@ -102,15 +106,25 @@ function P:GetParent() return self.parent end
 function P:GetEntity() return ent end
 function P:SetSize(w, h) self.w, self.h = w, h end
 function P:Clear() self.children = {} end
+function P:GetVBar() return vgui.Create("DVScrollBar", self) end
+function P:IsEnabled() return not self.disabled end
+function P:SetEnabled(on) self.disabled = not on end
+function P:GetPos() return 0, 0 end
+function P:GetWide() return self.w end
 vgui = { Create = function(class, parent)
 	local p = setmetatable({ class = class, parent = parent, children = {}, w = 200, h = 120 }, P)
 	if parent then parent.children[#parent.children + 1] = p end
+	if class == "DFrame" then
+		p.lblTitle, p.btnMaxim, p.btnMinim = vgui.Create("DLabel"), vgui.Create("DButton"), vgui.Create("DButton")
+		p.btnClose = vgui.Create("DButton", p)
+	end
 	panels[#panels + 1] = p
 	return p
 end }
 """)
 L.execute(open(os.path.join(GM, "sh_config.lua"), encoding="utf-8").read())
 L.execute(open(os.path.join(GM, "shared.lua"), encoding="utf-8").read())
+L.execute(open(os.path.join(GM, "cl_ui.lua"), encoding="utf-8").read())
 L.execute("SURF.Menus = {}")
 L.execute(open(os.path.join(GM, "cl_shop.lua"), encoding="utf-8").read())
 

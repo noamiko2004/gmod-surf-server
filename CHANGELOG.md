@@ -6,10 +6,10 @@
   everyone, and 20 player models (Kleiner to G-Man; Arctic Mossman and Corpse
   for VIPs). Citizen models stay free in the model picker; paid models from
   the picker fall back to a citizen. `!hats`, `!skins`.
-- New shop menu (`cl_shop.lua`): categories on the left with how many you own,
-  item tiles, and a live preview on the right (turning 3D model for hats and
-  skins, moving trail, chat line for tags and name colors, sound player) with
-  one Buy / Put on / Take off button.
+- New shop menu (`cl_shop.lua`, in the shared `cl_ui.lua` theme): categories
+  on the left with how many you own, item tiles, and a live preview on the
+  right (turning 3D model for hats and skins, moving trail, chat line for tags
+  and name colors, sound player) with one Buy / Put on / Take off button.
 - VIP for coins: 7 days for 4,000 or 30 days for 12,000 (`VIPPackages`), in
   the shop's VIP tab (`!vip` opens it). Permanent VIPs aren't charged.
 - Shop admin, saved in `data/surfline/shop_overrides.json`: change any item's
