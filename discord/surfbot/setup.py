@@ -141,6 +141,22 @@ class Builder:
             except discord.HTTPException as ex:
                 self.note(f"Could not order the roles ({ex.text}). Drag the bot's role to the top in Server Settings > Roles.")
 
+    async def owner_roles(self):
+        """The server owner gets Admin (red name, staff channels) and Surfer, once."""
+        if self.state.get("owner_admin") == self.guild.owner_id:
+            return
+        owner = self.guild.get_member(self.guild.owner_id)
+        if owner is None:
+            try:
+                owner = await self.guild.fetch_member(self.guild.owner_id)
+            except discord.HTTPException:
+                return
+        add = [r for r in (self.role("admin"), self.role("surfer")) if r and r not in owner.roles]
+        if add:
+            await owner.add_roles(*add, reason="Server owner")
+            self.note(f"Gave {owner.display_name} the Admin role")
+        self.state["owner_admin"] = self.guild.owner_id
+
     # ------------------------------------------------------------ channels
     async def category(self, spec):
         cat = self.channel(spec["key"])
@@ -392,6 +408,7 @@ class Builder:
     async def run(self, game):
         first = not self.state.get("built")
         await self.roles()
+        await self.owner_roles()
         # Community needs a rules channel and an updates channel to exist first
         for cat_spec in layout.CATEGORIES:
             for spec in cat_spec["channels"]:

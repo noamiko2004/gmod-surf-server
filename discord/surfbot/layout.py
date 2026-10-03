@@ -9,14 +9,24 @@ Access model: @everyone only sees START HERE. Pressing "Accept the rules" in
 and spam accounts out of the chat channels.
 """
 
+import os as _os
+import sys as _sys
+
+_sys.path.insert(0, _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "..", "..", "portal"))
+from surfweb import fmt as _fmt  # noqa: E402
+
 # Bump when the layout changes: the bot rebuilds/repairs on start when the saved
 # version is older, so a git pull is enough to roll changes out.
-LAYOUT_VERSION = 2
+LAYOUT_VERSION = 3
+# Bump to upload assets/bot.png and the bot's name again (Discord rate-limits it)
+PROFILE_VERSION = 2
 
 # Discord server name (set once; rename it yourself later and the bot keeps yours)
 # and the bot's own name. Matches the in-game "[EU] SURF" brand.
 GUILD_NAME = "SURF EU 🌊 Surf Timer & Ranks"
 BOT_NAME = "SURF"
+
+TITLES = _fmt.TITLES
 
 ACCENT = 0x14C8FF       # portal cyan
 GOLD = 0xFFC828         # same gold as the in-game record feed
@@ -31,6 +41,13 @@ ROLES = [
      "perms": ["kick_members", "ban_members", "moderate_members", "manage_messages", "manage_threads",
                "mute_members", "deafen_members", "move_members", "manage_nicknames", "view_audit_log"]},
     {"key": "vip", "name": "VIP", "color": 0xFF5CCB, "hoist": True, "perms": []},
+] + [
+    # In-game rank titles, given to players who linked Steam with /link. Colours
+    # and point limits come from the portal (fmt.TITLES), which matches the game.
+    {"key": f"title_{i}", "name": f"\u2605 {name}", "color": (r << 16) | (g << 8) | b, "hoist": False, "perms": [],
+     "title": i}
+    for i, (name, _need, (r, g, b)) in reversed(list(enumerate(TITLES)))
+] + [
     {"key": "surfer", "name": "Surfer", "color": 0x14C8FF, "hoist": False, "perms": []},
     {"key": "ping_news", "name": "News Ping", "color": 0, "hoist": False, "perms": [], "mentionable": False},
     {"key": "ping_events", "name": "Events Ping", "color": 0, "hoist": False, "perms": [], "mentionable": False},
@@ -82,6 +99,9 @@ CATEGORIES = [
          "topic": "Talk surf. Use the Looking to Surf ping to find people to play with."},
         {"key": "records", "type": "text", "name": ch("\U0001F3C6", "records"), "access": "feed",
          "topic": "Every new server record, live from the game."},
+        {"key": "game_chat", "type": "text", "name": ch("\U0001F3AE", "game-chat"), "access": "members",
+         "topic": "Live chat with the game server: what's said in game shows here, and what you write here shows in game.",
+         "slowmode": 3},
         {"key": "clips", "type": "text", "name": ch("\U0001F3AC", "clips-and-pbs"), "access": "members",
          "topic": "Show off runs, PBs, fails and screenshots.", "slowmode": 10},
         {"key": "maps", "type": "forum", "name": ch("\U0001F5FA", "map-suggestions"), "access": "members",
@@ -89,7 +109,7 @@ CATEGORIES = [
          "tags": [("Easy", "\U0001F7E2"), ("Medium", "\U0001F7E1"), ("Hard", "\U0001F534"),
                   ("Added", "✅"), ("Not added", "❌")]},
         {"key": "bot", "type": "text", "name": ch("\U0001F916", "bot-commands"), "access": "members",
-         "topic": "/status /top /map /player /recent /connect"},
+         "topic": "/status /top /map /player /recent /connect /link"},
     ]},
     {"key": "cat_help", "name": "\U0001F6DF SUPPORT", "access": "members", "channels": [
         {"key": "help", "type": "text", "name": ch("❓", "help"), "access": "members",
@@ -239,7 +259,9 @@ def guide_embed():
 def roles_embed():
     lines = "\n".join(f"{b['emoji']} **{b['label']}**: {b['about']}" for b in ROLE_BUTTONS)
     return {"title": "\U0001F3AD Pick your pings", "color": ACCENT,
-            "description": "Press a button to get the role, press it again to drop it.\n\n" + lines}
+            "description": "Press a button to get the role, press it again to drop it.\n\n" + lines +
+                           "\n\n\u2605 **Rank roles:** type `/link` in bot-commands and then `!link CODE` in game. "
+                           "Your in-game rank (Newbie to Legend) and VIP then show on Discord and update by themselves."}
 
 
 def vip_line(store_url):

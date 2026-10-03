@@ -16,6 +16,7 @@ import discord
 from discord import app_commands
 from discord.ext import tasks
 
+from . import bridge as BR
 from . import game as G
 from . import layout
 from .setup import AcceptView, Builder, LinksView, RolesView, to_embed
@@ -23,6 +24,9 @@ from .setup import AcceptView, Builder, LinksView, RolesView, to_embed
 log = logging.getLogger("surfbot")
 HERE = os.path.dirname(os.path.abspath(__file__))
 RENAME_EVERY = 330  # Discord allows 2 channel renames per 10 minutes
+BUSY_AT = 8          # players for the "server is busy" ping in general
+BUSY_EVERY = 6 * 3600
+DISCORD_BLURPLE = 0x5865F2
 
 
 def load_state(path):
@@ -47,10 +51,12 @@ def code_stamp():
 
 
 class SurfBot(discord.Client):
-    def __init__(self, data_dir, members_intent=True, game=None):
+    def __init__(self, data_dir, members_intent=True, content_intent=True, game=None):
         intents = discord.Intents.none()
         intents.guilds = True
         intents.members = members_intent
+        intents.guild_messages = True
+        intents.message_content = content_intent  # for #game-chat -> game
         super().__init__(intents=intents, allowed_mentions=discord.AllowedMentions.none(),
                          activity=discord.Game("Surf"))
         self.tree = app_commands.CommandTree(self)
@@ -64,6 +70,11 @@ class SurfBot(discord.Client):
         self.last_rename = 0.0
         self.building = asyncio.Lock()
         self.synced = False
+        self.bridge = BR.Bridge(self.game.store.data_dir)
+        self.webhook = None
+        self.avatars = None
+        self.last_count = None
+        self.content_intent = content_intent
         register_commands(self)
 
     def save(self):
@@ -108,7 +119,8 @@ class SurfBot(discord.Client):
                 self.synced = True
             except discord.HTTPException as ex:
                 log.warning("Slash command sync failed: %s", ex)
-        for loop in (self.status_loop, self.records_loop, self.weekly_loop, self.watch_code):
+        for loop in (self.status_loop, self.records_loop, self.weekly_loop, self.watch_code,
+                     self.bridge_loop, self.roles_loop):
             if not loop.is_running():
                 loop.start()
 
@@ -136,7 +148,7 @@ class SurfBot(discord.Client):
 
     async def profile(self):
         """The bot's own name and avatar, set once per layout version (Discord rate-limits these)."""
-        if self.state.get("profile") == layout.LAYOUT_VERSION:
+        if self.state.get("profile") == layout.PROFILE_VERSION:
             return
         kw = {}
         if self.user.name != layout.BOT_NAME:
@@ -157,7 +169,7 @@ class SurfBot(discord.Client):
                     await self.user.edit(**kw)
                 except discord.HTTPException:
                     return
-        self.state["profile"] = layout.LAYOUT_VERSION
+        self.state["profile"] = layout.PROFILE_VERSION
         self.save()
 
     async def build(self):
@@ -272,6 +284,26 @@ class SurfBot(discord.Client):
                 await vc.edit(name=want, reason="Live server status")
             except discord.HTTPException as ex:
                 log.warning("Status channel rename failed: %s", ex)
+        await self.busy_ping(st)
+
+    async def busy_ping(self, st):
+        """One ping for Looking to Surf when the server fills up, at most every 6 hours."""
+        count, prev = st["count"] if st["online"] else 0, self.last_count
+        self.last_count = count
+        if prev is None or prev >= BUSY_AT or count < BUSY_AT or st["changing"]:
+            return
+        if time.time() - self.gstate().get("last_busy", 0) < BUSY_EVERY:
+            return
+        ch, role = self.chan("general"), self.grole("ping_lfs")
+        if ch is None:
+            return
+        self.gstate()["last_busy"] = time.time()
+        self.save()
+        text = (f"\U0001F525 **{count} people** are surfing **{st['map']}** right now! "
+                f"Jump in: `connect {self.game.public_addr()}`")
+        if role:
+            text = f"{role.mention} {text}"
+        await ch.send(text, allowed_mentions=discord.AllowedMentions(roles=[role] if role else []))
 
     @tasks.loop(seconds=15)
     async def records_loop(self):
@@ -307,6 +339,193 @@ class SurfBot(discord.Client):
         ch = self.chan("records")
         if ch:
             await ch.send(embed=to_embed(await asyncio.to_thread(G.weekly_embed, self.game)))
+
+    # ------------------------------------------------------------ game bridge
+    @tasks.loop(seconds=2)
+    async def bridge_loop(self):
+        await self.guarded(self.bridge_tick)
+
+    async def bridge_tick(self):
+        events = await asyncio.to_thread(self.bridge.read_events)
+        now = time.time()
+        for ev in events:
+            kind = ev.get("t")
+            if kind == "link":
+                await self.game_link(ev)
+            elif now - BR.to_num(ev.get("at")) > BR.STALE_CHAT:
+                continue  # the bot was down; don't flood the channel with old chat
+            elif kind == "chat":
+                await self.game_chat(ev)
+            elif kind in ("join", "leave", "map"):
+                await self.game_notice(ev)
+
+    async def chat_webhook(self):
+        ch = self.chan("game_chat")
+        if ch is None:
+            return None
+        if self.webhook is not None and self.webhook.channel_id == ch.id:
+            return self.webhook
+        wid = self.gstate().get("game_webhook")
+        hook = None
+        if wid:
+            try:
+                hook = await self.fetch_webhook(wid)
+            except discord.HTTPException:
+                hook = None
+        if hook is None or hook.channel_id != ch.id:
+            try:
+                with open(os.path.join(HERE, "..", "assets", "icon.png"), "rb") as f:
+                    icon = f.read()
+            except OSError:
+                icon = None
+            hook = await ch.create_webhook(name="SURF game chat", avatar=icon, reason="In-game chat bridge")
+            self.gstate()["game_webhook"] = hook.id
+            self.save()
+        self.webhook = hook
+        return hook
+
+    def avatar_of(self, sid):
+        if self.avatars is None:
+            from surfweb.avatars import Avatars
+            self.avatars = Avatars(os.path.join(self.data_dir, "avatars.json"))
+        return self.avatars.get(sid) if BR.valid_sid(sid) else ""
+
+    async def game_chat(self, ev):
+        text = BR.one_line(ev.get("text"))
+        if not text:
+            return
+        text = discord.utils.escape_mentions(discord.utils.escape_markdown(text))
+        name = BR.webhook_name(ev.get("name"))
+        hook = await self.chat_webhook()
+        if hook is None:
+            return
+        try:
+            await hook.send(text, username=name, avatar_url=self.avatar_of(ev.get("sid")) or None,
+                            allowed_mentions=discord.AllowedMentions.none())
+        except discord.NotFound:
+            self.webhook = None
+            self.gstate().pop("game_webhook", None)
+
+    async def game_notice(self, ev):
+        ch = self.chan("game_chat")
+        if ch is None:
+            return
+        kind = ev.get("t")
+        if kind == "map":
+            mapname = BR.one_line(ev.get("map"), 64)
+            tier = BR.to_num(ev.get("tier"))
+            text = f"\U0001F5FA Map changed to **{G.esc(mapname)}**" + (f" (Tier {int(tier)})" if tier else "")
+        else:
+            name = G.esc(BR.one_line(ev.get("name"), 64))
+            count = ev.get("count")
+            most = int(BR.to_num(ev.get("max"))) or "?"
+            tail = f" ({int(BR.to_num(count))}/{most})" if count is not None else ""
+            text = (f"\U0001F4E5 **{name}** joined{tail}" if kind == "join" else f"\U0001F4E4 **{name}** left{tail}")
+        await ch.send(text, allowed_mentions=discord.AllowedMentions.none())
+
+    async def on_message(self, msg):
+        ch = self.chan("game_chat")
+        if ch is None or msg.channel.id != ch.id or msg.author.bot or msg.webhook_id:
+            return
+        text = BR.one_line(msg.clean_content)
+        if msg.attachments:
+            text = (text + " [image]").strip()
+        if not text:
+            return  # without the Message Content intent Discord sends empty text
+        name = BR.one_line(getattr(msg.author, "display_name", msg.author.name), 32)
+        await asyncio.to_thread(self.bridge.send, {"t": "chat", "name": name, "text": text[:BR.MAX_TEXT]})
+
+    # ------------------------------------------------------------ accounts
+    def links(self):
+        return self.state.setdefault("links", {})  # steamid -> discord user id
+
+    def sid_of(self, user_id):
+        for sid, uid in self.links().items():
+            if uid == user_id:
+                return sid
+        return None
+
+    async def game_link(self, ev):
+        sid = ev.get("sid")
+        if not BR.valid_sid(sid):
+            return
+        pending = self.state.setdefault("link_codes", {})
+        uid = BR.take_code(pending, ev.get("code"))
+        if uid is None:
+            self.save()
+            await asyncio.to_thread(self.bridge.send, {"t": "linkfail", "sid": sid,
+                                                       "reason": "That code is wrong or expired. Type /link on Discord for a new one."})
+            return
+        for old in [s for s, u in self.links().items() if u == uid]:
+            del self.links()[old]  # one Steam account per Discord account
+        self.links()[sid] = uid
+        self.save()
+        member = await self.member(uid)
+        dname = member.display_name if member else "your account"
+        await asyncio.to_thread(self.bridge.send, {"t": "linked", "sid": sid, "discord": BR.one_line(dname, 32)})
+        if member:
+            await self.sync_member(member, sid)
+            try:
+                await member.send(f"\u2705 Linked to **{G.esc(BR.one_line(ev.get('name'), 64))}** in game. "
+                                  "Your rank role updates by itself as you play.")
+            except discord.HTTPException:
+                pass  # DMs closed
+        ml = self.chan("modlog")
+        if ml:
+            await ml.send(f"\U0001F517 <@{uid}> linked Steam `{sid}` ({G.esc(BR.one_line(ev.get('name'), 64))})",
+                          allowed_mentions=discord.AllowedMentions.none())
+
+    async def member(self, uid):
+        if self.home is None:
+            return None
+        m = self.home.get_member(int(uid))
+        if m is None:
+            try:
+                m = await self.home.fetch_member(int(uid))
+            except discord.HTTPException:
+                return None
+        return m
+
+    async def sync_member(self, member, sid, rank=None, vips=None):
+        """Gives the rank role matching in-game points (and VIP while it lasts)."""
+        if rank is None:
+            rank = await asyncio.to_thread(self.game.store.ranking)
+        if vips is None:
+            vips = await asyncio.to_thread(self.game.store.vip_map)
+        ent = rank["by_sid"].get(sid)
+        want = self.grole(f"title_{G.fmt.title_index(ent['points']) if ent else 0}")
+        titles = [self.grole(f"title_{i}") for i in range(len(layout.TITLES))]
+        drop = [r for r in titles if r and r in member.roles and r != want]
+        add = [want] if want and want not in member.roles else []
+        auto = self.state.setdefault("vip_auto", [])
+        vip = self.grole("vip")
+        if vip:
+            if sid in vips and vip not in member.roles:
+                add.append(vip)
+                if str(member.id) not in auto:
+                    auto.append(str(member.id))
+            elif sid not in vips and vip in member.roles and str(member.id) in auto:
+                drop.append(vip)  # only removes VIP the bot gave, not one an admin gave by hand
+                auto.remove(str(member.id))
+        if drop:
+            await member.remove_roles(*drop, reason="In-game rank changed")
+        if add:
+            await member.add_roles(*add, reason="In-game rank")
+
+    @tasks.loop(minutes=10)
+    async def roles_loop(self):
+        await self.guarded(self.roles_tick)
+
+    async def roles_tick(self):
+        if not self.links():
+            return
+        rank = await asyncio.to_thread(self.game.store.ranking)
+        vips = await asyncio.to_thread(self.game.store.vip_map)
+        for sid, uid in list(self.links().items()):
+            m = await self.member(uid)
+            if m is not None:
+                await self.sync_member(m, sid, rank, vips)
+        self.save()
 
     @tasks.loop(seconds=60)
     async def watch_code(self):
@@ -377,9 +596,14 @@ def register_commands(bot):
         return await map_names(current)
 
     @tree.command(name="player", description="A player's points, rank and records")
-    @app_commands.describe(name="Steam name")
-    async def player(interaction: discord.Interaction, name: str):
+    @app_commands.describe(name="Steam name (leave empty for yourself once you've used /link)")
+    async def player(interaction: discord.Interaction, name: str = ""):
         rank = await asyncio.to_thread(g.store.ranking)
+        if not name:
+            name = bot.sid_of(str(interaction.user.id)) or ""
+            if not name:
+                return await interaction.response.send_message(
+                    "Type a name, or use /link first to connect your Steam account.", ephemeral=True)
         ent = rank["by_sid"].get(name)
         if ent is None:
             low = name.lower()
@@ -394,6 +618,39 @@ def register_commands(bot):
     @player.autocomplete("name")
     async def _player_ac(interaction, current: str):
         return await player_names(current)
+
+    @tree.command(name="link", description="Connect your Steam account to get your in-game rank as a role")
+    async def link(interaction: discord.Interaction):
+        uid = str(interaction.user.id)
+        pending = bot.state.setdefault("link_codes", {})
+        BR.prune_codes(pending)
+        for c in [c for c, v in pending.items() if v["user"] == uid]:
+            del pending[c]
+        code = BR.new_code(pending)
+        pending[code] = {"user": uid, "exp": time.time() + BR.CODE_TTL}
+        bot.save()
+        now = bot.sid_of(uid)
+        extra = "\nThis replaces the Steam account you linked before." if now else ""
+        e = {"title": "\U0001F517 Link your Steam account", "color": layout.ACCENT,
+             "description": f"Join the server and type this in the game chat within 10 minutes:\n```!link {code}```"
+                            f"`connect {g.public_addr()}`{extra}"}
+        await interaction.response.send_message(embed=to_embed(e), ephemeral=True)
+
+    @tree.command(name="unlink", description="Disconnect your Steam account")
+    async def unlink(interaction: discord.Interaction):
+        uid = str(interaction.user.id)
+        sid = bot.sid_of(uid)
+        if not sid:
+            return await interaction.response.send_message("You haven't linked a Steam account.", ephemeral=True)
+        del bot.links()[sid]
+        bot.save()
+        member = interaction.user if isinstance(interaction.user, discord.Member) else None
+        if member:
+            drop = [bot.grole(f"title_{i}") for i in range(len(layout.TITLES))]
+            drop = [r for r in drop if r and r in member.roles]
+            if drop:
+                await member.remove_roles(*drop, reason="Unlinked Steam")
+        await interaction.response.send_message("Unlinked. Your rank role is gone.", ephemeral=True)
 
     @tree.command(name="recent", description="The latest server records")
     async def recent(interaction: discord.Interaction):
@@ -475,11 +732,16 @@ def main(argv=None):
     if env.get("GUILD_ID"):
         os.environ["GUILD_ID"] = env["GUILD_ID"]
     os.makedirs(args.data, exist_ok=True)
+    # Privileged intents are switched on in the Developer Portal (Bot page). Without
+    # them the bot still runs; it just loses join logs or the Discord->game chat.
+    combos = [(True, True), (True, False), (False, True), (False, False)]
     try:
-        SurfBot(args.data, members_intent=True).run(token, log_handler=None)
-    except discord.PrivilegedIntentsRequired:
-        log.warning("Server Members Intent is off in the Developer Portal; running without join/leave logs")
-        SurfBot(args.data, members_intent=False).run(token, log_handler=None)
+        for members, content in combos:
+            try:
+                SurfBot(args.data, members_intent=members, content_intent=content).run(token, log_handler=None)
+                break
+            except discord.PrivilegedIntentsRequired:
+                log.warning("Discord refused intents members=%s message_content=%s; trying with fewer", members, content)
     except discord.LoginFailure:
         log.error("Discord rejected the token. Reset it in the Developer Portal and run install.sh again.")
         time.sleep(300)
