@@ -77,6 +77,7 @@ end
 
 local acc = SURF.Config.Accent
 local ACTIONS = {}
+P.Actions = ACTIONS -- the in-game admin panel (sv_admin.lua) runs these too
 
 ACTIONS.say = function(c)
 	local text = Clean(c.text)
@@ -254,6 +255,12 @@ function P.RunCommands()
 			ok, msg = false, "unknown action"
 		end
 		print(string.format("[Surf] Portal: %s by %s: %s", tostring(cmd.action), tostring(cmd.by), tostring(msg)))
+		if ok and SURF.Admin then
+			local by = tostring(cmd.by or "")
+			local target = ValidID(cmd.steamid) and cmd.steamid or nil
+			SURF.Admin.Log(by, ValidID(by) and KnownName(by) or by, tostring(cmd.action), target, target and KnownName(target) or nil,
+				tostring(msg), by == "tebex" and "store" or "web")
+		end
 		Result(id, ok, msg)
 	end
 end

@@ -9,6 +9,8 @@ AddCSLuaFile("cl_shop.lua")
 AddCSLuaFile("cl_mapvote.lua")
 AddCSLuaFile("cl_visuals.lua")
 AddCSLuaFile("cl_chat.lua")
+AddCSLuaFile("cl_hub.lua")
+AddCSLuaFile("cl_admin.lua")
 
 include("shared.lua")
 include("sv_util.lua")
@@ -29,6 +31,8 @@ include("sv_discord_bridge.lua")
 include("sv_commands.lua")
 include("sv_shop.lua")
 include("sv_portal.lua")
+include("sv_menus.lua")
+include("sv_admin.lua")
 
 -- Make clients download the current map's workshop addon and any extras
 local function AddWorkshopDownloads()
@@ -182,7 +186,7 @@ function GM:PlayerDisconnected(ply)
 	SURF.MapVote.OnDisconnect(ply)
 end
 
-function GM:ShowHelp(ply) SURF.Menu.Open(ply, "help") end
+function GM:ShowHelp(ply) SURF.Menu.Open(ply, "menu", {}) end
 function GM:ShowTeam(ply) SURF.Commands.Run(ply, "wr", {}) end
 function GM:ShowSpare1(ply) SURF.Menu.Open(ply, "trails") end
 function GM:ShowSpare2(ply) SURF.Spec.Toggle(ply) end

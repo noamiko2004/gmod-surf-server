@@ -45,6 +45,11 @@ in chat is `BRAND_NAME`.
 - `!discord` shows and opens the invite (DISCORD_URL, else the bot's invite)
 - Players away for 5 minutes move to the spectators and don't block `!rtv`
 - Practice: `!saveloc` / `!tele`, `!stage <n>` (timer turns off)
+- Main menu on F1 (`!menu`): your stats and this map, records, top players,
+  maps (search, tier filter, nominate), styles, settings and a searchable
+  command list
+- Scoreboard: click a player for their Steam profile, to watch them
+  (`!spec <name>`) or to mute their voice
 - HUD with timer, speed that turns green/red when gaining/losing, CP progress,
   key display (`!keys`), PB/WR; scoreboard with titles and points
 - `!r` restart, `!spec` spectating, `!rtv`, `!nominate`, `!maps` (with tiers),
@@ -73,6 +78,15 @@ Admin: `!zone start` / `!zone end` (two corners each; replaces only that zone),
 `surf_givecoins <id> <amount>`, `surf_giveitem <id> <item>` and
 `surf_removeitem <id> <item>` (items look like `trail:gold`, `tag:wave`,
 `color:rainbow`, `sound:pop`). The admin page can give coins and items too.
+
+Admin panel in game: `!admin` (or F1 > Admin, or click a player on the
+scoreboard). Players (online, plus a search over everyone who joined) with go
+to, bring, freeze, slay, chat mute, voice gag, kick, ban and deleting times;
+Server (vote, extend, restart, change or hide maps, announcements); Bans;
+Staff; and a Log of every admin action in game and on the website. Owners
+(`OWNER_STEAMIDS`) also give VIP, coins, items and points there and make
+admins. Chat versions: `!kick`, `!ban <player> <minutes> [reason]`, `!mute`,
+`!gag`, `!goto`, `!bring`, `!slay`, `!freeze`, `!announce`, `!extend`.
 
 ## Maps
 

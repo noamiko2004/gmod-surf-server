@@ -7,6 +7,8 @@ include("cl_shop.lua")
 include("cl_mapvote.lua")
 include("cl_visuals.lua")
 include("cl_chat.lua")
+include("cl_hub.lua")
+include("cl_admin.lua")
 
 local function Font(name, size, weight)
 	surface.CreateFont(name, { font = "Roboto", size = size, weight = weight or 500, antialias = true, extended = true })

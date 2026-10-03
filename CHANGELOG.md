@@ -1,4 +1,39 @@
 # Changelog
+## 2026-10-03 (v5.3)
+- Main menu on F1 or `!menu` (`cl_hub.lua`, data from `sv_menus.lua`):
+  Home (rank, title progress, points, coins, playtime, finished maps, records
+  held, and this map's tier, record and your best with Restart, Watch the
+  record and Vote buttons), Records (styles and bonuses as tabs), Top players,
+  Maps (search, tier filter, click to nominate), Styles, Settings (graphics
+  presets; switches for zones, map light, autohop, hiding players and the key
+  display) and Commands (searchable). Shop, VIP and Discord open from its side
+  menu. `!wr`, `!top`, `!maps`, `!style`, `!graphics` and `!help` open it on
+  their page.
+- One look for every menu (`cl_ui.lua`): windows, buttons, rows, tabs, lists,
+  dialogs, right-click menus and toasts. Escape closes the newest window.
+- Admin panel (`!admin`, F1 > Admin, or click a player on the scoreboard;
+  `sv_admin.lua`, `cl_admin.lua`):
+  - Players: everyone online plus a search over everyone who ever joined. A
+    player page shows rank, coins, playtime, VIP, bans, mutes and gags, with
+    go to, bring, send to start, spectate, freeze, slay, mute chat, gag voice,
+    kick, ban or unban, and deleting their time on this map.
+  - Owners also give or take VIP, coins, items and points (points need the
+    shop update that adds `Ranks.AdjustPoints`) and make or remove admins.
+  - Server: time left, start a vote, extend, restart, change map, hide or
+    unhide maps, and announcements shown on everyone's screen.
+  - Bans (unban, ban a SteamID), Staff, and a Log of every admin action in
+    game and on the website.
+- Admins made in game are saved in surf_staff and get the admin group when
+  they join; owners stay in `OWNER_STEAMIDS`. Nobody can punish someone of the
+  same or a higher rank. New tables surf_admin_log, surf_staff and
+  surf_sanctions (mutes and gags, with an end time or until lifted).
+- Admin chat commands: `!kick`, `!ban <player> <minutes> [reason]`, `!mute` /
+  `!unmute` (chat), `!gag` / `!ungag` (voice), `!goto`, `!bring`, `!slay`,
+  `!freeze`, `!announce`, `!extend [minutes]`. For everyone: `!spec <name>`
+  watches that player.
+- Scoreboard and map vote in the new look. Click a player on the scoreboard
+  for their Steam profile, to watch them, to mute their voice for yourself,
+  and (admins) the admin actions.
 
 ## 2026-10-03 (v5.2)
 - Hats and skins: 10 hats (cone, melon, bucket, pot, hula doll, headcrab,

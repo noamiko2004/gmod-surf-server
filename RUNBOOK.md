@@ -45,6 +45,8 @@ For Claude (or anyone) picking up the server for a scheduled update.
   `journalctl -u caddy -n 50` (certificate errors mean ports 80/443 are
   blocked, for example by a Hetzner Cloud firewall).
 - Join, run `!r`, finish a map, `!wr`, `!rtv`, `!spec`, `!trail`.
+- F1 opens the main menu. `!admin` > Log shows what admins did since the last
+  session (in game and on the website).
 - Maps players call weird or broken: `!hidemap <map>` in game, or add them to
   `maps/blocked_maps.txt` so they stay out on every server; the next update
   deletes them. If players spawn facing a wall on a map, stand in the start,

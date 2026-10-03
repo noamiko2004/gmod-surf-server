@@ -174,7 +174,13 @@ Add({ "replay", "wrbot" }, "Watch the server record replay", function(ply) SURF.
 
 Add({ "keys", "showkeys" }, "Show or hide the key display", function(ply) SURF.ClientAction(ply, "keys") end)
 
-Add({ "spec", "spectate" }, "Spectate other players (again to return)", function(ply) SURF.Spec.Toggle(ply) end)
+Add({ "spec", "spectate" }, "Spectate other players (again to return); !spec <name> watches that player", function(ply, args)
+	if not args[1] then return SURF.Spec.Toggle(ply) end
+	local t, err = SURF.Admin.FindPlayer(table.concat(args, " "))
+	if not t then return SURF.Chat(ply, acc, "[Spec] ", white, err) end
+	if t == ply or not t:Alive() or t:Team() == TEAM_SPECTATOR then return SURF.Chat(ply, acc, "[Spec] ", white, t:Nick() .. " isn't surfing right now.") end
+	SURF.Spec.Watch(ply, t)
+end)
 
 Add({ "auto", "autohop" }, "Toggle holding jump to bunnyhop", function(ply)
 	local on = not ply:GetNW2Bool("surf_autohop", SURF.Config.DefaultAutoHop)

@@ -343,6 +343,7 @@ function UI.Tabs(parent, tabs, active, onSelect)
 		b:Dock(LEFT)
 		b:DockMargin(0, 0, S(6), 0)
 		b:SetText("")
+		b.uiItem = t
 		b:SetWide(UI.TextWidth(t.name, "SurfUI_Body") + S(28))
 		b.Paint = function(s, w, h)
 			local cur = bar.active == t.id
@@ -388,6 +389,7 @@ function UI.Sidebar(parent, items, active, onSelect, width)
 			b:SetTall(S(38))
 			b:DockMargin(0, 0, 0, S(2))
 			b:SetText("")
+			b.uiItem = it
 			local mat = it.icon and Material(it.icon)
 			b.Paint = function(s, w, h)
 				local cur = side.active == it.id
