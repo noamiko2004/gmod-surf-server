@@ -645,6 +645,7 @@ pre.log {
 .footer-brand p { margin-top: 8px; font-size: 13.5px; overflow-wrap: anywhere; }
 .footer-links { display: flex; gap: 10px; flex-wrap: wrap; }
 .footer-note { grid-column: 1 / -1; font-size: 12.5px; }
+.footer-ver { display: block; margin-top: 4px; font-variant-numeric: tabular-nums; }
 
 /* ------------------------------------------------------------ responsive */
 @media (max-width: 1080px) {

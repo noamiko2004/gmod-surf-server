@@ -1,4 +1,16 @@
 # Changelog
+
+## 2026-10-03 (v5.4)
+- The website footer shows the version it runs (commit and date), and
+  `update.sh` ends with the version it installed and the website address, so
+  a stale site is easy to spot.
+- `update.sh` no longer stops halfway: a failed SteamCMD or deploy step is
+  logged and the game server always starts again. Files edited on the server
+  that block `git pull` are set aside with `git stash` instead of silently
+  keeping the old version.
+- The old single menus are gone from `cl_menus.lua` (the main menu replaced
+  them); it now only routes the menus the server opens.
+
 ## 2026-10-03 (v5.3)
 - Main menu on F1 or `!menu` (`cl_hub.lua`, data from `sv_menus.lua`):
   Home (rank, title progress, points, coins, playtime, finished maps, records

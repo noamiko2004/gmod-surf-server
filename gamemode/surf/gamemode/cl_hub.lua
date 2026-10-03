@@ -1,8 +1,7 @@
 -- The main menu (F1 or !menu): a side menu with pages. !wr, !top, !maps,
 -- !style, !graphics and !help open it on their page. Pages that need the
 -- server's data ask for it (surf.MenuReq, sv_menus.lua) and show "Loading..."
--- until it arrives. The shop and VIP have their own windows. These pages
--- replace the older single menus in cl_menus.lua.
+-- until it arrives. The shop and VIP have their own windows (cl_shop.lua).
 local Menus = SURF.Menus
 local UI = SURF.UI
 local C = UI.Col

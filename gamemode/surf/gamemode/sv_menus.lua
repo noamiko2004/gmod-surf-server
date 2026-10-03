@@ -1,4 +1,4 @@
--- Data for the main menu's pages (cl_menus.lua, F1 or !menu). The client asks
+-- Data for the main menu's pages (cl_hub.lua, F1 or !menu). The client asks
 -- for a page with surf.MenuReq (page, argument, request number) and gets it
 -- back through surf.Menu with data.req set to that number, so a late answer
 -- for a page the player already left is ignored.

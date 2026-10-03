@@ -437,6 +437,10 @@ def no_raw(body):
 
 # ------------------------------------------------------------------ public pages
 home = get("/")
+ver = C.read_version(os.path.dirname(PORTAL))
+check((re.fullmatch(r"[0-9a-f]{4,40}", ver[0]) is not None and ver[1] > 1600000000) or not os.path.isdir(os.path.join(os.path.dirname(PORTAL), ".git")),
+      f"the portal reads the commit it runs from the checkout ({ver})")
+check(C.read_version(tmp) == ("", 0) and "footer-ver" not in home.body, "no version line outside a git checkout")
 check(home.status == 200 and "TestSurf" in home.body and "Test Surf | &lt;b&gt;bold&lt;/b&gt;" in home.body, "home: brand and escaped server name")
 check('href="steam://connect/1.2.3.4:27015"' in home.body and 'data-copy="1.2.3.4:27015"' in home.body, "home: join and copy-IP buttons")
 check("Alice" in home.body and "Running" in home.body and "Finished" in home.body and "Bonus 1" in home.body, "home: live players and what they do")

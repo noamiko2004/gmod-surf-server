@@ -27,7 +27,7 @@ from surfweb.actions import Invalid, describe, run_ctl, validate, write_command 
 from surfweb.auth import (FLASH_COOKIE, NEXT_COOKIE, SESSION_COOKIE, SESSION_TTL, Auth, load_secret,  # noqa: E402
                           origin_of, safe_next)
 from surfweb.avatars import Avatars  # noqa: E402
-from surfweb.conf import Config  # noqa: E402
+from surfweb.conf import Config, read_version  # noqa: E402
 from surfweb.fmt import MAPNAME_RE, valid_steamid  # noqa: E402
 from surfweb.store import Store, log  # noqa: E402
 
@@ -108,6 +108,7 @@ class App:
     def __init__(self, args):
         repo = os.path.abspath(args.repo)
         self.conf = Config(args.config or os.path.join(repo, "config.env"))
+        self.version = read_version(repo)
         home = self.conf.gmod_home
         gmod_dir = args.gmod_dir or os.path.join(home, "server", "garrysmod")
         data_dir = args.data_dir or os.path.join(gmod_dir, "data", "surfline")
