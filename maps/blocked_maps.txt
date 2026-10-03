@@ -1,0 +1,6 @@
+# Maps the server never installs or plays, one per line. scripts/maps.py
+# removes them if they are installed. Admins can also hide a map in game with
+# !hidemap <name> (kept in garrysmod/data/surfline/hidden_maps.txt).
+surf_legends          # owner feedback 2026-10-03: weird map
+surf_legends_lite
+surf_legends_lite_gfl

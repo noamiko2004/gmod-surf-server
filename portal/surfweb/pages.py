@@ -154,7 +154,7 @@ def home(ctx):
 
 
 def community_card(app):
-    discord, store = app.conf.https_url("DISCORD_URL"), app.conf.https_url("STORE_URL")
+    discord, store = app.conf.discord_url, app.conf.https_url("STORE_URL")
     if not discord and not store:
         return ""
     btns = ""

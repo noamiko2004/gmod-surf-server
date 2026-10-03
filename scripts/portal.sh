@@ -68,6 +68,18 @@ $TLS
 	encode gzip
 	reverse_proxy 127.0.0.1:$PORTAL_PORT
 }
+
+# The in-game loading screen stays on plain HTTP (old GMOD browsers can't do
+# modern TLS); everything else goes to HTTPS
+http://$SITE {
+	handle /loading* {
+		encode gzip
+		reverse_proxy 127.0.0.1:$PORTAL_PORT
+	}
+	handle {
+		redir https://{host}{uri} permanent
+	}
+}
 CADDY
   caddy fmt --overwrite /etc/caddy/Caddyfile >/dev/null 2>&1 || true
   systemctl enable caddy >/dev/null 2>&1 || true

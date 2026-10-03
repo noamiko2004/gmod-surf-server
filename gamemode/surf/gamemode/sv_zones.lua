@@ -5,7 +5,7 @@
 --   2. ready-made zones in data/surfline/zones/<map>.json (see zones/README.md),
 --      checked against the map so a different version of it is caught
 --   3. timer triggers built into the map itself (mod_zone_start and friends)
-SURF.Zones = { list = {}, ents = {}, source = "none", cpCount = {} }
+SURF.Zones = { list = {}, ents = {}, source = "none", cpCount = {}, yaw = {}, adminYaw = {} }
 local Zones = SURF.Zones
 local TYPES = { start = true, ["end"] = true }
 local JSON_TYPES = { start = "start", ["end"] = "end", stage = "cp", checkpoint = "cp" }
@@ -168,6 +168,10 @@ function Zones.Load()
 		end
 	end
 	SetGlobal2Int("surf_cpcount", Zones.cpCount[0] or 0)
+	Zones.yaw, Zones.adminYaw = {}, {}
+	for _, r in ipairs(SURF.DB.Query("SELECT track, yaw FROM surf_start_angles WHERE map = %s", map) or {}) do
+		Zones.adminYaw[tonumber(r.track) or 0] = tonumber(r.yaw)
+	end
 	Remember(BAD_FILE, map, bad and #admin == 0)
 	Remember(ZONED_FILE, map, Zones.HasTimer(0))
 end
@@ -225,6 +229,75 @@ function Zones.StagePos(index)
 	return z and Floor(z)
 end
 
+-- Which way you face in a start zone. An admin's choice (!zone angle) wins.
+-- Otherwise the map's own spawn points near the start decide: surf maps point
+-- them at the first ramp, so the way most of them face is used, unless that
+-- looks straight into a wall. Failing that, the most open way out.
+local SPAWN_CLASSES = { "info_player_counterterrorist", "info_player_terrorist", "info_player_start", "info_player_deathmatch" }
+local SPAWN_RANGE = 1024 -- how far outside the start zone a spawn point may be
+local MIN_OPEN = 160     -- room a direction needs in front of you
+
+local function DistToBox(p, z)
+	local dx = math.max(z.min.x - p.x, 0, p.x - z.max.x)
+	local dy = math.max(z.min.y - p.y, 0, p.y - z.max.y)
+	local dz = math.max(z.min.z - p.z, 0, p.z - z.max.z)
+	return math.sqrt(dx * dx + dy * dy + dz * dz)
+end
+
+-- How far you can see at eye height when facing yaw
+local function OpenAhead(pos, yaw)
+	local r = math.rad(yaw)
+	local eye = pos + Vector(0, 0, 48)
+	local tr = util.TraceLine({ start = eye, endpos = eye + Vector(math.cos(r), math.sin(r), 0) * 2048, mask = MASK_PLAYERSOLID_BRUSHONLY })
+	return tr.Fraction * 2048
+end
+
+function Zones.FindStartYaw(track)
+	local z = Zones.Find("start", track or 0)
+	if not z then return nil end
+	local pos = Floor(z)
+	-- Spawn points vote in 30 degree groups; the nearest one gives the exact yaw
+	local groups = {}
+	for _, cls in ipairs(SPAWN_CLASSES) do
+		for _, e in ipairs(ents.FindByClass(cls)) do
+			if IsValid(e) and DistToBox(e:GetPos(), z) <= SPAWN_RANGE then
+				local yaw = math.NormalizeAngle(e:GetAngles().y)
+				local key = math.Round(yaw / 30) % 12
+				local g = groups[key] or { n = 0, near = math.huge }
+				groups[key] = g
+				g.n = g.n + 1
+				local d = (e:GetPos() - pos):Length()
+				if d < g.near then g.near, g.yaw = d, yaw end
+			end
+		end
+	end
+	local list = {}
+	for _, g in pairs(groups) do list[#list + 1] = g end
+	table.sort(list, function(a, b) if a.n ~= b.n then return a.n > b.n end return a.near < b.near end)
+	for _, g in ipairs(list) do
+		if OpenAhead(pos, g.yaw) >= MIN_OPEN then return g.yaw, "spawn" end
+	end
+	local best, bestYaw = -1, 0
+	for i = 0, 15 do
+		local yaw = i * 22.5
+		local d = OpenAhead(pos, yaw)
+		if d > best + 1 then best, bestYaw = d, yaw end
+	end
+	return math.NormalizeAngle(bestYaw), "open"
+end
+
+function Zones.StartYaw(track)
+	track = track or 0
+	if Zones.adminYaw[track] then return Zones.adminYaw[track] end
+	if Zones.yaw[track] == nil then Zones.yaw[track] = Zones.FindStartYaw(track) or false end
+	return Zones.yaw[track] or nil
+end
+
+function Zones.SaveYaw(track, yaw)
+	SURF.DB.Query("REPLACE INTO surf_start_angles (map, track, yaw) VALUES (%s, %d, %f)", game.GetMap(), track, yaw)
+	Zones.adminYaw[track] = yaw
+end
+
 function Zones.SendTo(target)
 	local out = {}
 	for i, z in ipairs(Zones.list) do
@@ -257,6 +330,7 @@ end
 
 function Zones.ResetToMap()
 	SURF.DB.Query("DELETE FROM surf_zones WHERE map = %s", game.GetMap())
+	SURF.DB.Query("DELETE FROM surf_start_angles WHERE map = %s", game.GetMap())
 	Zones.Reload()
 end
 
@@ -289,6 +363,17 @@ function Zones.EditCommand(ply, args)
 		SURF.Chat(ply, acc, "[Zones] ", white, "Removed in-game zones. Using " .. (Zones.source == "none" and "no zones" or "the ready-made zones") .. " now.")
 		return
 	end
+	if ztype == "angle" then
+		local track = ply.SurfTrack or 0
+		if not Zones.Find("start", track) then
+			SURF.Chat(ply, acc, "[Zones] ", white, "This map has no start zone to face from yet.")
+			return
+		end
+		local yaw = math.Round(math.NormalizeAngle(ply:EyeAngles().y), 1)
+		Zones.SaveYaw(track, yaw)
+		SURF.Chat(ply, acc, "[Zones] ", white, "Players now face this way in the " .. (track > 0 and ("bonus " .. track) or "main") .. " start. !zone reset undoes it.")
+		return
+	end
 	if ztype == "info" then
 		SURF.Chat(ply, acc, "[Zones] ", white, string.format("%s: %d zones (%s), %d checkpoints, %d bonuses.",
 			game.GetMap(), #Zones.list, Zones.source, Zones.cpCount[0] or 0, #Zones.Bonuses()))
@@ -297,7 +382,8 @@ function Zones.EditCommand(ply, args)
 	if not TYPES[ztype or ""] then
 		SURF.Chat(ply, acc, "[Zones] ", white,
 			"Stand in one corner and type !zone start (or !zone end), then walk to the opposite corner and type it again. "
-			.. "Your zone replaces the ready-made one of the same type. !zone reset goes back, !zone info shows what's loaded.")
+			.. "Your zone replaces the ready-made one of the same type. !zone angle makes players face the way you look in the start. "
+			.. "!zone reset goes back, !zone info shows what's loaded.")
 		return
 	end
 	local pos = ply:GetPos()

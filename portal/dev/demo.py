@@ -198,7 +198,8 @@ def main():
                              "--public-addr", "128.140.7.178:27015", "--ctl", ctl, "--secret-file", secret, "--no-avatars"])
     time.sleep(1.0)
     cookie = session_cookie(secret, OWNER)
-    print(f"demo tree: {root}\nportal:    {base}\nowner cookie: surf_session={cookie}", flush=True)
+    print(f"demo tree: {root}\nportal:    {base}\nloading screen: {base}/loading?steamid={sid(0)}&map=surf_kitsune\n"
+          f"owner cookie: surf_session={cookie}", flush=True)
     try:
         if a.shots:
             rc = subprocess.call(["node", os.path.join(HERE, "screenshots.js"), base, cookie, a.shots])

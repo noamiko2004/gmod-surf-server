@@ -128,6 +128,7 @@ vmeta.__sub = function(a, b) return Vector(a.x - b.x, a.y - b.y, a.z - b.z) end
 vmeta.__div = function(a, n) return Vector(a.x / n, a.y / n, a.z / n) end
 vmeta.__mul = function(a, n) return Vector(a.x * n, a.y * n, a.z * n) end
 function vmeta:Length2D() return math.sqrt(self.x ^ 2 + self.y ^ 2) end
+function vmeta:Length() return math.sqrt(self.x ^ 2 + self.y ^ 2 + self.z ^ 2) end
 vector_origin = Vector(0, 0, 0)
 function Angle(p, y, r) return { p = p, y = y, r = r } end
 function Color(r, g, b, a) return { r = r, g = g, b = b, a = a or 255 } end
@@ -161,7 +162,8 @@ end
 mapEnts = {}      -- entities in the current map: { name, class, min, max }
 anyHook = false   -- pretend every hooked trigger exists
 local function MockEnt(e)
-	return { GetName = function() return e.name end, WorldSpaceAABB = function() return e.min, e.max end }
+	return { GetName = function() return e.name end, WorldSpaceAABB = function() return e.min, e.max end,
+	         GetPos = function() return e.pos or e.min end, GetAngles = function() return Angle(0, e.yaw or 0, 0) end }
 end
 function ents_FindByName(name)
 	local out = {}
@@ -171,8 +173,22 @@ function ents_FindByName(name)
 end
 function ents_FindByClass(pat)
 	local out = {}
-	for _, e in ipairs(mapEnts) do if string.match(e.class, "^trigger_") then out[#out + 1] = MockEnt(e) end end
+	local prefix = string.match(pat, "^(.-)%*$")
+	for _, e in ipairs(mapEnts) do
+		if e.class == pat or (prefix and string.sub(e.class, 1, #prefix) == prefix) then out[#out + 1] = MockEnt(e) end
+	end
 	return out
+end
+-- A straight line through the mock world, stopped by the first solid box
+function util_TraceLine(t)
+	local d, steps = t.endpos - t.start, 512
+	for i = 1, steps do
+		local p = t.start + d * (i / steps)
+		if bit.band(util_PointContents(p), CONTENTS_SOLID) ~= 0 or not util_IsInWorld(p) then
+			return { Fraction = (i - 1) / steps, Hit = true }
+		end
+	end
+	return { Fraction = 1, Hit = false }
 end
 function string.Trim(s) return (s:gsub("^%s+", ""):gsub("%s+$", "")) end
 function string.StartWith(s, p) return s:sub(1, #p) == p end
@@ -193,7 +209,7 @@ net.Broadcast = function() end
 net.Receive = function() end
 util = { AddNetworkString = function() end, JSONToTable = function(s) local ok, t = pcall(py_json_to_table, s) if ok then return t end end,
          TableToJSON = py_table_to_json, SteamIDTo64 = function(s) return "7656" end, SpriteTrail = function() return nil end,
-         IsInWorld = util_IsInWorld, PointContents = util_PointContents }
+         IsInWorld = util_IsInWorld, PointContents = util_PointContents, TraceLine = util_TraceLine }
 sql = { Query = py_sql_query, SQLStr = function(s) return "'" .. tostring(s):gsub("'", "''") .. "'" end,
         LastError = function() return __sql_error end }
 file = { Read = py_file_read, Exists = function(p) return py_file_read(p) ~= nil end, Find = py_file_find,
@@ -266,7 +282,8 @@ function MakePlayer(name, sid)
 	function p:SetLocalVelocity(v) self.vel = v end
 	function p:SetPos(v) self.pos = v end
 	function p:GetPos() return self.pos end
-	function p:SetEyeAngles() end
+	function p:SetEyeAngles(a) self.eye = a end
+	function p:EyeAngles() return self.eye or Angle(0, 0, 0) end
 	function p:SendLua() end
 	function p:GetObserverTarget() return nil end
 	function p:IsAdmin() return false end
@@ -566,6 +583,51 @@ SURF.Zones.Load()
 ''')
 check(Z.source == "map" and "surf_kitsune" not in G.SURF.Zones.KnownBad(), "fits again once the world matches")
 
+# Facing the way the map goes in the start zone
+L.execute('''
+sp = SURF.Zones.StartPos(0)
+local function Spawn(cls, dx, dy, yaw) mapEnts[#mapEnts + 1] = { class = cls, pos = sp + Vector(dx, dy, 0), yaw = yaw } end
+mapEnts = {}
+Spawn("info_player_counterterrorist", 40, 0, 90) Spawn("info_player_counterterrorist", 80, 0, 92) Spawn("info_player_counterterrorist", 120, 0, 88)
+Spawn("info_player_terrorist", 0, 0, -90)
+Spawn("info_player_start", 6000, 0, 0)
+Spawn("trigger_teleport", 0, 0, 180)
+yaw1, how1 = SURF.Zones.FindStartYaw(0)
+solidBoxes = { { sp + Vector(-500, 60, -100), sp + Vector(500, 100, 300) } }
+yaw2, how2 = SURF.Zones.FindStartYaw(0)
+mapEnts = {}
+solidBoxes = {
+	{ sp + Vector(100, -1000, -100), sp + Vector(140, 1000, 300) },
+	{ sp + Vector(-3000, 100, -100), sp + Vector(1000, 140, 300) },
+	{ sp + Vector(-3000, -140, -100), sp + Vector(1000, -100, 300) },
+}
+yaw3, how3 = SURF.Zones.FindStartYaw(0)
+solidBoxes = {}
+Spawn("info_player_counterterrorist", 40, 0, 90)
+SURF.Zones.Load()
+a.eye = nil
+SURF.Timer.GoToStart(a, 0)
+eye1 = a.eye
+''')
+check(G.how1 == "spawn" and G.yaw1 == 90, f"faces the way most spawns near the start face ({G.how1} {G.yaw1})")
+check(G.how2 == "spawn" and G.yaw2 == -90, f"skips spawn angles that look into a wall ({G.how2} {G.yaw2})")
+check(G.how3 == "open" and abs(abs(G.yaw3) - 180) < 0.01, f"without spawns, faces the open way out ({G.how3} {G.yaw3})")
+check(G.eye1 is not None and G.eye1.y == 90 and G.eye1.p == 0, "!r turns the player that way")
+L.execute('''
+a.eye = Angle(10, 45, 0)
+SURF.Zones.EditCommand(a, { "angle" })
+SURF.Zones.Load()
+adminYaw = SURF.Zones.StartYaw(0)
+SURF.Timer.GoToStart(a, 0)
+eye2 = a.eye
+SURF.Zones.ResetToMap()
+resetYaw = SURF.Zones.StartYaw(0)
+mapEnts = {}
+SURF.Zones.Load()
+''')
+check(G.adminYaw == 45 and G.eye2.y == 45, f"!zone angle sets the facing and survives a reload ({G.adminYaw})")
+check(G.resetYaw == 90, f"!zone reset goes back to the map's spawns ({G.resetYaw})")
+
 # Zones that are trigger brushes in the map (SurfTimer "hooked" zones)
 L.execute('''
 mapname = "surf_25_lighters"
@@ -607,6 +669,33 @@ playable = list(G.playable.values())
 check("surf_unknown_map" not in playable and "surf_kitsune" in playable, f"vote pool leaves out maps without zones ({playable})")
 check(G.SURF.MapVote.Tier("surf_kitsune") == 1, f"tier of kitsune is 1 ({G.SURF.MapVote.Tier('surf_kitsune')})")
 check(G.SURF.MapVote.Mapper("surf_kitsune") != "", "mapper known for kitsune")
+
+# Hidden maps: the blocked list from the repo and !hidemap
+vfs["surfline/blocked_maps.txt"] = "surf_lessons  # too weird\n"
+L.execute('''
+chats = {}
+SURF.Commands.Run(b, "hidemap", { "kitsune" })
+notAdmin = file.Read("surfline/hidden_maps.txt", "DATA")
+userIsAdmin = a.IsAdmin
+a.IsAdmin = function() return true end
+SURF.Commands.Run(a, "hidemap", { "mesa" })
+playable2 = SURF.MapVote.Playable()
+info2 = SURF.MapVote.Info(SURF.MapVote.MapList())
+SURF.Commands.Run(a, "unhidemap", {})
+''')
+playable2 = list(G.playable2.values())
+check(G.notAdmin is None, "players who aren't admins can't hide maps")
+check("surf_lessons" not in playable2 and "surf_mesa" not in playable2 and "surf_kitsune" in playable2, f"blocked and hidden maps leave the vote pool ({playable2})")
+check(vfs.get("surfline/hidden_maps.txt") == "surf_mesa\n", "!hidemap saves the map")
+check(any(m["name"] == "surf_mesa" and m["hidden"] for m in G.info2.values()), "map info marks hidden maps")
+check(any("Hidden maps: surf_mesa" in c for c in G.chats.values()), "!unhidemap without a match lists hidden maps")
+L.execute('''
+SURF.Commands.Run(a, "unhidemap", { "mesa" })
+playable3 = SURF.MapVote.Playable()
+a.IsAdmin = userIsAdmin
+''')
+check("surf_mesa" in list(G.playable3.values()) and vfs.get("surfline/hidden_maps.txt") == "", "!unhidemap puts it back")
+del vfs["surfline/blocked_maps.txt"]
 
 # Server records are logged for the portal
 recs = db.execute("select map, name, time, prev_time from surf_records order by id").fetchall()

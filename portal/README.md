@@ -9,6 +9,8 @@ Python 3.10+ (standard library only, no pip, no external JS/CSS/fonts).
   records, a points leaderboard, every map with its record, map pages with
   a leaderboard per track and run style (with sync and max speed), and player
   profiles.
+- **Players joining the game** see `/loading`, the in-game loading screen (see
+  below).
 - **The owner** (any SteamID64 in `OWNER_STEAMIDS`) signs in with Steam and gets
   `/admin`: restart/update the server, kick/ban/VIP live players, broadcast,
   change map, extend, start a vote, search players, delete times, manage bans
@@ -85,11 +87,54 @@ with its 6-day `shortlived` profile, and browsers send no SNI for an IP):
     encode gzip
     reverse_proxy 127.0.0.1:8090
 }
+
+# the in-game loading screen stays on plain HTTP, everything else goes to HTTPS
+http://128.140.7.178 {
+    handle /loading* {
+        reverse_proxy 127.0.0.1:8090
+    }
+    handle {
+        redir https://{host}{uri} permanent
+    }
+}
 ```
 
 The client IP (for rate limits and the audit log) is the last `X-Forwarded-For`
 hop when the direct peer is 127.0.0.1, which is what Caddy sends. The ctl needs
 a sudoers rule such as `gmod ALL=(root) NOPASSWD: /usr/local/sbin/surfline-ctl`.
+
+## In-game loading screen (`/loading`)
+
+The game server sets
+
+```
+sv_loadingurl "http://128.140.7.178/loading?steamid=%s&map=%m"
+```
+
+and GMOD opens it in its embedded browser while a player connects, with `%s`
+replaced by their SteamID64 and `%m` by the map. The page shows the brand and
+server name; the map being loaded (`map`, else status.json) with its tier,
+mapper, bonuses and Normal main-track record; players online / max (only while
+status.json is fresh); "Welcome back, <name>" with title, points, rank and
+their best on the map for a known `steamid`, otherwise a first-time welcome;
+the download progress (status text, progress bar, current file); and a tip
+that changes every 6 s. The background is the map's Workshop preview
+(`maps_report.json` `preview`) under a dark overlay, or a gradient in the
+map's color. Invalid `steamid`/`map` values (including an unreplaced `%s`/`%m`)
+are ignored.
+
+**Plain HTTP on purpose:** some GMOD clients still run Awesomium (about
+Chrome 18), which fails on modern TLS. Caddy passes paths starting with
+`/loading` through on HTTP and redirects everything else to HTTPS, so the page
+only loads `/loading/loading.css`, `/loading/loading.js` and `/loading/logo.svg`
+(root-relative, so they keep the page's scheme) plus Steam CDN images. For the
+same reason it sets and clears no cookies, sends no HSTS, renders completely
+server side, and its JS is ES5 (no `let`, arrow functions, `fetch`...) and its
+CSS has no custom properties, grid or flexbox. The JS only defines GMOD's
+`GameDetails`, `SetFilesTotal`, `SetFilesNeeded`, `DownloadingFile` and
+`SetStatusChanged` (text goes in with `textContent`) and rotates the tips.
+Rate limit: 120 requests a minute per IP; past that a plain version without
+status or database data is served (429).
 
 ## Data contract with the game server
 
@@ -235,7 +280,8 @@ or missing ctl shows a friendly error instead of breaking the page.
 - CSP `default-src 'self'` (no inline scripts or styles), images only from self
   and the Steam hosts above, `frame-ancestors 'none'`, `base-uri 'none'`,
   `form-action 'self' <steam openid origin>`; `nosniff`; `Referrer-Policy:
-  same-origin`.
+  same-origin`. `/loading` has a stricter policy: `default-src 'none'`, scripts
+  and styles from self, images from self, `data:` and the Steam hosts.
 
 ## Files
 
@@ -245,14 +291,16 @@ portal/surfweb/store.py   status.json, SQLite, ranking, map info, logs (all read
 portal/surfweb/auth.py    secret, signed cookies, sessions, CSRF, Steam OpenID
 portal/surfweb/actions.py command validation, cmd files, ctl runner
 portal/surfweb/pages.py   public pages and /api/status
+portal/surfweb/loading.py in-game loading screen (/loading)
 portal/surfweb/admin.py   admin pages
 portal/surfweb/views.py   page layout and shared components
 portal/surfweb/fmt.py     escaping, GMOD JSON coercion, time/date formats, points
 portal/surfweb/conf.py    config.env parser
 portal/surfweb/avatars.py background Steam avatar fetcher (24 h cache in DATA/portal/avatars.json)
-portal/static/            style.css, app.js (live refresh, filters, confirm dialogs), favicon.svg
+portal/static/            style.css, app.js (live refresh, filters, confirm dialogs), favicon.svg,
+                          loading.css + loading.js (loading screen, served under /loading/)
 portal/dev/demo.py        fake server tree with realistic data; runs the portal for local viewing
-portal/dev/screenshots.js Playwright screenshots (desktop 1440, phone 390)
+portal/dev/screenshots.js Playwright screenshots (desktop 1440, phone 390; loading screen 1920x1080 and 1280x720)
 ```
 
 ## Tests and screenshots
@@ -267,7 +315,9 @@ on a free port, and checks every page, escaping, points and ranks, offline
 detection, the full Steam login (owner, non-owner, forged and replayed
 responses), CSRF/Origin, every admin action with good and bad input, the ctl,
 `/api/status`, run styles (key parsing, points, style tabs, tags, deltime keys)
-and strafe stats, including a database from before v4 without the stat columns.
+and strafe stats, including a database from before v4 without the stat columns,
+and the loading screen (params, welcome line, no cookies or HSTS, its CSP, ES5
+JS, rate limit).
 Prints `PASS`/`FAIL` lines and `N failure(s)`; exits 1 on any failure.
 
 Local preview with realistic data, and screenshots (needs Node + Playwright):
@@ -275,4 +325,5 @@ Local preview with realistic data, and screenshots (needs Node + Playwright):
 ```
 python3 portal/dev/demo.py --port 8091            # open http://127.0.0.1:8091 (prints an owner cookie)
 python3 portal/dev/demo.py --shots /tmp/portal-shots
+SHOTS_LOADING=only python3 portal/dev/demo.py --shots /tmp/portal-shots   # just the loading screen
 ```

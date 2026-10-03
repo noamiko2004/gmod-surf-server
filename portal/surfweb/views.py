@@ -180,8 +180,8 @@ def layout(ctx, title, body, page="", description=""):
         flash = (f'<div class="wrap"><div class="flash flash-{kind}" role="status">'
                  f'{icon("check" if kind == "ok" else "shield")}<span>{e(msg)}</span></div></div>')
     footer_links = []
-    if app.conf.https_url("DISCORD_URL"):
-        footer_links.append(f'<a class="btn btn-ghost btn-sm" href="{e(app.conf.https_url("DISCORD_URL"))}" rel="noopener noreferrer">'
+    if app.conf.discord_url:
+        footer_links.append(f'<a class="btn btn-ghost btn-sm" href="{e(app.conf.discord_url)}" rel="noopener noreferrer">'
                             f'{icon("discord")}<span>Discord</span></a>')
     if app.conf.https_url("STORE_URL"):
         footer_links.append(f'<a class="btn btn-ghost btn-sm" href="{e(app.conf.https_url("STORE_URL"))}" rel="noopener noreferrer">'

@@ -44,6 +44,10 @@ For Claude (or anyone) picking up the server for a scheduled update.
   `journalctl -u caddy -n 50` (certificate errors mean ports 80/443 are
   blocked, for example by a Hetzner Cloud firewall).
 - Join, run `!r`, finish a map, `!wr`, `!rtv`, `!spec`, `!trail`.
+- Maps players call weird or broken: `!hidemap <map>` in game, or add them to
+  `maps/blocked_maps.txt` so they stay out on every server; the next update
+  deletes them. If players spawn facing a wall on a map, stand in the start,
+  look the right way and type `!zone angle`.
 - `!zone info` shows where the current map's zones came from (map, triggers,
   admin) and how many stages/bonuses loaded. Maps whose ready-made zones don't
   fit are listed in `garrysmod/data/surfline/bad_zones.txt`.

@@ -1,4 +1,4 @@
--- Small Derma menus opened by the server (!wr, !help, !trail, !maps, !style, !vip)
+-- Small Derma menus opened by the server (!wr, !help, !trail, !maps, !style, !graphics, !vip)
 local Menus = {}
 
 local function Frame(title, w, h)
@@ -123,6 +123,37 @@ function Menus.styles(data)
 			f:Close()
 		end
 	end
+end
+
+function Menus.graphics()
+	local V = SURF.Visuals
+	local f = Frame("Graphics", 460, 330)
+	local scroll = vgui.Create("DScrollPanel", f)
+	scroll:Dock(FILL)
+	scroll:DockMargin(0, 12, 0, 0)
+	local function Row(title, help, right, active, click)
+		local b = scroll:Add("DButton")
+		b:Dock(TOP)
+		b:DockMargin(0, 0, 0, 6)
+		b:SetTall(44)
+		b:SetText("")
+		b.Paint = function(self, w, h)
+			local acc = SURF.Config.Accent
+			local on = active()
+			local bg = on and Color(acc.r, acc.g, acc.b, 50) or (self:IsHovered() and Color(255, 255, 255, 20) or Color(255, 255, 255, 8))
+			draw.RoundedBox(6, 0, 0, w, h, bg)
+			draw.SimpleText(title, "SurfMedium", 12, 14, color_white, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
+			draw.SimpleText(help, "SurfSmall", 12, 32, Color(170, 180, 195), TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
+			draw.SimpleText(right(), "SurfSmall", w - 12, h / 2, on and acc or Color(170, 180, 195), TEXT_ALIGN_RIGHT, TEXT_ALIGN_CENTER)
+		end
+		b.DoClick = click
+	end
+	for _, p in ipairs(V.Presets) do
+		Row(p.name, p.help, function() return V.Current() == p and "on" or "" end, function() return V.Current() == p end,
+			function() V.SetPreset(p.id) end)
+	end
+	Row("Glowing zones", "Start and end zones glow, with labels over them.",
+		function() return V.ZonesOn() and "on" or "off" end, V.ZonesOn, V.ToggleZones)
 end
 
 function Menus.vip(data)

@@ -294,6 +294,11 @@ def main():
     zones_dir = os.path.join(args.repo, "zones")
     zoned = {f[:-5] for f in os.listdir(zones_dir) if f.endswith(".json")}
     wanted = zoned | set(read_list(os.path.join(args.repo, "maps", "extra_maps.txt")))
+    # Maps we never want: maps/blocked_maps.txt and the ones admins hid in game (!hidemap)
+    data_dir = os.path.join(args.garrysmod, "data", "surfline")
+    blocked = set(read_list(os.path.join(args.repo, "maps", "blocked_maps.txt"))) | \
+        set(read_list(os.path.join(data_dir, "hidden_maps.txt")))
+    wanted -= blocked
     tiers = read_tiers(os.path.join(zones_dir, "tiers.txt"))
     preferred_ids, pool_ids = read_sources(os.path.join(args.repo, "maps", "sources.txt"))
     sources = list(dict.fromkeys(preferred_ids + pool_ids))
@@ -312,6 +317,17 @@ def main():
     state_path = os.path.join(args.workdir, "installed.json")
     state = json.load(open(state_path)) if os.path.exists(state_path) else {}
     content_dir = os.path.join(args.workdir, "steamapps", "workshop", "content", str(GMOD_APPID))
+    removed = False
+    for info in state.values():
+        for m in [m for m in info.get("maps", []) if m in blocked]:
+            bsp = os.path.join(args.garrysmod, "maps", m + ".bsp")
+            if os.path.exists(bsp):
+                os.remove(bsp)
+                log(f"removed blocked map {m}")
+            info["maps"].remove(m)
+            removed = True
+    if removed:
+        json.dump(state, open(state_path, "w"), indent=1)
     installed_maps = {m for info in state.values() for m in info.get("maps", [])
                       if os.path.exists(os.path.join(args.garrysmod, "maps", m + ".bsp"))}
 
@@ -379,7 +395,6 @@ def main():
                 d = details.get(fid, {})
                 report.append({"map": m, "wsid": fid, "title": info.get("title") or d.get("title") or "",
                                "zoned": m in zoned, "tier": tiers.get(m, 0), "preview": d.get("preview_url") or ""})
-    data_dir = os.path.join(args.garrysmod, "data", "surfline")
     os.makedirs(data_dir, exist_ok=True)
     with open(os.path.join(data_dir, "map_ws.txt"), "w") as f:
         f.write("\n".join(sorted(lines)) + "\n")

@@ -232,6 +232,9 @@ function T.GoToStart(ply, track)
 	if ply:GetMoveType() == MOVETYPE_NOCLIP then ply:SetMoveType(MOVETYPE_WALK) end
 	ply:SetPos(pos)
 	ply:SetLocalVelocity(vector_origin)
+	-- Face the way the map goes
+	local yaw = SURF.Zones.StartYaw(track)
+	if yaw then ply:SetEyeAngles(Angle(0, yaw, 0)) end
 	T.Reset(ply)
 	T.SetTrack(ply, track)
 	-- Already inside the start trigger, so StartTouch may not fire again

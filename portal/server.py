@@ -22,7 +22,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
-from surfweb import admin, pages, views  # noqa: E402
+from surfweb import admin, loading, pages, views  # noqa: E402
 from surfweb.actions import Invalid, describe, run_ctl, validate, write_command  # noqa: E402
 from surfweb.auth import (FLASH_COOKIE, NEXT_COOKIE, SESSION_COOKIE, SESSION_TTL, Auth, load_secret,  # noqa: E402
                           origin_of, safe_next)
@@ -37,7 +37,9 @@ STATIC_TYPES = {".css": "text/css; charset=utf-8", ".js": "text/javascript; char
 IMG_HOSTS = ["https://*.steamstatic.com", "https://steamcdn-a.akamaihd.net",
              "https://images.steamusercontent.com", "https://steamuserimages-a.akamaihd.net"]
 MAX_BODY = 65536
-LIMITS = {"post": (60, 60), "login": (20, 60)}  # bucket -> (requests, seconds) per client IP
+LIMITS = {"post": (60, 60), "login": (20, 60), "loading": (120, 60)}  # bucket -> (requests, seconds) per client IP
+# /loading/<name> -> file in static/ (the in-game loading screen only loads files under /loading, see surfweb/loading.py)
+LOADING_FILES = {"loading.css": "loading.css", "loading.js": "loading.js", "logo.svg": "favicon.svg"}
 
 
 # ---------------------------------------------------------------------- settings
@@ -131,6 +133,10 @@ class App:
         self.csp = ("default-src 'self'; script-src 'self'; style-src 'self'; "
                     f"img-src 'self' data: {' '.join(IMG_HOSTS)}; connect-src 'self'; font-src 'self'; "
                     f"object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self' {steam_origin}")
+        # the loading screen (plain HTTP inside GMOD): own scripts/styles, Steam images, nothing else
+        self.loading_csp = ("default-src 'none'; script-src 'self'; style-src 'self'; "
+                            f"img-src 'self' data: {' '.join(IMG_HOSTS)}; object-src 'none'; frame-ancestors 'none'; "
+                            "base-uri 'none'; form-action 'none'")
 
     def static_file(self, name):
         path = os.path.join(STATIC_DIR, name)
@@ -152,15 +158,22 @@ class App:
         ent = self.static_file(name)
         return f"/static/{name}?v={ent[2]}" if ent else f"/static/{name}"
 
+    def loading_url(self, name):
+        """Root-relative URL of a loading screen file, so it keeps the page's scheme (plain HTTP in GMOD)."""
+        ent = self.static_file(LOADING_FILES[name])
+        return f"/loading/{name}?v={ent[2]}" if ent else f"/loading/{name}"
+
 
 # ---------------------------------------------------------------------- request plumbing
 
 class Resp:
-    def __init__(self, status=200, body=b"", ctype="text/html; charset=utf-8", headers=None):
+    def __init__(self, status=200, body=b"", ctype="text/html; charset=utf-8", headers=None, csp=None, cookieless=False):
         self.status = status
         self.body = body.encode("utf-8") if isinstance(body, str) else body
         self.ctype = ctype
         self.headers = list(headers or [])
+        self.csp = csp  # None: the app's default policy
+        self.cookieless = cookieless  # never send Set-Cookie (the loading screen)
 
     def cookie(self, value):
         self.headers.append(("Set-Cookie", value))
@@ -300,6 +313,27 @@ def r_favicon(ctx):
     return r_static(ctx, "favicon.svg")
 
 
+def r_loading(ctx):
+    """In-game loading screen (sv_loadingurl). Public, cookieless, served on plain HTTP too."""
+    sid, mapname = loading.params(ctx.query)
+    light = not ctx.app.limiter.allow("loading", ctx.ip)  # over the limit: a page without status or DB reads
+    try:
+        body = loading.page(ctx, sid, mapname, light=light)
+    except Exception:  # every joining player sees this page: fall back to the plain version, never an error page
+        traceback.print_exc()
+        body = loading.page(ctx, light=True)
+    return Resp(429 if light else 200, body, csp=ctx.app.loading_csp, cookieless=True)
+
+
+def r_loading_file(ctx, name):
+    ent = ctx.app.static_file(LOADING_FILES[name]) if name in LOADING_FILES else None
+    if not ent:
+        return Resp(404, "Not found\n", "text/plain; charset=utf-8", csp=ctx.app.loading_csp, cookieless=True)
+    cache = "public, max-age=31536000, immutable" if ctx.query.get("v") else "public, max-age=300"
+    return Resp(200, ent[1], STATIC_TYPES[os.path.splitext(name)[1]], [("Cache-Control", cache)],
+                csp=ctx.app.loading_csp, cookieless=True)
+
+
 def r_login(ctx):
     if not ctx.app.limiter.allow("login", ctx.ip):
         return ctx.error(429, "Slow down", "Too many sign-in attempts. Wait a minute and try again.")
@@ -427,6 +461,8 @@ GET_ROUTES = [
     (re.compile(r"^/robots\.txt$"), r_robots),
     (re.compile(r"^/favicon\.ico$"), r_favicon),
     (re.compile(r"^/static/([^/]{1,64})$"), r_static),
+    (re.compile(r"^/loading$"), r_loading),
+    (re.compile(r"^/loading/([^/]{1,64})$"), r_loading_file),
     (re.compile(r"^/login$"), r_login),
     (re.compile(r"^/auth/steam$"), r_auth),
     (re.compile(r"^/admin/?$"), r_admin),
@@ -452,7 +488,7 @@ class Handler(BaseHTTPRequestHandler):
     def log_request(self, code="-", size="-"):
         # the live page polls /api/status every 5 s; keep the journal readable
         path = (self.path or "").split("?")[0]
-        if str(code).startswith(("2", "3")) and (path == "/api/status" or path.startswith("/static/") or path == "/healthz"):
+        if str(code).startswith(("2", "3")) and (path == "/api/status" or path.startswith(("/static/", "/loading/")) or path == "/healthz"):
             return
         super().log_request(code, size)
 
@@ -502,7 +538,7 @@ class Handler(BaseHTTPRequestHandler):
                         resp = ctx.error(405, "Method not allowed", "Use the buttons on the site for this.")
                     else:
                         resp = ctx.error(404, "Page not found", "That page does not exist. It may have moved.")
-            if ctx.clear_flash and resp.status == 200 and resp.ctype.startswith("text/html"):
+            if ctx.clear_flash and not resp.cookieless and resp.status == 200 and resp.ctype.startswith("text/html"):
                 resp.cookie(app.auth.cookie(FLASH_COOKIE, "", 0))
         except Exception:
             traceback.print_exc()
@@ -543,7 +579,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(resp.status)
             self.send_header("Content-Type", resp.ctype)
             self.send_header("Content-Length", str(len(resp.body)))
-            self.send_header("Content-Security-Policy", self.app.csp)
+            self.send_header("Content-Security-Policy", resp.csp or self.app.csp)
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("Referrer-Policy", "same-origin")
             self.send_header("X-Frame-Options", "DENY")
@@ -551,6 +587,8 @@ class Handler(BaseHTTPRequestHandler):
             if not any(k == "Cache-Control" for k, _ in resp.headers):
                 self.send_header("Cache-Control", "no-store")
             for k, v in resp.headers:
+                if resp.cookieless and k.lower() == "set-cookie":
+                    continue
                 self.send_header(k, v)
             if self.close_connection:
                 self.send_header("Connection", "close")
