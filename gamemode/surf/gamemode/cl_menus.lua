@@ -1,4 +1,4 @@
--- Small Derma menus opened by the server (!wr, !help, !trail, !maps, !style, !graphics, !vip)
+-- Small Derma menus opened by the server (!wr, !help, !shop, !maps, !style, !graphics, !vip)
 local Menus = {}
 
 local function Frame(title, w, h)
@@ -51,7 +51,7 @@ function Menus.help(data)
 	for _, c in ipairs(data.cmds or {}) do
 		l:AddLine(c.cmd, (c.admin and "[Admin] " or "") .. c.help)
 	end
-	l:AddLine("F1 / F2 / F3 / F4", "Help / Records / Trails / Spectate")
+	l:AddLine("F1 / F2 / F3 / F4", "Help / Records / Shop / Spectate")
 end
 
 function Menus.maps(data)
@@ -67,35 +67,188 @@ function Menus.maps(data)
 	end
 end
 
-function Menus.trails()
-	local f = Frame("Trails", 420, 480)
-	local scroll = vgui.Create("DScrollPanel", f)
-	scroll:Dock(FILL)
-	scroll:DockMargin(0, 12, 0, 0)
-	local isVIP = SURF.IsVIP(LocalPlayer())
-	for _, t in ipairs(SURF.Config.Trails) do
-		local b = scroll:Add("DButton")
-		b:Dock(TOP)
-		b:DockMargin(0, 0, 0, 6)
+-- Shop (!shop, !trail, F3): one tab per category, plus VIP. A price click
+-- asks once more before buying; clicking what you have on takes it off.
+local GOLD = Color(255, 200, 40)
+local DIM = Color(170, 180, 195)
+local shopFrame
+
+local function VIPText(data)
+	local status
+	if data.vip then
+		status = "You are a VIP" .. ((data.expires and data.expires > 0) and (" until " .. os.date("%Y-%m-%d", data.expires)) or "") .. ". Thank you!"
+	else
+		status = "VIP is purely cosmetic and never affects your times."
+	end
+	local bonus = data.rates and data.rates.VIPBonus or 0.5
+	return status .. "\n\nPerks: VIP trails, chat tag and name color, a gold [VIP] chat tag and a gold name on the scoreboard, and "
+		.. math.floor(bonus * 100) .. "% more coins for the shop.\n\nEvery purchase helps keep the server online."
+end
+
+local function VIPPanel(parent, data)
+	local txt = vgui.Create("DLabel", parent)
+	txt:Dock(FILL)
+	txt:DockMargin(4, 12, 4, 4)
+	txt:SetFont("SurfMedium")
+	txt:SetWrap(true)
+	txt:SetContentAlignment(7)
+	txt:SetText(VIPText(data))
+	if data.url and data.url ~= "" then
+		local b = vgui.Create("DButton", parent)
+		b:Dock(BOTTOM)
 		b:SetTall(36)
-		b:SetText("")
-		local locked = t.vip and not isVIP
-		b.Paint = function(self, w, h)
-			local bg = self:IsHovered() and Color(255, 255, 255, 20) or Color(255, 255, 255, 8)
-			draw.RoundedBox(6, 0, 0, w, h, bg)
-			if t.color then draw.RoundedBox(4, 10, 10, 16, 16, t.color) end
-			draw.SimpleText(t.name, "SurfMedium", 36, h / 2, locked and Color(140, 140, 140) or color_white, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
-			if t.vip then
-				draw.SimpleText(locked and "VIP (locked)" or "VIP", "SurfSmall", w - 12, h / 2, Color(255, 200, 40), TEXT_ALIGN_RIGHT, TEXT_ALIGN_CENTER)
-			end
-		end
-		b.DoClick = function()
-			net.Start("surf.SetTrail")
-			net.WriteString(t.id)
+		b:SetText("Open the store")
+		b.DoClick = function() gui.OpenURL(data.url) end
+	end
+end
+
+local function ItemRow(scroll, it, data, owned)
+	local b = scroll:Add("DButton")
+	b:Dock(TOP)
+	b:DockMargin(0, 0, 0, 6)
+	b:SetTall(46)
+	b:SetText("")
+	local on = (data.equipped or {})[it.cat] == it.id
+	local have = SURF.ItemFree(it) or owned[it.key] or (it.vip and data.vip)
+	local textX = 12
+	if it.cat == "trail" or it.cat == "color" then textX = 38 end
+	if it.cat == "sound" then
+		textX = 54
+		local play = vgui.Create("DButton", b)
+		play:SetPos(8, 9)
+		play:SetSize(38, 28)
+		play:SetText("Play")
+		play:SetFont("SurfSmall")
+		play.DoClick = function() surface.PlaySound(it.sound) end
+	end
+	b.Paint = function(self, w, h)
+		local acc = SURF.Config.Accent
+		local bg = on and Color(acc.r, acc.g, acc.b, 50) or (self:IsHovered() and Color(255, 255, 255, 20) or Color(255, 255, 255, 8))
+		draw.RoundedBox(6, 0, 0, w, h, bg)
+		if it.cat == "trail" or it.cat == "color" then draw.RoundedBox(4, 12, 15, 16, 16, SURF.ItemColor(it)) end
+		local title, tcol = it.name, color_white
+		if it.cat == "tag" then title, tcol = "[" .. it.name .. "]", it.color end
+		if it.cat == "color" then tcol = SURF.ItemColor(it) end
+		draw.SimpleText(title, "SurfMedium", textX, 14, tcol, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
+		local sub
+		if on then sub = "On. Click to take it off."
+		elseif have then sub = SURF.ItemFree(it) and "Free" or (it.vip and not owned[it.key] and "VIP item" or "Yours")
+		elseif it.price then sub = it.vip and "Buy it with coins, or free with VIP" or "Buy it with coins"
+		else sub = "VIP only" end
+		if it.cat == "color" then sub = sub .. "  |  " .. LocalPlayer():Nick() end
+		draw.SimpleText(sub, "SurfSmall", textX, 32, DIM, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
+		local right, rcol
+		if on then right, rcol = "ON", acc
+		elseif have then right, rcol = "Equip", color_white
+		elseif it.price and self.armed and self.armed > CurTime() then right, rcol = "Buy for " .. it.price .. "?", GOLD
+		elseif it.price then right, rcol = it.price .. " coins", (data.coins or 0) >= it.price and GOLD or Color(140, 140, 140)
+		else right, rcol = "VIP", GOLD end
+		draw.SimpleText(right, "SurfMedium", w - 14, h / 2, rcol, TEXT_ALIGN_RIGHT, TEXT_ALIGN_CENTER)
+	end
+	b.DoClick = function(self)
+		if on or have then
+			net.Start("surf.ShopEquip")
+			net.WriteString(it.cat)
+			net.WriteString(on and "none" or it.id)
 			net.SendToServer()
-			f:Close()
+		elseif it.price then
+			if (data.coins or 0) < it.price then
+				chat.AddText(GOLD, "[Shop] ", color_white, it.name .. " costs " .. it.price .. " coins and you have " .. (data.coins or 0) .. ". Finish maps to earn more.")
+			elseif self.armed and self.armed > CurTime() then
+				self.armed = nil
+				net.Start("surf.ShopBuy")
+				net.WriteString(it.key)
+				net.SendToServer()
+			else
+				self.armed = CurTime() + 3
+			end
+		else
+			RunConsoleCommand("say", "!vip")
 		end
 	end
+end
+
+local function BuildShop(f, data)
+	f:Clear()
+	f.data = data
+	local owned = {}
+	for _, k in ipairs(data.owned or {}) do owned[k] = true end
+
+	local tabs = vgui.Create("DPanel", f)
+	tabs:Dock(TOP)
+	tabs:DockMargin(0, 12, 0, 8)
+	tabs:SetTall(32)
+	tabs.Paint = nil
+	local list = {}
+	for _, c in ipairs(SURF.ShopCategories) do list[#list + 1] = { id = c.id, name = c.name } end
+	list[#list + 1] = { id = "vip", name = "VIP" }
+	for _, t in ipairs(list) do
+		local tb = vgui.Create("DButton", tabs)
+		tb:Dock(LEFT)
+		tb:DockMargin(0, 0, 6, 0)
+		tb:SetText("")
+		surface.SetFont("SurfMedium")
+		tb:SetWide(surface.GetTextSize(t.name) + 24)
+		tb.Paint = function(self, w, h)
+			local acc = SURF.Config.Accent
+			local cur = f.tab == t.id
+			draw.RoundedBox(6, 0, 0, w, h, cur and Color(acc.r, acc.g, acc.b, 70) or (self:IsHovered() and Color(255, 255, 255, 20) or Color(255, 255, 255, 8)))
+			draw.SimpleText(t.name, "SurfMedium", w / 2, h / 2, t.id == "vip" and GOLD or color_white, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+		end
+		tb.DoClick = function()
+			f.tab = t.id
+			BuildShop(f, f.data)
+		end
+	end
+
+	local foot = vgui.Create("DLabel", f)
+	foot:Dock(BOTTOM)
+	foot:DockMargin(2, 6, 2, 0)
+	foot:SetFont("SurfSmall")
+	foot:SetTextColor(DIM)
+	foot:SetText("Earn coins by finishing maps, beating your best and playing. Type !coins for details.")
+
+	local body = vgui.Create("DPanel", f)
+	body:Dock(FILL)
+	body.Paint = nil
+	if f.tab == "vip" then return VIPPanel(body, data) end
+	local scroll = vgui.Create("DScrollPanel", body)
+	scroll:Dock(FILL)
+	for _, c in ipairs(SURF.ShopCategories) do
+		if c.id == f.tab then
+			for _, it in ipairs(c.list) do
+				if it.id ~= "none" then ItemRow(scroll, it, data, owned) end
+			end
+		end
+	end
+end
+
+function Menus.shop(data)
+	if data.refresh and not IsValid(shopFrame) then return end
+	if not IsValid(shopFrame) then
+		shopFrame = Frame("Shop", 640, 560)
+		local paint = shopFrame.Paint
+		shopFrame.Paint = function(self, pw, ph)
+			paint(self, pw, ph)
+			draw.SimpleText(string.Comma(self.data and self.data.coins or 0) .. " coins", "SurfLarge", pw - 44, 18, GOLD, TEXT_ALIGN_RIGHT, TEXT_ALIGN_CENTER)
+		end
+		shopFrame.tab = data.tab or "trail"
+	elseif not data.refresh then
+		shopFrame.tab = data.tab or shopFrame.tab
+	end
+	-- Rebuild the frame's own content but keep its close button
+	local close = shopFrame.btnClose
+	for _, child in ipairs(shopFrame:GetChildren()) do
+		if child ~= close and child ~= shopFrame.btnMaxim and child ~= shopFrame.btnMinim and child ~= shopFrame.lblTitle then child:Remove() end
+	end
+	local holder = vgui.Create("DPanel", shopFrame)
+	holder:Dock(FILL)
+	holder.Paint = nil
+	holder.tab = shopFrame.tab
+	BuildShop(holder, data)
+	shopFrame.data = data
+	-- remember the tab when it changes inside the holder
+	holder.Think = function(self) shopFrame.tab = self.tab end
 end
 
 function Menus.styles(data)
@@ -159,27 +312,7 @@ function Menus.graphics()
 end
 
 function Menus.vip(data)
-	local f = Frame("VIP", 460, 300)
-	local txt = vgui.Create("DLabel", f)
-	txt:Dock(FILL)
-	txt:DockMargin(4, 12, 4, 4)
-	txt:SetFont("SurfMedium")
-	txt:SetWrap(true)
-	txt:SetContentAlignment(7)
-	local status
-	if data.vip then
-		status = "You are a VIP" .. ((data.expires and data.expires > 0) and (" until " .. os.date("%Y-%m-%d", data.expires)) or "") .. ". Thank you!"
-	else
-		status = "VIP is purely cosmetic and never affects your times."
-	end
-	txt:SetText(status .. "\n\nPerks: exclusive trails, a gold [VIP] chat tag and a gold name on the scoreboard.\n\nEvery purchase helps keep the server online.")
-	if data.url and data.url ~= "" then
-		local b = vgui.Create("DButton", f)
-		b:Dock(BOTTOM)
-		b:SetTall(36)
-		b:SetText("Open the store")
-		b.DoClick = function() gui.OpenURL(data.url) end
-	end
+	VIPPanel(Frame("VIP", 460, 300), data)
 end
 
 net.Receive("surf.Menu", function()

@@ -51,6 +51,31 @@ def sid(i):
     return str(76561198000000100 + i)
 
 
+def shop_catalog():
+    """The catalog the game writes to portal/shop.json, read from sh_config.lua (simple items only)."""
+    import re
+    cfg = open(os.path.join(PORTAL, "..", "gamemode", "surf", "gamemode", "sh_config.lua")).read()
+    cats = []
+    for cid, name, block in (("trail", "Trails", "Trails"), ("tag", "Chat tags", "ChatTags"),
+                             ("color", "Name colors", "NameColors"), ("sound", "Finish sounds", "FinishSounds")):
+        body = re.search(r"\t" + block + r" = \{(.*?)\n\t\},", cfg, re.S).group(1)
+        items = []
+        for line in re.findall(r"\{ id = .*\}", body):
+            iid = re.search(r'id = "(\w+)"', line).group(1)
+            if iid == "none":
+                continue
+            col = re.search(r"Color\((\d+), (\d+), (\d+)\)", line)
+            price = re.search(r"price = (\d+)", line)
+            items.append({"id": iid, "name": re.search(r'name = "([^"]+)"', line).group(1),
+                          "price": int(price.group(1)) if price else 0, "vip": "vip = true" in line,
+                          "rainbow": "rainbow = true" in line,
+                          "color": "#%02x%02x%02x" % tuple(int(x) for x in col.groups()) if col else None})
+        cats.append({"id": cid, "name": name, "items": items})
+    coins = {"FirstFinish": 50, "PerTier": 25, "Improved": 15, "Record": 100, "Repeat": 5, "RepeatPerDay": 30,
+             "Daily": 25, "Playtime": 2, "VIPBonus": 0.5}
+    return {"updated": int(time.time()), "coins": coins, "categories": cats}
+
+
 def build(root):
     rnd = random.Random(7)
     repo = os.path.join(root, "repo")
@@ -138,6 +163,22 @@ def build(root):
     db.execute("INSERT INTO surf_bans VALUES (?,?,?,?,?,?)", ("76561198000099999", "cheater_x", "Speedhack in surf_mesa", OWNER, now - 86400 * 2, 0))
     db.execute("INSERT INTO surf_bans VALUES (?,?,?,?,?,?)", ("76561198000099998", "spammer", "Mic spam after warnings", OWNER, now - 3600, now + 86400))
     db.execute("INSERT INTO surf_zones VALUES ('surf_sandtrap','start',0,0,0,1,1,1)")
+    # v5 shop: the owner's coins and items, and the catalog the game writes
+    db.executescript("""
+    CREATE TABLE surf_coins(steamid TEXT PRIMARY KEY, coins INTEGER, earned INTEGER, daily INTEGER, rep_day INTEGER, repeats INTEGER);
+    CREATE TABLE surf_items(steamid TEXT, item TEXT, source TEXT, date INTEGER);
+    CREATE TABLE surf_equipped(steamid TEXT, slot TEXT, item TEXT);
+    CREATE TABLE surf_coin_log(id INTEGER PRIMARY KEY AUTOINCREMENT, steamid TEXT, amount INTEGER, reason TEXT, date INTEGER);
+    """)
+    db.execute("INSERT INTO surf_coins VALUES (?, 1460, 3060, 0, 0, 0)", (OWNER,))
+    for item in ("trail:gold", "tag:wave", "color:sky"):
+        db.execute("INSERT INTO surf_items VALUES (?,?,'coins',?)", (OWNER, item, now - 86400))
+    db.executemany("INSERT INTO surf_equipped VALUES (?,?,?)", [(OWNER, "tag", "wave"), (OWNER, "color", "sky")])
+    for amount, reason, ago in [(25, "daily visit, spend coins in !shop", 7200), (-800, "bought trail:gold", 6000),
+                                (75, "first finish on surf_kitsune", 5000), (15, "new personal best", 3000),
+                                (100, "new personal best + server record", 1200), (5, "finished surf_mesa", 300)]:
+        db.execute("INSERT INTO surf_coin_log(steamid, amount, reason, date) VALUES (?,?,?,?)", (OWNER, amount, reason, now - ago))
+    json.dump(shop_catalog(), open(os.path.join(data, "portal", "shop.json"), "w"))
     db.commit()
     db.close()
     ctl = os.path.join(root, "fakectl.sh")

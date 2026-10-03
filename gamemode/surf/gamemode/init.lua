@@ -25,6 +25,7 @@ include("sv_social.lua")
 include("sv_discord.lua")
 include("sv_discord_bridge.lua")
 include("sv_commands.lua")
+include("sv_shop.lua")
 include("sv_portal.lua")
 
 -- Make clients download the current map's workshop addon and any extras
@@ -88,6 +89,7 @@ function GM:PlayerInitialSpawn(ply)
 	if IsOwner(ply) and not ply:IsSuperAdmin() then ply:SetUserGroup("superadmin") end
 	ply:SetNW2Int("surf_state", SURF.STATE_IDLE)
 	SURF.DB.LoadPlayer(ply)
+	SURF.Shop.Load(ply)
 	SURF.Timer.SetTrack(ply, 0, true)
 	SURF.Ranks.Apply(ply)
 end

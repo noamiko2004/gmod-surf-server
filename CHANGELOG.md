@@ -1,5 +1,25 @@
 # Changelog
 
+## 2026-10-03 (v5)
+- Coins and a cosmetic shop (`sv_shop.lua`, `!shop`, `!coins`, F3). Coins come
+  from a first finish on a map (50 + 25 per tier), personal bests (15), server
+  records (100), repeat finishes (5, 30 a day), a daily visit (25) and every 5
+  minutes of active surfing (2); bonuses and styles pay half like points, VIPs
+  earn 50% more. They are separate from rank points.
+- 38 items: trails (red, green, pink, orange, plasma, beam, tube; red, green,
+  gold and purple stay free for VIPs), chat tags shown after the title, name
+  colors in chat and on the scoreboard (Rainbow too), and finish sounds. A
+  price click asks once more before buying. VIP-only items: Electric, Love and
+  Smoke trails, the Supporter tag and Royal Gold name.
+- New tables surf_coins, surf_items, surf_equipped and surf_coin_log. Console
+  `surf_givecoins`, `surf_giveitem`, `surf_removeitem`; portal commands
+  givecoins, giveitem, removeitem (admin player page).
+- Website: a Shop page with the catalog (from `data/surfline/portal/shop.json`,
+  written by the game), how to earn coins, VIP, and your own coins, items and
+  recent coin changes when signed in.
+- Tebex: set `TEBEX_SECRET` and the portal hands out VIP, coin packs and items
+  bought in the store (README, "Selling VIP with Tebex").
+
 ## 2026-10-03 (v4.4)
 - Chat hints (cl_chat.lua): typing `!` or `/` shows the matching commands with
   their help above the chat box; Tab completes and cycles. The server sends

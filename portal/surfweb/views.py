@@ -148,11 +148,11 @@ def logo_img(app):
     return f'<img class="logo-mark" src="{app.static_url("favicon.svg")}" alt="" width="32" height="32">'
 
 
-def layout(ctx, title, body, page="", description=""):
+def layout(ctx, title, body, page="", description="", head=""):
     app = ctx.app
     brand = app.conf.brand
     path = ctx.path
-    nav = [("/", "Home"), ("/leaderboard", "Leaderboard"), ("/maps", "Maps")]
+    nav = [("/", "Home"), ("/leaderboard", "Leaderboard"), ("/maps", "Maps"), ("/shop", "Shop")]
     if ctx.is_admin:
         nav.append(("/admin", "Admin"))
 
@@ -204,6 +204,7 @@ def layout(ctx, title, body, page="", description=""):
 <link rel="icon" href="{app.static_url("favicon.svg")}" type="image/svg+xml">
 <link rel="stylesheet" href="{app.static_url("style.css")}">
 <script src="{app.static_url("app.js")}" defer></script>
+{head}
 </head>
 <body class="pg-{e(page)}">
 <a class="skip" href="#main">Skip to content</a>

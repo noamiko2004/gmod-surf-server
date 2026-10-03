@@ -62,8 +62,11 @@ local function Build()
 					draw.SimpleText("[REPLAY] " .. p:GetNW2String("surf_replay_name", "?"), "SurfMedium", 50, rh / 2, GOLD, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
 					draw.SimpleText("Server record", "SurfMedium", rw - 390, rh / 2, GOLD, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
 				else
-					local nameCol = SURF.IsVIP(p) and Color(255, 220, 120) or color_white
+					local nc = SURF.NameColorOf(p)
+					local nameCol = nc and SURF.ItemColor(nc) or (SURF.IsVIP(p) and Color(255, 220, 120) or color_white)
 					local tag = p:IsAdmin() and "[ADMIN] " or (SURF.IsVIP(p) and "[VIP] " or "")
+					local ct = SURF.ChatTagOf(p)
+					if ct then tag = tag .. "[" .. ct.name .. "] " end
 					if p:Team() == TEAM_SPECTATOR then tag = tag .. "(spec) " end
 					local style = SURF.StyleOf(p)
 					draw.SimpleText(tag .. p:Nick() .. (style.id ~= "n" and ("  [" .. style.short .. "]") or ""), "SurfMedium", 50, rh / 2, nameCol, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)

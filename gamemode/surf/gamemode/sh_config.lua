@@ -29,18 +29,74 @@ SURF.Config = {
 	-- texture pack). Map addons are added automatically for the current map.
 	ClientWorkshop = {},
 
-	-- Trails. vip = true means VIP only. Materials ship with GMOD.
+	-- Trails (!shop or !trail). No price and no vip = free for everyone,
+	-- price = bought with coins, vip = true = free for VIPs (VIP only when
+	-- there is no price). The ids are saved in the database, so don't rename
+	-- them. Materials ship with GMOD.
 	Trails = {
 		{ id = "none", name = "No trail" },
 		{ id = "white", name = "White Laser", mat = "trails/laser", color = Color(255, 255, 255) },
 		{ id = "blue", name = "Blue Laser", mat = "trails/laser", color = Color(0, 160, 255) },
-		{ id = "red", name = "Red Laser", mat = "trails/laser", color = Color(255, 60, 60), vip = true },
-		{ id = "green", name = "Green Laser", mat = "trails/laser", color = Color(60, 255, 90), vip = true },
-		{ id = "gold", name = "Gold Plasma", mat = "trails/plasma", color = Color(255, 200, 40), vip = true },
-		{ id = "purple", name = "Purple Plasma", mat = "trails/plasma", color = Color(180, 80, 255), vip = true },
+		{ id = "red", name = "Red Laser", mat = "trails/laser", color = Color(255, 60, 60), price = 300, vip = true },
+		{ id = "green", name = "Green Laser", mat = "trails/laser", color = Color(60, 255, 90), price = 300, vip = true },
+		{ id = "pink", name = "Pink Laser", mat = "trails/laser", color = Color(255, 110, 200), price = 300 },
+		{ id = "orange", name = "Orange Laser", mat = "trails/laser", color = Color(255, 150, 40), price = 300 },
+		{ id = "gold", name = "Gold Plasma", mat = "trails/plasma", color = Color(255, 200, 40), price = 800, vip = true },
+		{ id = "purple", name = "Purple Plasma", mat = "trails/plasma", color = Color(180, 80, 255), price = 800, vip = true },
+		{ id = "cyan", name = "Cyan Plasma", mat = "trails/plasma", color = Color(40, 230, 255), price = 800 },
+		{ id = "beam", name = "Physics Beam", mat = "trails/physbeam", color = Color(255, 255, 255), price = 1200 },
+		{ id = "tube", name = "Tube", mat = "trails/tube", color = Color(140, 200, 255), price = 1200 },
 		{ id = "electric", name = "Electric", mat = "trails/electric", color = Color(255, 255, 255), vip = true },
 		{ id = "love", name = "Love", mat = "trails/love", color = Color(255, 255, 255), vip = true },
 		{ id = "smoke", name = "Smoke", mat = "trails/smoke", color = Color(255, 255, 255), vip = true },
+	},
+
+	-- Shop items besides trails, same price/vip rules. Chat tags show after
+	-- your title, name colors in chat and on the scoreboard, and finish sounds
+	-- play where you are when you finish a run. Ids are saved, don't rename.
+	ChatTags = {
+		{ id = "gg", name = "GG", color = Color(140, 230, 140), price = 300 },
+		{ id = "chill", name = "Chill", color = Color(120, 200, 255), price = 300 },
+		{ id = "wave", name = "Wave", color = Color(0, 200, 255), price = 400 },
+		{ id = "tryhard", name = "Tryhard", color = Color(255, 110, 80), price = 500 },
+		{ id = "shark", name = "Shark", color = Color(120, 160, 200), price = 600 },
+		{ id = "speedy", name = "Speedy", color = Color(255, 230, 60), price = 600 },
+		{ id = "nightowl", name = "Night Owl", color = Color(170, 130, 255), price = 800 },
+		{ id = "bigair", name = "Big Air", color = Color(90, 255, 210), price = 1000 },
+		{ id = "goat", name = "GOAT", color = Color(255, 200, 40), price = 2500 },
+		{ id = "supporter", name = "Supporter", color = Color(255, 200, 40), vip = true },
+	},
+	NameColors = {
+		{ id = "sky", name = "Sky", color = Color(110, 200, 255), price = 500 },
+		{ id = "mint", name = "Mint", color = Color(120, 255, 190), price = 500 },
+		{ id = "coral", name = "Coral", color = Color(255, 130, 110), price = 500 },
+		{ id = "lavender", name = "Lavender", color = Color(190, 160, 255), price = 500 },
+		{ id = "sunset", name = "Sunset", color = Color(255, 150, 50), price = 700 },
+		{ id = "crimson", name = "Crimson", color = Color(230, 40, 60), price = 700 },
+		{ id = "ice", name = "Ice", color = Color(200, 245, 255), price = 700 },
+		{ id = "rainbow", name = "Rainbow", color = Color(255, 80, 200), price = 3000, rainbow = true },
+		{ id = "royal", name = "Royal Gold", color = Color(255, 200, 40), vip = true },
+	},
+	FinishSounds = {
+		{ id = "pop", name = "Pop", sound = "garrysmod/balloon_pop_cute.wav", price = 300 },
+		{ id = "bell", name = "Bell", sound = "buttons/bell1.wav", price = 300 },
+		{ id = "charge", name = "Charged", sound = "items/suitchargeok1.wav", price = 500 },
+		{ id = "yeah", name = "Yeah!", sound = "vo/npc/male01/yeah02.wav", price = 600 },
+		{ id = "boom", name = "Boom", sound = "weapons/physcannon/energy_sing_explosion2.wav", price = 900 },
+	},
+
+	-- Coins: earned by playing, spent in !shop on cosmetics. They are separate
+	-- from rank points, so buying never lowers anyone's rank.
+	Coins = {
+		FirstFinish = 50, -- first time you finish a map, plus PerTier for each tier
+		PerTier = 25, -- (bonuses and styles get half, both get a quarter, like points)
+		Improved = 15, -- beating your own best time
+		Record = 100, -- new server record (also halved for bonuses and styles)
+		Repeat = 5, -- finishing again without a new best
+		RepeatPerDay = 30, -- how many repeat finishes pay per day
+		Daily = 25, -- first visit of the day
+		Playtime = 2, -- every 5 minutes surfing (not AFK, not spectating)
+		VIPBonus = 0.5, -- VIPs earn 50% more
 	},
 
 	-- Titles by points (see sv_ranks.lua). Shown in chat and on the scoreboard.
@@ -84,6 +140,7 @@ SURF.Config = {
 		"Start a chat message with ! to see every command. Tab completes it.",
 		"Leaderboards and player profiles: {portal}",
 		"Finish maps to earn points and climb the titles. Type !rank to see yours.",
+		"Every finish earns coins. Spend them on trails, chat tags, name colors and finish sounds in !shop.",
 		"Want a different map? Type !rtv, or !nominate <map> before the vote.",
 	},
 
@@ -95,6 +152,22 @@ SURF.Config = {
 SURF.TrailByID = {}
 for _, t in ipairs(SURF.Config.Trails) do
 	SURF.TrailByID[t.id] = t
+end
+
+-- Shop catalog: every item has a key "<category>:<id>", e.g. "trail:gold"
+SURF.ShopCategories = {
+	{ id = "trail", name = "Trails", list = SURF.Config.Trails },
+	{ id = "tag", name = "Chat tags", list = SURF.Config.ChatTags },
+	{ id = "color", name = "Name colors", list = SURF.Config.NameColors },
+	{ id = "sound", name = "Finish sounds", list = SURF.Config.FinishSounds },
+}
+SURF.ItemByKey = {}
+for _, cat in ipairs(SURF.ShopCategories) do
+	for _, it in ipairs(cat.list) do
+		it.cat = cat.id
+		it.key = cat.id .. ":" .. it.id
+		SURF.ItemByKey[it.key] = it
+	end
 end
 
 SURF.StyleByID = {}

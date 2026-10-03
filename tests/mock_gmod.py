@@ -296,7 +296,9 @@ function MakePlayer(name, sid)
 	function p:SendLua() end
 	function p:GetObserverTarget() return nil end
 	function p:IsAdmin() return false end
+	function p:IsSuperAdmin() return false end
 	function p:IsUserGroup() return false end
+	function p:EmitSound(snd) self.sound = snd end
 	function p:Spawn() end
 	function p:Ping() return 42 end
 	function p:TimeConnected() return 120.5 end
@@ -320,7 +322,8 @@ include("shared.lua")
 vfs["surfline/webhook.txt"] = "https://discord.com/api/webhooks/123456/abc_DEF-ghi\n"
 vfs["surfline/portal_url.txt"] = "https://128.140.7.178\n"
 for f in ["sv_util.lua", "sv_db.lua", "sv_zones.lua", "sv_stats.lua", "sv_timer.lua", "sv_replay.lua", "sv_ranks.lua", "sv_mapvote.lua",
-          "sv_afk.lua", "sv_social.lua", "sv_discord.lua", "sv_discord_bridge.lua", "sv_commands.lua", "sv_portal.lua"]:
+          "sv_afk.lua", "sv_social.lua", "sv_discord.lua", "sv_discord_bridge.lua", "sv_trails.lua", "sv_commands.lua", "sv_shop.lua",
+          "sv_portal.lua"]:
     include(f)
 # SURF.Chat is real (net stubs); capture messages instead
 L.execute('''
@@ -898,6 +901,142 @@ Say(a, "!link ABC123")
 check(sum(1 for k in vfs if k.startswith(OUTBOX)) == 500 and any("isn't answering" in c for c in G.chats.values()),
       "nothing more is queued while the bot isn't reading")
 bridge_events()
+
+# Coins and the shop
+L.execute(r"""
+chats = {} menus = {}
+eve = MakePlayer("Eve", "76561190000000005")
+humans[#humans + 1] = eve
+SURF.DB.LoadPlayer(eve) SURF.Shop.Load(eve)
+SURF.Timer.SetTrack(eve, 0, true)
+hook.Run("SurfPlayerReady", eve)
+hook.Run("SurfPlayerReady", eve)
+""")
+S = G.SURF.Shop
+check(S.Balance("76561190000000005") == 25 and G.eve.nw["surf_coins"] == 25, f"daily visit gives 25 coins once a day ({S.Balance('76561190000000005')})")
+check(any(c.startswith("[Coins] +25 coins (daily visit") for c in G.chats.values()), "the daily coins are announced")
+L.execute(r"""
+chats = {}
+mapname = "surf_kitsune" SURF.Zones.Load()
+startz, endz = SURF.Zones.Find("start", 0), SURF.Zones.Find("end", 0)
+Run(eve, 7000, {}, 90)       -- first finish, tier 1: 50 + 25
+bal1 = SURF.Shop.Balance(eve.sid)
+Run(eve, 7200, {}, 95)       -- slower: repeat finish
+bal2 = SURF.Shop.Balance(eve.sid)
+Run(eve, 7400, {}, 85)       -- new personal best
+bal3 = SURF.Shop.Balance(eve.sid)
+SURF.Config.Coins.RepeatPerDay = 2
+Run(eve, 7600, {}, 99) Run(eve, 7800, {}, 99)
+bal4 = SURF.Shop.Balance(eve.sid)
+SURF.Config.Coins.RepeatPerDay = 30
+""")
+check(G.bal1 == 100 and G.bal2 == 105 and G.bal3 == 120, f"first finish +75, repeat +5, personal best +15 ({G.bal1}, {G.bal2}, {G.bal3})")
+check(G.bal4 == 125, f"repeat finishes stop paying at the daily limit ({G.bal4})")
+check(any("first finish on surf_kitsune" in c for c in G.chats.values()), "the finish coins say why")
+L.execute(r"""
+eve.nw.surf_vip = true
+SURF.Shop.Earn(eve, 10, "test")
+vipBal = SURF.Shop.Balance(eve.sid)
+eve.nw.surf_vip = nil
+""")
+check(G.vipBal == 140, f"VIPs earn 50% more ({G.vipBal})")
+L.execute(r"""
+lessons = MakePlayer("Lee", "76561190000000006") humans[#humans + 1] = lessons
+SURF.DB.LoadPlayer(lessons) SURF.Shop.Load(lessons) SURF.Timer.SetTrack(lessons, 0, true)
+SURF.Timer.ChangeStyle(lessons, "sw")
+Run(lessons, 8000, {}, 300)  -- first Sideways finish and first Sideways record: (75 + 100) / 2
+""")
+check(S.Balance("76561190000000006") == 88, f"styles earn half, records add to the first finish ({S.Balance('76561190000000006')})")
+
+# Buying
+L.execute(r"""
+chats = {}
+ok1, msg1 = SURF.Shop.Buy(eve, "trail:gold")   -- 800, Eve has 140
+ok2, msg2 = SURF.Shop.Buy(eve, "trail:red")    -- 300
+ok3, msg3 = SURF.Shop.Buy(eve, "trail:electric")
+ok4, msg4 = SURF.Shop.Buy(eve, "trail:white")
+ok5, msg5 = SURF.Shop.Buy(eve, "nope:nope")
+""")
+check(not G.ok1 and "costs 800 coins and you have 140" in G.msg1, f"can't buy without enough coins ({G.msg1})")
+check(not G.ok2 and not G.ok3 and "VIP item" in G.msg3 and not G.ok4 and "already have" in G.msg4 and not G.ok5,
+      f"VIP-only, free and unknown items can't be bought ({G.msg3} / {G.msg4} / {G.msg5})")
+cmd("s1_coins", {"action": "givecoins", "steamid": "76561190000000005", "amount": 1500, "by": "76561190000000009"})
+cmd("s2_take", {"action": "givecoins", "steamid": "76561190000000006", "amount": -5000})
+cmd("s3_item", {"action": "giveitem", "steamid": "76561190000000006", "item": "color:rainbow"})
+cmd("s4_bad", {"action": "giveitem", "steamid": "76561190000000006", "item": "color:nope"})
+L.execute('chats = {} SURF.Portal.RunCommands()')
+res = {r["id"]: r for r in map(json.loads, vfs["surfline/portal/results.txt"].strip().split("\n"))}
+check(res["s1_coins"]["ok"] and S.Balance("76561190000000005") == 1640, f"the portal gives coins ({res['s1_coins']['msg']})")
+check(any("You received 1500 coins" in c for c in G.chats.values()), "the player hears about the gift")
+check(res["s2_take"]["ok"] and S.Balance("76561190000000006") == 0, "taking coins stops at 0")
+check(res["s3_item"]["ok"] and G.lessons.SurfOwned["color:rainbow"] and not res["s4_bad"]["ok"], "the portal gives items and refuses unknown ones")
+L.execute(r"""
+ok6, msg6 = SURF.Shop.Buy(eve, "trail:gold")
+ok7, msg7 = SURF.Shop.Buy(eve, "trail:gold")
+eqTag = SURF.Shop.Equip(eve, "tag", "gg")
+SURF.Shop.Buy(eve, "tag:gg")
+SURF.Shop.Buy(eve, "sound:pop")
+""")
+check(G.ok6 and S.Balance("76561190000000005") == 240 and G.eve.SurfTrail == "gold", f"buying takes the coins and puts the trail on ({G.msg6})")
+check(not G.ok7 and "already have" in G.msg7, "can't buy the same item twice")
+check(not G.eqTag and G.eve.nw["surf_tag"] == "gg", "items you don't own can't be put on; bought ones go on")
+check(db.execute("select count(*) from surf_items where steamid='76561190000000005'").fetchone()[0] == 3, "purchases are stored")
+check(db.execute("select amount, reason from surf_coin_log where steamid='76561190000000005' order by id desc limit 1").fetchone() == (-300, "bought sound:pop"),
+      "coin changes are logged")
+L.execute(r"""
+eve.sound = nil
+Run(eve, 9000, {}, 99)
+SURF.Shop.Equip(eve, "tag", "none")
+tagOff = eve.nw.surf_tag
+SURF.Shop.Equip(eve, "tag", "gg")
+-- VIP items work while VIP and go away with it
+vipEq1 = SURF.Shop.Equip(eve, "color", "royal")
+eve.nw.surf_vip = true
+vipEq2 = SURF.Shop.Equip(eve, "color", "royal")
+colorOn = eve.nw.surf_color
+eve.nw.surf_vip = nil
+SURF.Shop.ApplyLooks(eve)
+colorOff = eve.nw.surf_color
+SURF.DB.SavePlayer(eve)
+-- everything comes back on the next visit
+eve2 = MakePlayer("Eve", "76561190000000005")
+SURF.DB.LoadPlayer(eve2) SURF.Shop.Load(eve2)
+""")
+check(G.eve.sound == "garrysmod/balloon_pop_cute.wav", "the finish sound plays on a finish")
+check(G.tagOff == "", "an item can be taken off")
+check(not G.vipEq1 and G.vipEq2 and G.colorOn == "royal" and G.colorOff == "", "VIP items only work while VIP")
+check(G.eve2.SurfOwned["trail:gold"] and G.eve2.nw["surf_tag"] == "gg" and G.eve2.SurfTrail == "gold" and G.eve2.nw["surf_coins"] == 245,
+      f"owned and equipped items and coins are loaded on join ({G.eve2.nw['surf_coins']})")
+L.execute(r"""
+eve.SurfActiveAt = nil
+SetCurTime(20000)
+SURF.AFK.Touch(eve)
+lessons.SurfActiveAt = 20000 - 400
+SURF.Shop.PayPlaytime()
+""")
+check(S.Balance("76561190000000005") == 247 and S.Balance("76561190000000006") == 0, "playtime pays active players only")
+L.execute(r"""
+chats = {} menus = {}
+SURF.Commands.Run(eve, "shop", {})
+SURF.Commands.Run(eve, "shop", { "tags" })
+SURF.Commands.Run(eve, "trail", {})
+SURF.Commands.Run(eve, "coins", {})
+""")
+check(G.menus[1].kind == "shop" and G.menus[1].data.tab == "trail" and G.menus[1].data.coins == 247, "!shop opens the shop with the balance")
+check(G.menus[2].data.tab == "tag" and G.menus[3].data.tab == "trail", "!shop tags and !trail open the right tab")
+owned = set(G.menus[1].data.owned.values())
+check(owned == {"trail:gold", "tag:gg", "sound:pop"} and G.menus[1].data.equipped.trail == "gold" and G.menus[1].data.equipped.tag == "gg",
+      f"the menu knows what you own and wear ({owned})")
+check(any("You have 247 coins" in c for c in G.chats.values()), "!coins shows the balance")
+check(any("!shop" in c["cmd"] for c in G.SURF.Commands.HelpList(False).values()), "!shop is listed in !help")
+hint_names = json.dumps(G.py_table_to_json(G.SURF.Commands.ClientList(False)))
+check("shop" in hint_names and "coins" in hint_names, "!shop and !coins are in the chat hints")
+L.execute('hooks.InitPostEntity.surf_shop()')
+cat = json.loads(vfs["surfline/portal/shop.json"])
+items = {i["key"]: i for c in cat["categories"] for i in c["items"]}
+check([c["id"] for c in cat["categories"]] == ["trail", "tag", "color", "sound"] and "trail:none" not in items, "the catalog for the website has every category")
+check(items["trail:gold"]["price"] == 800 and items["trail:gold"]["color"] == "#ffc828" and items["trail:smoke"]["vip"] and items["color:rainbow"]["rainbow"],
+      "catalog items carry price, color and VIP")
 
 # Every bundled zone file parses and has a main start+end
 bad = []

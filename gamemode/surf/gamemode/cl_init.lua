@@ -36,8 +36,20 @@ function GM:OnPlayerChat(ply, text, teamChat, dead)
 		elseif SURF.IsVIP(ply) then
 			add(Color(255, 200, 40), "[VIP] ")
 		end
+		local tag = SURF.ChatTagOf(ply)
+		if tag then add(tag.color, "[" .. tag.name .. "] ") end
 		if ply:Team() == TEAM_SPECTATOR then add(Color(160, 160, 160), "*SPEC* ") end
-		add(SURF.IsVIP(ply) and Color(255, 220, 120) or team.GetColor(ply:Team()), ply:Nick())
+		local nc = SURF.NameColorOf(ply)
+		if nc and nc.rainbow then
+			-- one hue per letter
+			local i = 0
+			for _, code in utf8.codes(ply:Nick()) do
+				add(HSVToColor((i * 25) % 360, 0.65, 1), utf8.char(code))
+				i = i + 1
+			end
+		else
+			add(nc and nc.color or (SURF.IsVIP(ply) and Color(255, 220, 120) or team.GetColor(ply:Team())), ply:Nick())
+		end
 	else
 		add(Color(160, 160, 160), "Console")
 	end

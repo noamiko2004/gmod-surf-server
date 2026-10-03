@@ -141,6 +141,21 @@ json.dump({"generated": NOW - 600,
                           "preview": "https://images.steamusercontent.com:bad/x.jpg"}],
            "failed": [{"wsid": "999", "title": XSS1, "error": "timed out <b>bold</b>"}],
            "not_found": 4.0}, open(os.path.join(data, "maps_report.json"), "w"))
+json.dump({"updated": NOW, "coins": {"FirstFinish": 50, "PerTier": 25, "Improved": 15, "Record": 100, "Repeat": 5,
+                                     "RepeatPerDay": 30, "Daily": 25, "Playtime": 2, "VIPBonus": 0.5, "bad key": 1},
+           "categories": [
+               {"id": "trail", "name": "Trails", "items": [
+                   {"id": "white", "name": "White Laser", "price": 0, "vip": False, "color": "#ffffff"},
+                   {"id": "gold", "name": "Gold Plasma", "price": 800, "vip": True, "color": "#ffc828"},
+                   {"id": "smoke", "name": "Smoke", "price": 0, "vip": True, "color": "red;}body{display:none"},
+                   {"id": "../x", "name": "bad id", "price": 1}]},
+               {"id": "tag", "name": "Chat tags", "items": [
+                   {"id": "wave", "name": "Wave", "price": 400, "color": "#00c8ff"},
+                   {"id": "evil", "name": XSS1, "price": 300, "color": "#ff0000"}]},
+               {"id": "color", "name": "Name colors", "items": [{"id": "rainbow", "name": "Rainbow", "price": 3000, "rainbow": True, "color": "#ff50c8"}]},
+               {"id": "sound", "name": "Finish sounds", "items": [{"id": "pop", "name": "Pop", "price": 300}]},
+               {"id": "Bad Cat", "name": "x", "items": []}]},
+          open(os.path.join(data, "portal", "shop.json"), "w"))
 open(os.path.join(logs, "maps.log"), "w").write("".join(f"maps line {i}\n" for i in range(300)) + XSS1 + "\n")
 open(os.path.join(logs, "update.log"), "w").write("update started\nupdate finished OK\n")
 json.dump({A: {"url": "https://avatars.steamstatic.com/abc_medium.jpg", "t": NOW},
@@ -211,6 +226,19 @@ db.execute("INSERT INTO surf_records(map, steamid, name, time, prev_time, prev_n
            (FIO, NOW - 20))
 db.execute("INSERT INTO surf_bans VALUES (?,?,?,?,?,?)", ("76561198000000099", XSS2, XSS1, OWNER, NOW - 100, 0))
 db.execute("INSERT INTO surf_zones VALUES ('surf_beta','start',0,0,0,1,1,1)")
+# v5 shop: the owner has coins, bought items and a coin log (one reason with markup)
+db.executescript("""
+CREATE TABLE surf_coins(steamid TEXT PRIMARY KEY, coins INTEGER, earned INTEGER, daily INTEGER, rep_day INTEGER, repeats INTEGER);
+CREATE TABLE surf_items(steamid TEXT, item TEXT, source TEXT, date INTEGER);
+CREATE TABLE surf_equipped(steamid TEXT, slot TEXT, item TEXT);
+CREATE TABLE surf_coin_log(id INTEGER PRIMARY KEY AUTOINCREMENT, steamid TEXT, amount INTEGER, reason TEXT, date INTEGER);
+""")
+db.execute("INSERT INTO surf_coins VALUES (?, 1234, 2034, 0, 0, 0)", (OWNER,))
+db.executemany("INSERT INTO surf_items VALUES (?,?,?,?)", [(OWNER, "trail:gold", "coins", NOW), (OWNER, "tag:wave", "coins", NOW)])
+db.execute("INSERT INTO surf_equipped VALUES (?, 'tag', 'wave')", (OWNER,))
+db.execute("UPDATE surf_players SET trail = 'gold' WHERE steamid = ?", (OWNER,))
+db.executemany("INSERT INTO surf_coin_log(steamid, amount, reason, date) VALUES (?,?,?,?)",
+               [(OWNER, 75, "first finish on surf_alpha", NOW - 100), (OWNER, -800, "bought trail:gold", NOW - 50), (OWNER, 5, XSS1, NOW - 10)])
 db.commit()
 db.close()
 
@@ -527,6 +555,20 @@ check(all(set(p) <= allowed for p in j["players"]), f"api: player fields whiteli
 check("203.0.113.7" not in api.body and '"ip"' not in api.body and '"admin"' not in api.body and '"ping"' not in api.body, "api: no IPs or admin flags")
 check(j["players"][2]["state"] == "idle" and j["players"][2]["steamid"] == "" and j["wr"]["name"] == XSS2, "api: odd values normalized")
 check([p.get("style") for p in j["players"]] == ["hsw", "n", "n"], "api: style republished, missing or unknown is Normal")
+
+# shop (v5)
+shop = get("/shop")
+check(shop.status == 200 and "Gold Plasma" in shop.body and "800</b> coins" in shop.body and "free with VIP" in shop.body
+      and "VIP only" in shop.body and "Free" in shop.body, "shop: catalog with prices, VIP and free items")
+check(no_raw(shop.body) == [] and F.e(XSS1) in shop.body and "bad id" not in shop.body and "Bad Cat" not in shop.body,
+      "shop: names escaped, bad ids and categories dropped")
+check("Sign in to see your coins" in shop.body and "Earning coins" in shop.body and "50 + 25 per tier" in shop.body and "VIPs earn 50% more" in shop.body,
+      "shop: sign-in prompt and how coins are earned")
+check('href="/shop"' in shop.body and 'href="/shop.css?v=' in shop.body, "shop: in the menu, with its stylesheet")
+css = get("/shop.css")
+check(css.status == 200 and css.headers.get("content-type", "").startswith("text/css") and ".it-trail-gold{--c:#ffc828}" in css.body
+      and "display:none" not in css.body and "it-trail-smoke" not in css.body, f"shop.css: only valid colors ({css.body[:120]!r})")
+check("Content-Security-Policy" in shop.headers or "content-security-policy" in shop.headers, "shop: CSP header")
 
 # ------------------------------------------------------------------ in-game loading screen (sv_loadingurl, plain HTTP)
 FIVE = ["GameDetails", "SetFilesTotal", "SetFilesNeeded", "DownloadingFile", "SetStatusChanged"]
@@ -858,6 +900,30 @@ check("!zone start" in mapsadm and "!zone end" in mapsadm and "!map &lt;name&gt;
 check(">4<" in mapsadm and "Failed downloads" in mapsadm and "timed out &lt;b&gt;bold&lt;/b&gt;" in mapsadm and "maps line 299" in mapsadm,
       "admin maps: failed, not found, maps.log")
 
+shop_me = get("/shop", cookies=OWN).body
+check("1,234" in shop_me and "2,034 earned in total" in shop_me and "2 items bought" in shop_me, "shop signed in: your coins")
+gold_card = shop_me.split("it-trail-gold")[1].split("</li>")[0]
+wave_card = shop_me.split("it-tag-wave")[1].split("</li>")[0]
+pop_card = shop_me.split("it-sound-pop")[1].split("</li>")[0]
+check("badge-live" in gold_card and "badge-live" in wave_card and ">Yours<" not in pop_card and "badge" not in pop_card,
+      "shop signed in: what you own and wear is marked")
+check("Bought Gold Plasma" in shop_me and "-800" in shop_me and "+75" in shop_me and F.e(XSS1) in shop_me and no_raw(shop_me) == [],
+      "shop signed in: recent coin changes, escaped")
+own_det = get(f"/admin/players?sid={OWNER}", cookies=OWN).body
+check("1,234" in own_det and "tag:wave, trail:gold" in own_det and 'value="givecoins"' in own_det and 'value="giveitem"' in own_det,
+      "admin player page: coins, items, give coins and items")
+for form, want in [({"action": "givecoins", "steamid": A, "amount": "500"}, {"action": "givecoins", "steamid": A, "amount": 500}),
+                   ({"action": "givecoins", "steamid": A, "amount": "-50"}, {"action": "givecoins", "steamid": A, "amount": -50}),
+                   ({"action": "giveitem", "steamid": A, "item": "Trail:Gold"}, {"action": "giveitem", "steamid": A, "item": "trail:gold"}),
+                   ({"action": "removeitem", "steamid": A, "item": "tag:wave"}, {"action": "removeitem", "steamid": A, "item": "tag:wave"})]:
+    r, new, obj = send(form, ip="10.0.7.2")
+    check(r.status == 303 and obj == dict(want, by=OWNER), f"{form['action']} writes {want} ({obj})")
+for form in [{"action": "givecoins", "steamid": A, "amount": "0"}, {"action": "givecoins", "steamid": A, "amount": "2000000"},
+             {"action": "givecoins", "steamid": A, "amount": "1.5"}, {"action": "givecoins", "steamid": "1", "amount": "5"},
+             {"action": "giveitem", "steamid": A, "item": "gold"}, {"action": "giveitem", "steamid": A, "item": "trail:../x"}]:
+    r, new, obj = send(form, ip="10.0.7.3")
+    check(r.status == 303 and not new, f"rejected: {form}")
+
 # ------------------------------------------------------------------ logout, rate limit
 other_csrf = re.search(r'name="csrf" value="([0-9a-f]{64})"', get("/", cookies=OWN).body).group(1)
 r = req("POST", "/logout", cookies=OWN, form={"csrf": other_csrf}, ip="10.0.6.1")
@@ -876,10 +942,11 @@ proc2, port2 = start_portal(["--repo", os.path.join(empty_root, "repo"), "--gmod
                              "--ctl", os.path.join(empty_root, "missing-ctl")], "portal2.log")
 check(port2 is not None, "second portal (no config, DB or data) started")
 if port2:
-    for path in ["/", "/leaderboard", "/maps", "/api/status", "/maps/surf_alpha"]:
+    for path in ["/", "/leaderboard", "/maps", "/api/status", "/maps/surf_alpha", "/shop", "/shop.css"]:
         r = get(path, port=port2)
         check(r.status in (200, 404) and r.status != 500 and (path != "/" or "Offline" in r.body), f"no data: {path} -> {r.status}")
     check("Surf" in get("/", port=port2).body, "BRAND_NAME defaults to Surf")
+    check("The shop opens once the game server runs this update" in get("/shop", port=port2).body, "no data: the shop says it isn't open yet")
     r = get(f"/loading?steamid={A}&map=surf_alpha", port=port2)
     check(r.status == 200 and "First time here?" in r.body and "Loading surf_alpha" in r.body, "no data: loading screen still renders")
     proc2.terminate()
@@ -893,7 +960,7 @@ if port3:
           f"old DB: map page shows '-' for missing stat columns ({r.status}, {stat_rows(r.body)})")
     r = get("/maps/surf_old?style=sw", port=port3)
     check(r.status == 200 and "Main · Sideways leaderboard" in r.body and stat_rows(r.body) == [["-", "-"]], "old DB: style leaderboard")
-    for path in ["/", "/leaderboard", "/maps", f"/players/{A}", f"/players/{B}"]:
+    for path in ["/", "/leaderboard", "/maps", f"/players/{A}", f"/players/{B}", "/shop"]:
         check(get(path, port=port3).status == 200, f"old DB: {path} is 200")
     proc3.terminate()
     check("Traceback" not in open(os.path.join(tmp, "portal3.log")).read(), "old DB: no server-side exceptions")
