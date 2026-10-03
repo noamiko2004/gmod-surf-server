@@ -246,6 +246,8 @@ humans = {}
 player = { GetHumans = function() return humans end, GetAll = function() return humans end,
            GetBySteamID64 = function(id) for _, p in ipairs(humans) do if p.sid == id then return p end end end }
 concommand = { Add = function() end }
+player_manager = { TranslatePlayerModel = function(n) return n == "kleiner" and "models/player/kleiner.mdl" or "models/player/group01/male_02.mdl" end }
+util.PrecacheModel = function() end
 chats = {}
 function DeriveGamemode() end
 GM = {}
@@ -309,6 +311,11 @@ function MakePlayer(name, sid)
 	function p:Ping() return 42 end
 	function p:TimeConnected() return 120.5 end
 	function p:Kick(reason) self.kicked = reason end
+	p.model, p.playermodel = "models/player/group01/male_02.mdl", "male02"
+	function p:GetInfo(k) if k == "cl_playermodel" then return self.playermodel end return "" end
+	function p:GetModel() return self.model end
+	function p:SetModel(m) self.model = m end
+	function p:SetupHands() end
 	p.gravity, p.ground = 1, false
 	function p:SetGravity(g) self.gravity = g end
 	function p:OnGround() return self.ground end
@@ -1080,9 +1087,125 @@ check("shop" in hint_names and "coins" in hint_names, "!shop and !coins are in t
 L.execute('hooks.InitPostEntity.surf_shop()')
 cat = json.loads(vfs["surfline/portal/shop.json"])
 items = {i["key"]: i for c in cat["categories"] for i in c["items"]}
-check([c["id"] for c in cat["categories"]] == ["trail", "tag", "color", "sound"] and "trail:none" not in items, "the catalog for the website has every category")
+check([c["id"] for c in cat["categories"]] == ["trail", "hat", "skin", "tag", "color", "sound"] and "trail:none" not in items, "the catalog for the website has every category")
+check(items["skin:kleiner"]["model"] == "models/player/kleiner.mdl" and items["hat:halo"]["vip"] and cat["vip"][0] == {"days": 7, "price": 4000},
+      "the catalog has models and the VIP packages")
 check(items["trail:gold"]["price"] == 800 and items["trail:gold"]["color"] == "#ffc828" and items["trail:smoke"]["vip"] and items["color:rainbow"]["rainbow"],
       "catalog items carry price, color and VIP")
+
+# Hats and skins
+L.execute(r"""
+SURF.Shop.GiveCoins(eve.sid, 20000, "test")
+okHat = SURF.Shop.Buy(eve, "hat:cone")
+okSkin = SURF.Shop.Buy(eve, "skin:kleiner")
+modelSkin = eve.model
+SURF.Shop.Equip(eve, "skin", "none")
+modelOff = eve.model
+eve.playermodel = "kleiner"
+modelPicked = SURF.Shop.ModelFor(eve)
+okHalo = SURF.Shop.Equip(eve, "hat", "halo")
+""")
+check(G.okHat and G.eve.nw["surf_hat"] == "cone", "a bought hat goes on")
+check(G.okSkin and G.modelSkin == "models/player/kleiner.mdl", "a bought skin changes the player model")
+check(G.modelOff == "models/player/group01/male_02.mdl", f"taking the skin off gives back the free model ({G.modelOff})")
+check(G.modelPicked == "models/player/group01/male_07.mdl", "a paid model from the model picker isn't free")
+check(not G.okHalo and G.eve.nw["surf_hat"] == "cone", "VIP hats need VIP")
+
+# Admin: items, rates and VIP prices
+L.execute(r"""
+setHidden = SURF.Shop.SetItem("hat:melon", { hidden = true })
+okMelon, msgMelon = SURF.Shop.Buy(eve, "hat:melon")
+setNone = SURF.Shop.SetItem("trail:none", { price = 5 })
+setFree = SURF.Shop.SetItem("hat:bucket", { price = 0 })
+bucketFree = SURF.ItemFree(SURF.ItemByKey["hat:bucket"])
+SURF.Shop.SetItem("hat:melon", { price = 700, hidden = false })
+SURF.Shop.SetItem("hat:bucket", { price = 900, vip = true })
+rateOk = SURF.Shop.SetRate("Daily", 40)
+rateBad = SURF.Shop.SetRate("Nope", 4)
+rateNeg = SURF.Shop.SetRate("Daily", -1)
+SURF.Shop.SetVIPPrice(7, 5000) SURF.Shop.SetVIPPrice(90, 30000) SURF.Shop.SetVIPPrice(30, 0)
+vipBad = SURF.Shop.SetVIPPrice(0, 100)
+-- forget everything in memory, then load the saved file again
+SURF.ItemByKey["hat:melon"].price = 1 SURF.Config.Coins.Daily = 1
+SURF.Shop.LoadOverrides()
+""")
+check(G.setHidden and not G.okMelon and "isn't for sale" in G.msgMelon, "hidden items can't be bought")
+check(not G.setNone and G.setFree and G.bucketFree, "price 0 makes an item free; the empty trail can't be changed")
+melon, bucket = G.SURF.ItemByKey["hat:melon"], G.SURF.ItemByKey["hat:bucket"]
+check(melon.price == 700 and not melon.hidden and bucket.price == 900 and bucket.vip, "item changes are saved and load again")
+check(G.rateOk and not G.rateBad and not G.rateNeg and G.SURF.Config.Coins.Daily == 40, "coin rates change and are checked")
+packs = [(p.days, p.price) for p in G.SURF.Config.VIPPackages.values()]
+check(packs == [(7, 5000), (90, 30000)] and not G.vipBad, f"VIP prices change, add and remove ({packs})")
+ov = json.loads(vfs["surfline/shop_overrides.json"])
+check(ov["items"]["hat:melon"]["price"] == 700 and ov["coins"]["Daily"] == 40, "overrides are written to data/surfline")
+cat = json.loads(vfs["surfline/portal/shop.json"])
+items = {i["key"]: i for c in cat["categories"] for i in c["items"]}
+check(items["hat:melon"]["price"] == 700 and items["hat:melon"]["changed"] and not items["hat:cone"]["changed"]
+      and cat["vip"] == [{"days": 7, "price": 5000}, {"days": 90, "price": 30000}], "the website catalog follows the changes")
+listed = {i.key: i for i in G.SURF.Shop.Items().values()}
+check(listed["hat:bucket"].price == 900 and listed["hat:bucket"].vip and "trail:none" not in listed, "Items() lists current prices")
+
+# VIP for coins
+L.execute(r"""
+vipCalls = {}
+before = SURF.Shop.Balance(eve.sid)
+okV, msgV = SURF.Shop.BuyVIP(eve, 7)
+after = SURF.Shop.Balance(eve.sid)
+okV2, msgV2 = SURF.Shop.BuyVIP(eve, 30)
+SURF.DB.Query("REPLACE INTO surf_vip (steamid, expires) VALUES (%s, 0)", eve.sid)
+okV3, msgV3 = SURF.Shop.BuyVIP(eve, 7)
+SURF.DB.Query("DELETE FROM surf_vip WHERE steamid = %s", eve.sid)
+eve.nw.surf_vip = true
+okV4, msgV4 = SURF.Shop.BuyVIP(eve, 7)
+eve.nw.surf_vip = nil
+poorV, poorMsg = SURF.Shop.BuyVIP(lessons, 7)
+""")
+check(G.okV and G.before - G.after == 5000 and G.vipCalls[1] == "give 76561190000000005 7", f"VIP can be bought with coins ({G.msgV})")
+check(not G.okV2 and "doesn't exist" in G.msgV2, "only the listed VIP packages are sold")
+check(not G.okV3 and not G.okV4 and "for good" in G.msgV3, "permanent VIPs (and VIP from a group) aren't charged")
+check(not G.poorV and "you have 0" in G.poorMsg, "VIP costs coins you have")
+
+# Points from admins
+L.execute(r"""
+SURF.Ranks.Recalc()
+basePts = eve.nw.surf_points
+adj1 = SURF.Ranks.AdjustPoints(eve.sid, 500, "event prize")
+pts1 = eve.nw.surf_points
+SURF.Ranks.AdjustPoints(eve.sid, -100000, "oops")
+pts2 = eve.nw.surf_points
+adj3 = SURF.Ranks.AdjustPoints(eve.sid, 99500, "undo")
+pts3 = eve.nw.surf_points
+nobody = SURF.Ranks.AdjustPoints("76561190000000077", 40, "new")
+""")
+check(G.adj1 == 500 and G.pts1 == G.basePts + 500, f"admins can add points ({G.basePts} -> {G.pts1})")
+check(G.pts2 == 0 and G.adj3 == 0 and G.pts3 == G.basePts, "points never go below 0, and an adjustment of 0 is removed")
+check(G.SURF.Ranks.bySid["76561190000000077"].points == 40, "points can rank someone without times")
+check(db.execute("select count(*) from surf_points_adjust where steamid='76561190000000005'").fetchone()[0] == 0, "a zero adjustment leaves no row")
+cmd("p1_adj", {"action": "adjustpoints", "steamid": "76561190000000005", "points": 25, "reason": "bug\x07 report", "by": "76561190000000009"})
+cmd("p2_adj0", {"action": "adjustpoints", "steamid": "76561190000000005", "points": 0})
+cmd("p3_item", {"action": "shopitem", "item": "hat:pot", "price": 1234, "vip": True, "hidden": False})
+cmd("p4_item", {"action": "shopitem", "item": "hat:nope", "price": 1})
+cmd("p5_rate", {"action": "coinrate", "name": "Record", "value": 150})
+cmd("p6_rate", {"action": "coinrate", "name": "os.exit", "value": 1})
+cmd("p7_vip", {"action": "vipprice", "days": 30, "price": 9000})
+cmd("p8_vip", {"action": "vipprice", "days": -3, "price": 9000})
+L.execute('SURF.Portal.RunCommands()')
+res = {r["id"]: r for r in map(json.loads, vfs["surfline/portal/results.txt"].strip().split("\n"))}
+check(res["p1_adj"]["ok"] and G.eve.nw["surf_points"] == G.basePts + 25 and not res["p2_adj0"]["ok"], f"the portal adjusts points ({res['p1_adj']['msg']})")
+check(db.execute("select reason from surf_points_adjust where steamid='76561190000000005'").fetchone() == ("bug  report",), "the reason is cleaned")
+check(res["p3_item"]["ok"] and G.SURF.ItemByKey["hat:pot"].price == 1234 and G.SURF.ItemByKey["hat:pot"].vip and not res["p4_item"]["ok"],
+      f"the portal changes items ({res['p3_item']['msg']})")
+check(res["p5_rate"]["ok"] and G.SURF.Config.Coins.Record == 150 and not res["p6_rate"]["ok"], "the portal changes coin rates")
+check(res["p7_vip"]["ok"] and not res["p8_vip"]["ok"] and [(p.days, p.price) for p in G.SURF.Config.VIPPackages.values()] == [(7, 5000), (30, 9000), (90, 30000)],
+      "the portal changes VIP prices")
+L.execute(r"""
+menus = {}
+SURF.Commands.Run(eve, "vip", {})
+SURF.Commands.Run(eve, "hats", {})
+SURF.Commands.Run(eve, "skins", {})
+""")
+check(G.menus[1].kind == "shop" and G.menus[1].data.tab == "vip" and G.menus[1].data.vipPackages[1].price == 5000, "!vip opens the shop's VIP tab with the packages")
+check(G.menus[2].data.tab == "hat" and G.menus[3].data.tab == "skin", "!hats and !skins open their tabs")
 
 # Every bundled zone file parses and has a main start+end
 bad = []

@@ -214,8 +214,8 @@ Add({ "timeleft" }, "Time until the map vote", function(ply)
 	SURF.Chat(ply, acc, "[Vote] ", white, string.format("%d:%02d left on this map.", math.floor(left / 60), math.floor(left % 60)))
 end)
 
-Add({ "vip", "store", "donate" }, "VIP perks and how to support the server", function(ply)
-	SURF.Menu.Open(ply, "vip", { url = SURF.Config.StoreURL, vip = SURF.IsVIP(ply), expires = ply.SurfVIPExpires })
+Add({ "vip", "store", "donate" }, "VIP perks, buying VIP with coins, and how to support the server", function(ply)
+	SURF.Shop.OpenMenu(ply, "vip")
 end)
 
 Add({ "discord", "dc" }, "Join our Discord (live status, records, chat with the server)", function(ply)

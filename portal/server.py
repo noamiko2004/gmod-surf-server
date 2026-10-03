@@ -401,6 +401,11 @@ def r_admin_vip(ctx):
 
 
 @admin_only
+def r_admin_shop(ctx):
+    return ctx.html(admin.shop_admin(ctx))
+
+
+@admin_only
 def r_admin_maps(ctx):
     return ctx.html(admin.maps_admin(ctx))
 
@@ -482,6 +487,7 @@ GET_ROUTES = [
     (re.compile(r"^/admin/vip$"), r_admin_vip),
     (re.compile(r"^/admin/maps$"), r_admin_maps),
     (re.compile(r"^/admin/logs$"), r_admin_logs),
+    (re.compile(r"^/admin/shop$"), r_admin_shop),
 ]
 POST_ROUTES = {"/logout": (p_logout, False), "/admin/cmd": (p_admin_cmd, True), "/admin/ctl": (p_admin_ctl, True)}
 

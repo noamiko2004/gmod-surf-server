@@ -35,6 +35,30 @@
   for their Steam profile, to watch them, to mute their voice for yourself,
   and (admins) the admin actions.
 
+## 2026-10-03 (v5.2)
+- Hats and skins: 10 hats (cone, melon, bucket, pot, hula doll, headcrab,
+  skull, balloon; Halo and Golden Cone for VIPs) drawn on the head for
+  everyone, and 20 player models (Kleiner to G-Man; Arctic Mossman and Corpse
+  for VIPs). Citizen models stay free in the model picker; paid models from
+  the picker fall back to a citizen. `!hats`, `!skins`.
+- New shop menu (`cl_shop.lua`, in the shared `cl_ui.lua` theme): categories
+  on the left with how many you own, item tiles, and a live preview on the
+  right (turning 3D model for hats and skins, moving trail, chat line for tags
+  and name colors, sound player) with one Buy / Put on / Take off button.
+- VIP for coins: 7 days for 4,000 or 30 days for 12,000 (`VIPPackages`), in
+  the shop's VIP tab (`!vip` opens it). Permanent VIPs aren't charged.
+- Shop admin, saved in `data/surfline/shop_overrides.json`: change any item's
+  price, VIP flag or hide it, coin rates and VIP coin prices, from the new
+  website page Admin > Shop (with coins in circulation, top balances, recent
+  purchases and owners per item). Hidden items stay with their owners.
+- Points from admins: Admin > Players > a player > Add points (negative takes
+  away). Stored in surf_points_adjust and added to the ranking by the game and
+  the website alike.
+- Functions for an in-game admin menu: `SURF.Shop.Balance`, `GiveCoins`,
+  `Grant`, `Revoke`, `Inventory`, `SetItem`, `SetRate`, `SetVIPPrice`,
+  `Items`, and `SURF.Ranks.AdjustPoints` (see the top of `sv_shop.lua`).
+- `tests/client_smoke.py` opens every shop tab against stubbed Derma.
+
 ## 2026-10-03 (v5.1)
 - Maps without a working start and end are never offered in map votes,
   accepted as nominations, or picked automatically. The vote pool no longer

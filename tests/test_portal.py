@@ -154,7 +154,12 @@ json.dump({"updated": NOW, "coins": {"FirstFinish": 50, "PerTier": 25, "Improved
                    {"id": "evil", "name": XSS1, "price": 300, "color": "#ff0000"}]},
                {"id": "color", "name": "Name colors", "items": [{"id": "rainbow", "name": "Rainbow", "price": 3000, "rainbow": True, "color": "#ff50c8"}]},
                {"id": "sound", "name": "Finish sounds", "items": [{"id": "pop", "name": "Pop", "price": 300}]},
-               {"id": "Bad Cat", "name": "x", "items": []}]},
+               {"id": "hat", "name": "Hats", "items": [
+                   {"id": "cone", "name": "Traffic Cone", "price": 600, "model": "models/props_junk/trafficcone001a.mdl", "changed": True},
+                   {"id": "secret", "name": "Secret Hat", "price": 5, "hidden": True},
+                   {"id": "badmodel", "name": "Bad Model", "price": 5, "model": "../../etc/passwd"}]},
+               {"id": "Bad Cat", "name": "x", "items": []}],
+           "vip": [{"days": 30, "price": 12000}, {"days": 7, "price": 4000}, {"days": 0, "price": 5}, {"days": 9, "price": -1}]},
           open(os.path.join(data, "portal", "shop.json"), "w"))
 open(os.path.join(logs, "maps.log"), "w").write("".join(f"maps line {i}\n" for i in range(300)) + XSS1 + "\n")
 open(os.path.join(logs, "update.log"), "w").write("update started\nupdate finished OK\n")
@@ -251,6 +256,18 @@ rk = st.ranking()
 got = [(p["sid"], p["points"]) for p in rk["players"]]
 check(got == EXPECT, f"points and order match the formula ({got})")
 check([p["pos"] for p in rk["players"]] == list(range(1, len(EXPECT) + 1)), "ranks are sequential")
+# admin point adjustments (the table is dropped again so the rest of the tests see the plain ranking)
+NEWBIE = "76561198000000077"
+adb = sqlite3.connect(os.path.join(gm, "sv.db"))
+adb.executescript("CREATE TABLE surf_points_adjust (steamid TEXT PRIMARY KEY, points INTEGER, reason TEXT, date INTEGER);")
+adb.executemany("INSERT INTO surf_points_adjust VALUES (?,?,?,0)", [(D, 200, "prize"), (A, -1000, "oops"), (NEWBIE, 30, "new"), ("76561198000000078", -5, "")])
+adb.commit()
+ark = Store(data, os.path.join(gm, "sv.db"), gm, logs).ranking()
+agot = [(p["sid"], p["points"]) for p in ark["players"]]
+check(agot[0] == (D, 255) and (A, 0) in agot and (NEWBIE, 30) in agot and "76561198000000078" not in ark["by_sid"]
+      and ark["by_sid"][D]["adjust"] == 200, f"admin point adjustments add like the game does ({agot})")
+adb.executescript("DROP TABLE surf_points_adjust;")
+adb.close()
 check(F.title_name(160) == "Surfer" and F.title_name(110) == "Rookie" and F.title_name(2500) == "Legend", "titles by points")
 check(rk["by_sid"][A]["records"] == 1 and rk["by_sid"][A]["finished"] == 1 and rk["by_sid"][A]["bonuses"] == 1, "records/maps counted")
 fio = rk["by_sid"][FIO]
@@ -569,6 +586,9 @@ css = get("/shop.css")
 check(css.status == 200 and css.headers.get("content-type", "").startswith("text/css") and ".it-trail-gold{--c:#ffc828}" in css.body
       and "display:none" not in css.body and "it-trail-smoke" not in css.body, f"shop.css: only valid colors ({css.body[:120]!r})")
 check("Content-Security-Policy" in shop.headers or "content-security-policy" in shop.headers, "shop: CSP header")
+check("Traffic Cone" in shop.body and "Secret Hat" not in shop.body and "ip-model" in shop.body, "shop: hats shown, hidden items left out")
+check("7 days" in shop.body and "4,000 coins" in shop.body and "12,000 coins" in shop.body and "<span>0 days" not in shop.body and "<span>9 days" not in shop.body
+      and shop.body.index("7 days") < shop.body.index("30 days"), "shop: VIP for coins, sorted, bad packages dropped")
 
 # ------------------------------------------------------------------ in-game loading screen (sv_loadingurl, plain HTTP)
 FIVE = ["GameDetails", "SetFilesTotal", "SetFilesNeeded", "DownloadingFile", "SetStatusChanged"]
@@ -918,11 +938,36 @@ for form, want in [({"action": "givecoins", "steamid": A, "amount": "500"}, {"ac
                    ({"action": "removeitem", "steamid": A, "item": "tag:wave"}, {"action": "removeitem", "steamid": A, "item": "tag:wave"})]:
     r, new, obj = send(form, ip="10.0.7.2")
     check(r.status == 303 and obj == dict(want, by=OWNER), f"{form['action']} writes {want} ({obj})")
-for form in [{"action": "givecoins", "steamid": A, "amount": "0"}, {"action": "givecoins", "steamid": A, "amount": "2000000"},
+for form, want in [({"action": "adjustpoints", "steamid": A, "points": "-25", "reason": "bug <i>abuse</i>"},
+                    {"action": "adjustpoints", "steamid": A, "points": -25, "reason": "bug <i>abuse</i>"}),
+                   ({"action": "shopitem", "item": "Hat:Cone", "price": "750", "vip": "1"},
+                    {"action": "shopitem", "item": "hat:cone", "price": 750, "vip": True, "hidden": False}),
+                   ({"action": "shopitem", "item": "hat:cone", "price": "", "hidden": "1"},
+                    {"action": "shopitem", "item": "hat:cone", "price": 0, "vip": False, "hidden": True}),
+                   ({"action": "coinrate", "name": "VIPBonus", "value": "0.75"}, {"action": "coinrate", "name": "VIPBonus", "value": 0.75}),
+                   ({"action": "coinrate", "name": "Daily", "value": "40"}, {"action": "coinrate", "name": "Daily", "value": 40}),
+                   ({"action": "vipprice", "days": "30", "price": "0"}, {"action": "vipprice", "days": 30, "price": 0})]:
+    r, new, obj = send(dict(form, back="/admin/shop"), ip="10.0.7.4")
+    check(r.status == 303 and r.location == "/admin/shop" and obj == dict(want, by=OWNER), f"{form['action']} writes {want} ({obj})")
+for form in [{"action": "adjustpoints", "steamid": A, "points": "0"}, {"action": "adjustpoints", "steamid": A, "points": "5000000"},
+             {"action": "shopitem", "item": "cone", "price": "5"}, {"action": "shopitem", "item": "hat:cone", "price": "-1"},
+             {"action": "coinrate", "name": "__index", "value": "1"}, {"action": "coinrate", "name": "Daily", "value": "1e5"},
+             {"action": "coinrate", "name": "Daily", "value": "200000"}, {"action": "vipprice", "days": "0", "price": "5"},
+             {"action": "givecoins", "steamid": A, "amount": "0"}, {"action": "givecoins", "steamid": A, "amount": "2000000"},
              {"action": "givecoins", "steamid": A, "amount": "1.5"}, {"action": "givecoins", "steamid": "1", "amount": "5"},
              {"action": "giveitem", "steamid": A, "item": "gold"}, {"action": "giveitem", "steamid": A, "item": "trail:../x"}]:
     r, new, obj = send(form, ip="10.0.7.3")
     check(r.status == 303 and not new, f"rejected: {form}")
+
+check('value="adjustpoints"' in own_det, "admin player page: add or take points")
+sa = get("/admin/shop", cookies=OWN)
+check(sa.status == 200 and 'href="/admin/shop"' in sa.body and "Secret Hat" in sa.body and "Bad Model" in sa.body
+      and sa.body.count('value="shopitem"') == 10, "admin shop: every item can be edited")
+check(sa.body.count('value="coinrate"') == 9 and 'name="name" value="VIPBonus"' in sa.body and 'value="0.5"' in sa.body
+      and sa.body.count('value="vipprice"') == 3, "admin shop: coin rates and VIP prices")
+check("1,234" in sa.body and "Gold Plasma" in sa.body and "badge-live" in sa.body and no_raw(sa.body) == [] and F.e(XSS1) in sa.body,
+      "admin shop: economy numbers, recent purchases, changed items, escaped")
+check(get("/admin/shop").status in (302, 303, 403) and "Secret Hat" not in get("/admin/shop").body, "admin shop: owners only")
 
 # ------------------------------------------------------------------ logout, rate limit
 other_csrf = re.search(r'name="csrf" value="([0-9a-f]{64})"', get("/", cookies=OWN).body).group(1)
