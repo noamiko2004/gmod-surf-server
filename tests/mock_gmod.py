@@ -71,7 +71,14 @@ def file_delete(path):
     vfs.pop(path, None)
 
 
-def file_find(pattern, where):
+def file_rename(src, dst):
+    if src not in vfs:
+        return False
+    vfs[dst] = vfs.pop(src)
+    return True
+
+
+def file_find(pattern, where, sorting=None):
     if where == "GAME":
         names = [m + ".bsp" for m in G.installed_maps.values()]
         return L.table(*[n for n in names if fnmatch.fnmatch("maps/" + n, pattern)])
@@ -112,6 +119,7 @@ G.py_file_write = file_write
 G.py_file_append = file_append
 G.py_file_delete = file_delete
 G.py_file_find = file_find
+G.py_file_rename = file_rename
 G.py_file_size = lambda p, w=None: len(vfs[p]) if p in vfs else None
 G.py_json_to_table = json_to_table
 G.py_table_to_json = table_to_json
@@ -149,6 +157,7 @@ function table.Copy(t) local o = {} for k, v in pairs(t) do o[k] = v end return 
 function math.Round(n, d) local m = 10 ^ (d or 0) return math.floor(n * m + 0.5) / m end
 function math.Clamp(n, a, b) return math.min(math.max(n, a), b) end
 function isstring(v) return type(v) == "string" end
+function istable(v) return type(v) == "table" end
 function GetHostName() return "Test Server" end
 CONTENTS_SOLID = 1
 solidBoxes = {}   -- {min, max} boxes the mock world treats as solid
@@ -214,7 +223,7 @@ sql = { Query = py_sql_query, SQLStr = function(s) return "'" .. tostring(s):gsu
         LastError = function() return __sql_error end }
 file = { Read = py_file_read, Exists = function(p) return py_file_read(p) ~= nil end, Find = py_file_find,
          CreateDir = function() end, Open = function() return nil end, Write = py_file_write, Append = py_file_append,
-         Delete = py_file_delete, Size = py_file_size }
+         Delete = py_file_delete, Size = py_file_size, Rename = py_file_rename }
 installed_maps = { "surf_kitsune", "surf_lessons", "surf_mesa", "surf_nozones_test" }
 globals2 = {}
 function SetGlobal2Int(k, v) globals2[k] = v end
@@ -311,7 +320,7 @@ include("shared.lua")
 vfs["surfline/webhook.txt"] = "https://discord.com/api/webhooks/123456/abc_DEF-ghi\n"
 vfs["surfline/portal_url.txt"] = "https://128.140.7.178\n"
 for f in ["sv_util.lua", "sv_db.lua", "sv_zones.lua", "sv_stats.lua", "sv_timer.lua", "sv_replay.lua", "sv_ranks.lua", "sv_mapvote.lua",
-          "sv_afk.lua", "sv_social.lua", "sv_discord.lua", "sv_commands.lua", "sv_portal.lua"]:
+          "sv_afk.lua", "sv_social.lua", "sv_discord.lua", "sv_discord_bridge.lua", "sv_commands.lua", "sv_portal.lua"]:
     include(f)
 # SURF.Chat is real (net stubs); capture messages instead
 L.execute('''
@@ -750,6 +759,108 @@ check(not res["8_del_bad"]["ok"], "deltime refuses unknown styles")
 cmd("9_unban", {"action": "unban", "steamid": "76561190000000002"})
 L.execute('SURF.Portal.RunCommands()')
 check(L.eval('hooks.CheckPassword.surf_bans("76561190000000002")') is None, "unban lets the player back in")
+
+# Discord bridge: files in surfline/discord/ shared with the bot
+OUTBOX, INBOX = "surfline/discord/to_discord/", "surfline/discord/to_game/"
+def bridge_events():
+    out = [json.loads(vfs.pop(k)) for k in sorted(k for k in list(vfs) if k.startswith(OUTBOX) and k.endswith(".json"))]
+    return out
+bridge_events()
+L.execute(r"""
+mapname = "surf_kitsune"
+function Say(p, text, team)
+	for _, fn in pairs(hooks.PlayerSay or {}) do local r = fn(p, text, team) if r ~= nil then return r end end
+	return GM:PlayerSay(p, text, team)
+end
+chats = {}
+SetCurTime(5000)
+a.SurfDiscordFlood = nil
+said = { Say(a, "hello\nworld"), Say(a, "!r"), Say(a, "!nosuchcommand"), Say(a, "team only", true), Say(a, "   ") }
+""")
+ev = bridge_events()
+check(ev == [{"t": "chat", "sid": "76561190000000001", "name": "Alice", "text": "hello world", "at": ev[0]["at"]}] if ev else False,
+      f"public chat goes to Discord, commands and team chat don't ({ev})")
+check(G.said[1] == "hello\nworld" and G.said[2] == "", "chat still shows in game and commands stay hidden")
+check(not any(k.startswith(OUTBOX) for k in vfs), "no half-written files are left behind")
+L.execute(r"""
+a.SurfDiscordFlood = nil
+for i = 1, 7 do Say(a, "spam " .. i) end
+SetCurTime(5011)
+Say(a, "later")
+""")
+ev = bridge_events()
+check([e["text"] for e in ev] == ["spam 1", "spam 2", "spam 3", "spam 4", "spam 5", "later"], f"at most 5 lines in 10 seconds per player ({[e['text'] for e in ev]})")
+L.execute(r"""
+cut = SURF.DiscordBridge.Clean(string.rep("\195\169", 150))
+cut3 = SURF.DiscordBridge.Clean("ab" .. string.rep("\226\130\172", 100), 201)
+""")
+cut = G.cut if isinstance(G.cut, bytes) else G.cut.encode("utf-8", "surrogateescape")
+cut3 = G.cut3 if isinstance(G.cut3, bytes) else G.cut3.encode("utf-8", "surrogateescape")
+ok = True
+for c in (cut, cut3):
+    try:
+        c.decode("utf-8")
+    except UnicodeDecodeError:
+        ok = False
+check(ok and len(cut) == 200 and len(cut3) == 200, f"cut at a character boundary ({len(cut)}, {len(cut3)})")
+
+# !link
+L.execute(r"""
+chats = {}
+SetCurTime(6000)
+hidden = Say(a, "!link abc-12")
+Say(a, "!link ZZZ999")
+Say(a, "!link")
+""")
+ev = bridge_events()
+check(ev == [{"t": "link", "sid": "76561190000000001", "name": "Alice", "code": "ABC12", "at": ev[0]["at"]}] if ev else False, f"!link sends the code once ({ev})")
+check(G.hidden == "" and any("Checking your code" in c for c in G.chats.values()), "!link is hidden from chat and answers")
+check(any("Wait a few seconds" in c for c in G.chats.values()) and any("Type /link in our Discord" in c for c in G.chats.values()),
+      "!link is rate limited and explains itself without a code")
+check(any("!link" in c["cmd"] for c in G.SURF.Commands.HelpList(False).values()), "!link is listed in !help")
+
+# Join, leave and map change
+L.execute(r"""
+hook.Run("SurfPlayerReady", b)
+hooks.PlayerDisconnected.surf_discord_bridge(b)
+hooks.InitPostEntity.surf_discord_bridge()
+""")
+ev = bridge_events()
+check([(e["t"], e.get("name"), e.get("count"), e.get("max")) for e in ev[:2]] == [("join", "Bob", 2, 24), ("leave", "Bob", 1, 24)], f"join and leave with the player count ({ev[:2]})")
+check(ev[2:] and ev[2]["t"] == "map" and ev[2]["map"] == "surf_kitsune" and ev[2]["tier"] == 1, f"map change with the tier ({ev[2:]})")
+
+# Messages from the bot
+vfs[INBOX + "1_00001.json"] = json.dumps({"t": "chat", "name": "Noam\u0007", "text": "gg everyone"})
+vfs[INBOX + "1_00002.json"] = json.dumps({"t": "linked", "sid": "76561190000000001", "discord": "noam"})
+vfs[INBOX + "1_00003.json"] = "{broken"
+vfs[INBOX + "1_00004.json"] = json.dumps({"t": "linkfail", "sid": "76561190000000099", "reason": "nobody here"})
+vfs[INBOX + "1_00005.tmp"] = "{}"
+for i in range(30):
+    vfs[INBOX + f"2_{i:05d}.json"] = json.dumps({"t": "chat", "name": "x", "text": f"m{i}"})
+L.execute('chats = {} SURF.DiscordBridge.Poll()')
+msgs = list(G.chats.values())
+check("[Discord] Noam : gg everyone".replace(" :", ":") in msgs, f"Discord chat shows in game ({msgs[:3]})")
+check(any("Linked to noam" in c for c in msgs), "the player hears that the link worked")
+check(not any("nobody here" in c for c in msgs), "link answers for players who left are dropped")
+left = sorted(k for k in vfs if k.startswith(INBOX))
+check(len([k for k in left if k.endswith(".json")]) == 14 and INBOX + "1_00005.tmp" in left, f"20 files per tick, oldest first; .tmp files are left alone ({len(left)})")
+L.execute('SURF.DiscordBridge.Poll()')
+check(not any(k.endswith(".json") for k in vfs if k.startswith(INBOX)), "the rest is read on the next tick")
+del vfs[INBOX + "1_00005.tmp"]
+
+# Bot not running: stop queueing at 500 files
+for i in range(500):
+    vfs[OUTBOX + f"0_{i:05d}.json"] = "{}"
+L.execute(r"""
+chats = {}
+SetCurTime(9000)
+a.SurfLinkAt = nil
+Say(a, "anyone there?")
+Say(a, "!link ABC123")
+""")
+check(sum(1 for k in vfs if k.startswith(OUTBOX)) == 500 and any("isn't answering" in c for c in G.chats.values()),
+      "nothing more is queued while the bot isn't reading")
+bridge_events()
 
 # Every bundled zone file parses and has a main start+end
 bad = []

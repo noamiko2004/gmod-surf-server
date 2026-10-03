@@ -201,6 +201,10 @@ Add({ "discord" }, "Join our Discord", function(ply)
 	end
 end)
 
+Add({ "link" }, "Link your Steam account to Discord (/link on Discord gives the code)", function(ply, args)
+	SURF.DiscordBridge.Link(ply, args[1])
+end)
+
 Add({ "help", "commands", "cmds" }, "Show this list", function(ply) SURF.Menu.Open(ply, "help", { cmds = C.HelpList(ply:IsAdmin()) }) end)
 
 -- Admin -----------------------------------------------------------------

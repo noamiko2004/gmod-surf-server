@@ -29,6 +29,11 @@ in chat is `BRAND_NAME`.
 - New server records posted to Discord, by the Discord bot or, when
   `DISCORD_WEBHOOK` is set, by the game itself. Without `DISCORD_URL`, `!discord`
   uses the invite the bot made
+- Discord chat bridge: public chat goes to Discord and Discord chat shows in
+  game as `[Discord] name: text`. `!link <code>` (the code comes from `/link`
+  on Discord) connects your Steam account so your rank and VIP show as Discord
+  roles. The bot side is in `discord/` (`sv_discord_bridge.lua` on the game
+  side; they talk through files in `garrysmod/data/surfline/discord/`)
 - A loading screen with the map, its tier and record, your rank and best time,
   and download progress (served by the portal at `/loading`)
 - You spawn and restart (`!r`) facing the way the map goes

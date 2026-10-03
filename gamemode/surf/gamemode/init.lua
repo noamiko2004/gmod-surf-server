@@ -22,6 +22,7 @@ include("sv_spectate.lua")
 include("sv_afk.lua")
 include("sv_social.lua")
 include("sv_discord.lua")
+include("sv_discord_bridge.lua")
 include("sv_commands.lua")
 include("sv_portal.lua")
 

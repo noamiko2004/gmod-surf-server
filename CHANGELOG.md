@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-10-03 (v4.2)
+- Discord integration, game side (`sv_discord_bridge.lua`): public chat goes
+  to the Discord bot and Discord chat shows in game; join, leave and map
+  change events for the bot's live feed; `!link <code>` connects a Steam
+  account to Discord (code from `/link` on Discord). Files are exchanged in
+  `garrysmod/data/surfline/discord/` (to_discord/ and to_game/, one JSON per
+  file, renamed into place). Commands and team chat are never sent, a player
+  sends at most 5 lines in 10 seconds, and the game stops queueing at 500
+  files while the bot is down.
+
 ## 2026-10-03 (v4.1)
 Fixes and polish from Noam's feedback after v4.
 - The server no longer shows offline with nobody on: `sv_hibernate_think 1`
