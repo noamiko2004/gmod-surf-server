@@ -119,8 +119,10 @@ local function LoadTriggerZones()
 	return out
 end
 
--- Remembers which maps turned out to have working zones, so the map vote
--- can offer only maps with a start and an end.
+-- Remembers which maps turned out to have working zones (zoned_maps.txt) and
+-- which didn't (bad_zones.txt), so the map vote, the start map pick
+-- (start.sh) and the map installer (maps.py) only count maps with a start
+-- and an end.
 local function ListFile(path)
 	local set = {}
 	for line in string.gmatch(file.Read(path, "DATA") or "", "[^\n]+") do set[string.Trim(line)] = true end
@@ -143,7 +145,7 @@ function Zones.KnownBad() return ListFile(BAD_FILE) end
 function Zones.Load()
 	local map = game.GetMap()
 	local admin = LoadAdminZones(map)
-	local ready, bad = LoadMapZones(map)
+	local ready = LoadMapZones(map)
 	local source = #ready > 0 and "map" or "none"
 	if #ready == 0 then
 		ready = LoadTriggerZones()
@@ -172,8 +174,13 @@ function Zones.Load()
 	for _, r in ipairs(SURF.DB.Query("SELECT track, yaw FROM surf_start_angles WHERE map = %s", map) or {}) do
 		Zones.adminYaw[tonumber(r.track) or 0] = tonumber(r.yaw)
 	end
-	Remember(BAD_FILE, map, bad and #admin == 0)
-	Remember(ZONED_FILE, map, Zones.HasTimer(0))
+	-- No working start and end on the main track (ready-made zones that don't
+	-- fit this copy of the map, trigger names it doesn't have, or no zones at
+	-- all): the map stays out of votes and the start map pick until an admin
+	-- places zones with !zone.
+	local works = Zones.HasTimer(0)
+	Remember(BAD_FILE, map, not works and string.StartWith(map, SURF.Config.MapPrefix))
+	Remember(ZONED_FILE, map, works)
 end
 
 function Zones.Spawn()

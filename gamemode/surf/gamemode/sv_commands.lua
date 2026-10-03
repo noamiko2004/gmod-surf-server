@@ -272,6 +272,7 @@ Add({ "map", "changelevel" }, "!map <name> switches to any installed map (also o
 	SURF.Chat(nil, acc, "[Admin] ", white, ply:Nick() .. " is changing the map to ", acc, map, white, ".")
 	timer.Simple(3, function()
 		for _, p in ipairs(player.GetHumans()) do SURF.DB.SavePlayer(p) end
+		SURF.MapVote.MarkAdminMap(map) -- stays even without zones, to place them
 		RunConsoleCommand("changelevel", map)
 	end)
 end, true)

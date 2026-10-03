@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-10-03 (v5.1)
+- Maps without a working start and end are never offered in map votes,
+  accepted as nominations, or picked automatically. The vote pool no longer
+  falls back to every installed map when few have zones.
+- A map that loads without a working main start and end (ready-made zones that
+  don't fit, trigger names the map doesn't have, or none at all) goes on
+  `bad_zones.txt` right away. That keeps it out of votes, the start map pick
+  and the map installer, which installs a working map in its place. Placing
+  `!zone start` and `!zone end` takes it off the list.
+- If such a map loads anyway, a vote for another map starts once someone is
+  playing (no extend option). Not when an admin loaded it with `!map` or from
+  the website, so zones can be placed.
+
 ## 2026-10-03 (v5)
 - Coins and a cosmetic shop (`sv_shop.lua`, `!shop`, `!coins`, F3). Coins come
   from a first finish on a map (50 + 25 per tier), personal bests (15), server

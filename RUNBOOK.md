@@ -50,5 +50,9 @@ For Claude (or anyone) picking up the server for a scheduled update.
   deletes them. If players spawn facing a wall on a map, stand in the start,
   look the right way and type `!zone angle`.
 - `!zone info` shows where the current map's zones came from (map, triggers,
-  admin) and how many stages/bonuses loaded. Maps whose ready-made zones don't
-  fit are listed in `garrysmod/data/surfline/bad_zones.txt`.
+  admin) and how many stages/bonuses loaded. Maps that loaded without a
+  working start and end are listed in `garrysmod/data/surfline/bad_zones.txt`:
+  they never come up in votes, nominations or the start map, a vote for
+  another map starts when one loads anyway, and the next update installs
+  working maps in their place. To fix one, load it with `!map <name>` (it then
+  stays) and place `!zone start` and `!zone end`.

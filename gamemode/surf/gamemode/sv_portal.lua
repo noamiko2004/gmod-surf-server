@@ -91,6 +91,7 @@ ACTIONS.changelevel = function(c)
 	SURF.Chat(nil, acc, "[Admin] ", color_white, "Changing the map to ", acc, map, color_white, " in 5 seconds.")
 	timer.Simple(5, function()
 		for _, p in ipairs(player.GetHumans()) do SURF.DB.SavePlayer(p) end
+		SURF.MapVote.MarkAdminMap(map)
 		RunConsoleCommand("changelevel", map)
 	end)
 	return true, "changing to " .. map

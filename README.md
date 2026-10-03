@@ -165,7 +165,8 @@ CHANGELOG.md            what changed in each session
    - Create, and note the IPv4 address.
 4. Wait 20-30 minutes, then connect in GMOD's console with `connect IP:27015`.
    Owners in `OWNER_STEAMIDS` are superadmin automatically. Place zones on each
-   map with `!zone start` / `!zone end`; maps without zones are free-surf.
+   map with `!zone start` / `!zone end`. Maps without a working start and end
+   are never voted for or picked automatically; `!map <name>` loads one to zone it.
 
 Manual install instead: clone to /home/gmod/surfline, copy config.env.example
 to config.env, fill it in, and run `sudo bash scripts/install.sh`.
