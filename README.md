@@ -103,6 +103,16 @@ when set), the `surf-portal` systemd service, opens ports 80/443, and adds
 and update the game server. The address is written to
 `/home/gmod/portal_url.txt` (https://128.140.7.178 on the live server).
 
+To give the site a name, point the name's A record at the server's IP (a free
+name from duckdns.org works, or any domain you own), then run
+`sudo bash /home/gmod/surfline/scripts/set-domain.sh surf.example.com`. It
+checks that the name points at the server, saves `PORTAL_DOMAIN`, and gets a
+certificate for it. The IP address and `www.` (when it points here too) then
+forward to the name, the loading screen and in-game links use it, and players
+can also join with `connect surf.example.com`. `set-domain.sh off` goes back
+to the IP. A name that doesn't point at the server is never used, so a typo
+can't take the site down.
+
 ## Tests
 
 `python3 tests/mock_gmod.py` (needs `pip install lupa`) runs the server-side

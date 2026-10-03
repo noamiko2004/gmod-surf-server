@@ -9,8 +9,7 @@ source "$(dirname "$0")/common.sh"
 PORTAL_PORT=8090
 # Non-interactive, or needrestart can stop at a hidden prompt in the web console
 APT=(env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get -o DPkg::Lock::Timeout=600 -y)
-PUBLIC_IP="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for (i = 1; i < NF; i++) if ($i == "src") print $(i + 1)}' || true)"
-PUBLIC_IP="${PUBLIC_IP:-$(hostname -I | awk '{print $1}')}"
+PUBLIC_IP="$(public_ip)"
 [[ "$PUBLIC_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Could not find this server's IPv4 address." >&2; exit 1; }
 
 caddy_ok() {  # Caddy 2.10+ can get Let's Encrypt certificates for an IP address
@@ -36,23 +35,46 @@ if ! caddy_ok; then
   "${APT[@]}" install caddy >/dev/null || log "Could not install Caddy"
 fi
 
-if [[ -n "${PORTAL_DOMAIN:-}" ]]; then
-  SITE="$PORTAL_DOMAIN"
-  TLS=""
-  GLOBAL=""
+# PORTAL_DOMAIN only takes over once it points at this server; a name that
+# doesn't would fail its certificate and take the site down
+DOMAIN="$(domain_name "${PORTAL_DOMAIN:-}")"
+if [[ -n "${PORTAL_DOMAIN:-}" && -z "$DOMAIN" ]]; then
+  log "PORTAL_DOMAIN \"$PORTAL_DOMAIN\" is not a valid name; using the IP address"
+elif [[ -n "$DOMAIN" ]] && ! points_here "$DOMAIN"; then
+  log "PORTAL_DOMAIN $DOMAIN points at $(resolve "$DOMAIN" || echo nothing), not $PUBLIC_IP; using the IP address until it does"
+  DOMAIN=""
+fi
+
+# Let's Encrypt only issues IP-address certificates with its 6-day profile;
+# Caddy renews them by itself. Browsers send no SNI for an IP, hence default_sni.
+IP_TLS=$'\ttls {\n\t\tissuer acme {\n\t\t\tprofile shortlived\n\t\t}\n\t}'
+GLOBAL=""
+if caddy_ok; then GLOBAL=$'\tdefault_sni '"$PUBLIC_IP"; fi
+if [[ -n "$DOMAIN" ]]; then
+  SITE="$DOMAIN"
 elif caddy_ok; then
   SITE="$PUBLIC_IP"
-  # Let's Encrypt only issues IP-address certificates with its 6-day profile;
-  # Caddy renews them by itself. Browsers send no SNI for an IP, hence default_sni.
-  TLS=$'\ttls {\n\t\tissuer acme {\n\t\t\tprofile shortlived\n\t\t}\n\t}'
-  GLOBAL=$'\tdefault_sni '"$PUBLIC_IP"
 else
   # Old Caddy: fall back to a free DNS name that points at this IP
   SITE="${PUBLIC_IP//./-}.sslip.io"
-  TLS=""
-  GLOBAL=""
 fi
 BASE_URL="https://$SITE"
+TLS=""
+[[ "$SITE" == "$PUBLIC_IP" ]] && TLS="$IP_TLS"
+
+# Other names for the site send people to the main address: the IP once a
+# domain is set (old links keep working), and www. when it points here too
+ALIASES=()
+if [[ "$SITE" != "$PUBLIC_IP" ]] && caddy_ok; then ALIASES+=("$PUBLIC_IP"); fi
+if [[ -n "$DOMAIN" && "$DOMAIN" != www.* ]] && points_here "www.$DOMAIN"; then ALIASES+=("www.$DOMAIN"); fi
+ALIAS_BLOCKS=""
+HTTP_HOSTS="http://$SITE"
+for a in "${ALIASES[@]}"; do
+  a_tls=""
+  [[ "$a" == "$PUBLIC_IP" ]] && a_tls="$IP_TLS"
+  ALIAS_BLOCKS+=$'\n'"$a {"$'\n'"$a_tls"$'\n\t'"redir https://$SITE{uri} permanent"$'\n'"}"$'\n'
+  HTTP_HOSTS+=", http://$a"
+done
 
 if command -v caddy >/dev/null; then
   log "Configuring Caddy for $BASE_URL"
@@ -68,16 +90,16 @@ $TLS
 	encode gzip
 	reverse_proxy 127.0.0.1:$PORTAL_PORT
 }
-
+$ALIAS_BLOCKS
 # The in-game loading screen stays on plain HTTP (old GMOD browsers can't do
 # modern TLS); everything else goes to HTTPS
-http://$SITE {
+$HTTP_HOSTS {
 	handle /loading* {
 		encode gzip
 		reverse_proxy 127.0.0.1:$PORTAL_PORT
 	}
 	handle {
-		redir https://{host}{uri} permanent
+		redir https://$SITE{uri} permanent
 	}
 }
 CADDY

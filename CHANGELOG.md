@@ -20,6 +20,13 @@
 - Tebex: set `TEBEX_SECRET` and the portal hands out VIP, coin packs and items
   bought in the store (README, "Selling VIP with Tebex").
 
+## 2026-10-03 (v4.3)
+- Website name: `scripts/set-domain.sh <name>` checks that the name points at
+  the server, saves `PORTAL_DOMAIN` and applies it (`off` goes back to the IP).
+  portal.sh now only uses `PORTAL_DOMAIN` when its DNS points at the server,
+  keeps the IP address working as a redirect to the name, and adds `www.`
+  when that points here too.
+
 ## 2026-10-03 (v4.2)
 - Discord integration, game side (`sv_discord_bridge.lua`): public chat goes
   to the Discord bot and Discord chat shows in game; join, leave and map

@@ -40,7 +40,8 @@ For Claude (or anyone) picking up the server for a scheduled update.
 ## 4. Check
 - `journalctl -u gmod-surf -n 200` has no Lua errors.
 - The portal (address in `/home/gmod/portal_url.txt`) loads and Steam sign-in
-  reaches /admin. If not: `journalctl -u surf-portal -n 50` and
+  reaches /admin. A domain is set with `scripts/set-domain.sh <name>` (one
+  command, no `&&`: the Hetzner web console garbles some symbols). If not: `journalctl -u surf-portal -n 50` and
   `journalctl -u caddy -n 50` (certificate errors mean ports 80/443 are
   blocked, for example by a Hetzner Cloud firewall).
 - Join, run `!r`, finish a map, `!wr`, `!rtv`, `!spec`, `!trail`.
