@@ -15,6 +15,7 @@ local function NormalizeID(id)
 end
 
 function SURF.VIP.Load(ply)
+	ply.SurfVIPExpires = nil
 	local vip = ply:IsUserGroup("vip") or ply:IsAdmin()
 	local row = SURF.DB.Query("SELECT expires FROM surf_vip WHERE steamid = %s", ply:SteamID64())
 	if row and row[1] then

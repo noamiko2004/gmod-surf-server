@@ -43,6 +43,14 @@ function Ranks.Recalc()
 		pts[r.steamid] = (pts[r.steamid] or 0) + Points(pos, string.find(r.map, "#b", 1, true) ~= nil, string.find(r.map, "@", 1, true) ~= nil)
 		names[r.steamid] = r.name
 	end
+	-- Admin adjustments (the web portal adds them the same way)
+	for _, r in ipairs(SURF.DB.Query("SELECT a.steamid, a.points, p.name FROM surf_points_adjust a LEFT JOIN surf_players p ON p.steamid = a.steamid") or {}) do
+		local adj = tonumber(r.points) or 0
+		if pts[r.steamid] or adj > 0 then
+			pts[r.steamid] = math.max(0, (pts[r.steamid] or 0) + adj)
+			if not names[r.steamid] then names[r.steamid] = (r.name and r.name ~= "NULL") and r.name or r.steamid end
+		end
+	end
 	local list = {}
 	for sid, p in pairs(pts) do list[#list + 1] = { sid = sid, name = names[sid], points = p } end
 	table.sort(list, function(a, b)
@@ -58,6 +66,27 @@ function Ranks.Recalc()
 end
 
 hook.Add("InitPostEntity", "surf_ranks", Ranks.Recalc)
+
+-- Points given or taken by an admin, on top of the points from times
+SURF.DB.Query([[CREATE TABLE IF NOT EXISTS surf_points_adjust (
+	steamid TEXT PRIMARY KEY, points INTEGER NOT NULL DEFAULT 0, reason TEXT, date INTEGER)]])
+
+function Ranks.Adjustment(sid)
+	local r = SURF.DB.Query("SELECT points FROM surf_points_adjust WHERE steamid = %s", sid)
+	return r and r[1] and tonumber(r[1].points) or 0
+end
+
+-- delta can be negative; returns the player's new total adjustment
+function Ranks.AdjustPoints(sid, delta, reason)
+	local total = math.Clamp(Ranks.Adjustment(sid) + math.floor(tonumber(delta) or 0), -10000000, 10000000)
+	if total == 0 then
+		SURF.DB.Query("DELETE FROM surf_points_adjust WHERE steamid = %s", sid)
+	else
+		SURF.DB.Query("REPLACE INTO surf_points_adjust (steamid, points, reason, date) VALUES (%s, %d, %s, %d)", sid, total, tostring(reason or ""), os.time())
+	end
+	Ranks.Recalc()
+	return total
+end
 
 function Ranks.Describe(ply)
 	local acc, white = SURF.Config.Accent, color_white

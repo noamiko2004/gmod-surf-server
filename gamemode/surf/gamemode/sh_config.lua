@@ -85,6 +85,53 @@ SURF.Config = {
 		{ id = "boom", name = "Boom", sound = "weapons/physcannon/energy_sing_explosion2.wav", price = 900 },
 	},
 
+	-- Hats sit on your head (the "eyes" attachment): fwd/up/right move them
+	-- in units, pitch/yaw/roll turn them, scale sizes them, color tints them.
+	-- Models ship with GMOD. Nobody sees their own hat in first person.
+	Hats = {
+		{ id = "cone", name = "Traffic Cone", model = "models/props_junk/trafficcone001a.mdl", scale = 0.8, fwd = -7, up = 11, pitch = 20, price = 600 },
+		{ id = "melon", name = "Melon Head", model = "models/props_junk/watermelon01.mdl", fwd = -2, price = 600 },
+		{ id = "bucket", name = "Bucket", model = "models/props_junk/metalbucket01a.mdl", scale = 0.7, fwd = -5, up = 5, pitch = 200, price = 800 },
+		{ id = "pot", name = "Cooking Pot", model = "models/props_interiors/pot02a.mdl", fwd = -3, up = 8, right = 5.5, pitch = 180, price = 800 },
+		{ id = "hula", name = "Hula Doll", model = "models/props_lab/huladoll.mdl", fwd = -3, up = 7, price = 1000 },
+		{ id = "headcrab", name = "Headcrab", model = "models/headcrabclassic.mdl", scale = 0.7, fwd = -2, up = 4, pitch = 20, price = 1500 },
+		{ id = "skull", name = "Skull Mask", model = "models/gibs/hgibs.mdl", scale = 1.6, fwd = 1, up = -2, price = 1500 },
+		{ id = "balloon", name = "Balloon", model = "models/maxofs2d/balloon_classic.mdl", scale = 0.5, fwd = -4, up = 24, color = Color(0, 200, 255), price = 2000 },
+		{ id = "halo", name = "Halo", model = "models/maxofs2d/hover_rings.mdl", scale = 0.5, fwd = -3, up = 13, color = Color(255, 220, 90), vip = true },
+		{ id = "goldcone", name = "Golden Cone", model = "models/props_junk/trafficcone001a.mdl", scale = 0.8, fwd = -7, up = 11, pitch = 20, color = Color(255, 200, 40), vip = true },
+	},
+
+	-- Player models. The citizen models (models/player/group0x) stay free for
+	-- everyone through the normal player model picker; these are bought.
+	Skins = {
+		{ id = "kleiner", name = "Dr. Kleiner", model = "models/player/kleiner.mdl", price = 800 },
+		{ id = "eli", name = "Eli", model = "models/player/eli.mdl", price = 1200 },
+		{ id = "odessa", name = "Odessa", model = "models/player/odessa.mdl", price = 1200 },
+		{ id = "alyx", name = "Alyx", model = "models/player/alyx.mdl", price = 1500 },
+		{ id = "barney", name = "Barney", model = "models/player/barney.mdl", price = 1500 },
+		{ id = "mossman", name = "Mossman", model = "models/player/mossman.mdl", price = 1500 },
+		{ id = "monk", name = "Father Grigori", model = "models/player/monk.mdl", price = 1500 },
+		{ id = "police", name = "Metro Police", model = "models/player/police.mdl", price = 1500 },
+		{ id = "breen", name = "Dr. Breen", model = "models/player/breen.mdl", price = 2000 },
+		{ id = "magnusson", name = "Magnusson", model = "models/player/magnusson.mdl", price = 2000 },
+		{ id = "combine", name = "Combine Soldier", model = "models/player/combine_soldier.mdl", price = 2000 },
+		{ id = "guard", name = "Prison Guard", model = "models/player/combine_soldier_prisonguard.mdl", price = 2000 },
+		{ id = "chell", name = "Chell", model = "models/player/p2_chell.mdl", price = 2500 },
+		{ id = "zombie", name = "Zombie", model = "models/player/zombie_classic.mdl", price = 2500 },
+		{ id = "charple", name = "Charple", model = "models/player/charple.mdl", price = 2500 },
+		{ id = "elite", name = "Combine Elite", model = "models/player/combine_super_soldier.mdl", price = 3000 },
+		{ id = "skeleton", name = "Skeleton", model = "models/player/skeleton.mdl", price = 3000 },
+		{ id = "gman", name = "G-Man", model = "models/player/gman_high.mdl", price = 3500 },
+		{ id = "arctic", name = "Arctic Mossman", model = "models/player/mossman_arctic.mdl", vip = true },
+		{ id = "corpse", name = "Corpse", model = "models/player/corpse1.mdl", vip = true },
+	},
+
+	-- VIP bought with coins in !shop (real-money VIP goes through Tebex)
+	VIPPackages = {
+		{ days = 7, price = 4000 },
+		{ days = 30, price = 12000 },
+	},
+
 	-- Coins: earned by playing, spent in !shop on cosmetics. They are separate
 	-- from rank points, so buying never lowers anyone's rank.
 	Coins = {
@@ -140,7 +187,7 @@ SURF.Config = {
 		"Start a chat message with ! to see every command. Tab completes it.",
 		"Leaderboards and player profiles: {portal}",
 		"Finish maps to earn points and climb the titles. Type !rank to see yours.",
-		"Every finish earns coins. Spend them on trails, chat tags, name colors and finish sounds in !shop.",
+		"Every finish earns coins. Spend them on hats, skins, trails and more in !shop, or save up for VIP.",
 		"Want a different map? Type !rtv, or !nominate <map> before the vote.",
 	},
 
@@ -154,9 +201,12 @@ for _, t in ipairs(SURF.Config.Trails) do
 	SURF.TrailByID[t.id] = t
 end
 
--- Shop catalog: every item has a key "<category>:<id>", e.g. "trail:gold"
+-- Shop catalog: every item has a key "<category>:<id>", e.g. "trail:gold".
+-- The admin page can change price, vip and hidden per item (sv_shop.lua).
 SURF.ShopCategories = {
 	{ id = "trail", name = "Trails", list = SURF.Config.Trails },
+	{ id = "hat", name = "Hats", list = SURF.Config.Hats },
+	{ id = "skin", name = "Skins", list = SURF.Config.Skins },
 	{ id = "tag", name = "Chat tags", list = SURF.Config.ChatTags },
 	{ id = "color", name = "Name colors", list = SURF.Config.NameColors },
 	{ id = "sound", name = "Finish sounds", list = SURF.Config.FinishSounds },

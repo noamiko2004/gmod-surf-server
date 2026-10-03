@@ -173,6 +173,42 @@ ACTIONS.removeitem = function(c)
 	return true, "removed " .. SURF.ItemByKey[key].name .. " from " .. KnownName(c.steamid)
 end
 
+ACTIONS.adjustpoints = function(c)
+	if not ValidID(c.steamid) then return false, "bad steamid" end
+	local delta = math.Clamp(math.floor(tonumber(c.points) or 0), -1000000, 1000000)
+	if delta == 0 then return false, "points is 0" end
+	local total = SURF.Ranks.AdjustPoints(c.steamid, delta, Clean(c.reason))
+	local r = SURF.Ranks.bySid[c.steamid]
+	return true, string.format("%s%d points for %s (adjustment now %d, total %d)", delta > 0 and "+" or "", delta,
+		KnownName(c.steamid), total, r and r.points or 0)
+end
+
+-- Shop settings from the portal's shop admin page
+ACTIONS.shopitem = function(c)
+	local key = tostring(c.item or "")
+	local it = SURF.ItemByKey[key]
+	if not it then return false, "unknown item" end
+	local fields = {}
+	if c.price ~= nil then fields.price = tonumber(c.price) or 0 end
+	if c.vip ~= nil then fields.vip = c.vip == true end
+	if c.hidden ~= nil then fields.hidden = c.hidden == true end
+	if not SURF.Shop.SetItem(key, fields) then return false, "can't change " .. key end
+	return true, string.format("%s: %s%s%s", it.name, it.price and (it.price .. " coins") or "no coin price",
+		it.vip and ", VIP" or "", it.hidden and ", hidden" or "")
+end
+
+ACTIONS.coinrate = function(c)
+	local name = tostring(c.name or "")
+	if not SURF.Shop.SetRate(name, c.value) then return false, "bad rate" end
+	return true, "coin rate " .. name .. " is now " .. tostring(SURF.Config.Coins[name])
+end
+
+ACTIONS.vipprice = function(c)
+	local days, price = tonumber(c.days), tonumber(c.price)
+	if not SURF.Shop.SetVIPPrice(days, price) then return false, "bad VIP package" end
+	return true, price == 0 and ("removed the " .. days .. " day VIP package") or string.format("%d days of VIP cost %d coins", days, price)
+end
+
 -- Record keys: surf_x, surf_x#b2, surf_x@sw, surf_x#b2@sw
 local function ValidKey(key)
 	local base, style = string.match(key, "^(.-)@(%w+)$")

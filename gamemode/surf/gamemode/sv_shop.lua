@@ -1,11 +1,25 @@
 -- Coins and the cosmetic shop (!shop). Coins are earned by playing and only
--- buy cosmetics (trails, chat tags, name colors, finish sounds). They are
--- separate from rank points and never affect runs. No random rewards.
+-- buy cosmetics (trails, hats, skins, chat tags, name colors, finish sounds)
+-- and VIP time. They are separate from rank points and never affect runs.
+-- No random rewards.
 --
 -- Grant from the server console, RCON, the web portal or a store like Tebex:
 --   surf_givecoins <steamid64 or STEAM_0:x:y> <amount, negative takes away>
 --   surf_giveitem <steamid64 or STEAM_0:x:y> <item, e.g. trail:gold>
 --   surf_removeitem <steamid64 or STEAM_0:x:y> <item>
+--
+-- For admin menus (all take a SteamID64 string):
+--   SURF.Shop.Balance(sid)                     coins
+--   SURF.Shop.GiveCoins(sid, amount, reason)   negative takes away; returns the new balance
+--   SURF.Shop.Grant(sid, key, source)          give an item; false for an unknown key
+--   SURF.Shop.Revoke(sid, key)                 take an item away
+--   SURF.Shop.Inventory(sid)                   { coins, earned, owned = { key, ... }, equipped = { cat = id } }
+--   SURF.Shop.SetItem(key, { price, vip, hidden })  change an item for everyone (saved)
+--   SURF.Shop.SetRate(name, value)             change a coin rate in SURF.Config.Coins (saved)
+--   SURF.Shop.SetVIPPrice(days, price)         change or add (price > 0) / remove (0) a VIP package (saved)
+--   SURF.Shop.Items()                          every item with its current price, vip and hidden
+-- VIP itself: SURF.VIP.Give(sid, days) and SURF.VIP.Remove(sid) (sv_vip.lua);
+-- points: SURF.Ranks.AdjustPoints(sid, delta, reason) (sv_ranks.lua).
 SURF.Shop = {}
 local S = SURF.Shop
 local Q = SURF.DB.Query
@@ -14,6 +28,8 @@ local GOLD = Color(255, 200, 40)
 
 util.AddNetworkString("surf.ShopBuy")
 util.AddNetworkString("surf.ShopEquip")
+util.AddNetworkString("surf.ShopBuyVIP")
+util.AddNetworkString("surf.ShopOverrides")
 
 Q([[CREATE TABLE IF NOT EXISTS surf_coins (
 	steamid TEXT PRIMARY KEY, coins INTEGER NOT NULL DEFAULT 0, earned INTEGER NOT NULL DEFAULT 0,
@@ -86,13 +102,51 @@ function S.CanUse(ply, it)
 	return it.vip == true and SURF.IsVIP(ply)
 end
 
--- Chat tag and name color are networked; the trail is sv_trails.lua's job
-function S.ApplyLooks(ply)
-	local eq = ply.SurfEquip or {}
-	for _, slot in ipairs({ "tag", "color" }) do
-		local it = eq[slot] and SURF.ItemByKey[slot .. ":" .. eq[slot]]
-		ply:SetNW2String("surf_" .. slot, (it and S.CanUse(ply, it)) and it.id or "")
+local function EquippedItem(ply, slot)
+	local id = (ply.SurfEquip or {})[slot]
+	local it = id and SURF.ItemByKey[slot .. ":" .. id]
+	return (it and S.CanUse(ply, it)) and it or nil
+end
+
+-- The model of a bought skin the player wears, or nil (GM:PlayerSetModel)
+function S.SkinModel(ply)
+	local it = EquippedItem(ply, "skin")
+	return it and it.model or nil
+end
+
+-- Citizens, refugees, rebels and medics stay free in the player model picker
+function S.FreeModel(mdl)
+	return string.find(tostring(mdl or ""), "^models/player/group0%d") ~= nil
+end
+
+-- The model a player spawns with: a bought skin they wear, else their own pick
+-- from the player model menu when it is a free citizen, else a citizen
+local DEFAULT_MODEL = "models/player/group01/male_07.mdl"
+function S.ModelFor(ply)
+	local skin = S.SkinModel(ply)
+	if skin then return skin end
+	local mdl = player_manager.TranslatePlayerModel(ply:GetInfo("cl_playermodel"))
+	return S.FreeModel(mdl) and mdl or DEFAULT_MODEL
+end
+
+local function ApplySkin(ply)
+	if not ply:Alive() or ply:Team() == TEAM_SPECTATOR or ply:IsBot() then return end
+	local mdl = S.ModelFor(ply)
+	if string.lower(ply:GetModel() or "") ~= string.lower(mdl) then
+		util.PrecacheModel(mdl)
+		ply:SetModel(mdl)
+		ply:SetupHands()
 	end
+end
+
+-- Chat tag, name color and hat are networked; the trail is sv_trails.lua's
+-- job and the skin is the player's model
+function S.ApplyLooks(ply)
+	for _, slot in ipairs({ "tag", "color", "hat" }) do
+		local it = EquippedItem(ply, slot)
+		ply:SetNW2String("surf_" .. slot, it and it.id or "")
+	end
+	ApplySkin(ply)
 end
 
 function S.Load(ply)
@@ -127,6 +181,16 @@ function S.Revoke(sid, key)
 	end
 end
 
+function S.Inventory(sid)
+	local r = Row(sid)
+	local owned, equipped = {}, {}
+	for _, x in ipairs(Q("SELECT item FROM surf_items WHERE steamid = %s", sid) or {}) do owned[#owned + 1] = x.item end
+	for _, x in ipairs(Q("SELECT slot, item FROM surf_equipped WHERE steamid = %s", sid) or {}) do equipped[x.slot] = x.item end
+	local p = Q("SELECT trail FROM surf_players WHERE steamid = %s", sid)
+	if p and p[1] and p[1].trail and p[1].trail ~= "NULL" then equipped.trail = p[1].trail end
+	return { coins = tonumber(r.coins) or 0, earned = tonumber(r.earned) or 0, owned = owned, equipped = equipped }
+end
+
 -- id "none" takes the item of that category off
 function S.Equip(ply, cat, id)
 	local it = SURF.ItemByKey[cat .. ":" .. tostring(id)]
@@ -137,7 +201,7 @@ function S.Equip(ply, cat, id)
 		SURF.DB.SavePlayer(ply)
 		return true
 	end
-	if cat ~= "tag" and cat ~= "color" and cat ~= "sound" then return false end
+	if cat ~= "tag" and cat ~= "color" and cat ~= "sound" and cat ~= "hat" and cat ~= "skin" then return false end
 	ply.SurfEquip = ply.SurfEquip or {}
 	local sid = ply:SteamID64()
 	if id == "none" then
@@ -162,6 +226,7 @@ function S.Buy(ply, key)
 	local it = SURF.ItemByKey[key or ""]
 	if not it then return false, "That item doesn't exist." end
 	if S.CanUse(ply, it) then return false, "You already have " .. it.name .. "." end
+	if it.hidden then return false, it.name .. " isn't for sale right now." end
 	if not it.price then return false, it.name .. " is a VIP item. Type !vip to find out more." end
 	local sid = ply:SteamID64()
 	local have = S.Balance(sid)
@@ -174,6 +239,137 @@ function S.Buy(ply, key)
 	return true, string.format("You bought %s for %d coins. It's on now.", it.name, it.price)
 end
 
+-- VIP for coins (SURF.Config.VIPPackages). Returns ok, message
+function S.BuyVIP(ply, days)
+	local pack
+	for _, p in ipairs(SURF.Config.VIPPackages) do if p.days == days then pack = p end end
+	if not pack then return false, "That VIP package doesn't exist." end
+	local sid = ply:SteamID64()
+	local have = S.Balance(sid)
+	if have < pack.price then
+		return false, string.format("%d days of VIP cost %d coins and you have %d.", pack.days, pack.price, have)
+	end
+	local row = Q("SELECT expires FROM surf_vip WHERE steamid = %s", sid)
+	local exp = row and row[1] and tonumber(row[1].expires)
+	if exp == 0 or (SURF.IsVIP(ply) and not (exp and exp > os.time())) then
+		return false, "You already have VIP for good."
+	end
+	S.Add(sid, -pack.price, "bought VIP " .. pack.days .. " days")
+	local exp = SURF.VIP.Give(sid, pack.days)
+	return true, string.format("You bought %d days of VIP for %d coins. VIP until %s.", pack.days, pack.price, os.date("%Y-%m-%d", exp))
+end
+
+-- Admin changes to items, rates and VIP prices (data/surfline/shop_overrides.json)
+
+local OVERRIDES = "surfline/shop_overrides.json"
+local defaults = {}
+for key, it in pairs(SURF.ItemByKey) do defaults[key] = { price = it.price, vip = it.vip, hidden = it.hidden } end
+local defaultRates = table.Copy(SURF.Config.Coins)
+local defaultVIP = table.Copy(SURF.Config.VIPPackages)
+for i, p in ipairs(defaultVIP) do defaultVIP[i] = table.Copy(p) end
+local overrides = { items = {}, coins = {}, vip = nil }
+
+local function ApplyOverrides()
+	for key, it in pairs(SURF.ItemByKey) do
+		local d, o = defaults[key], overrides.items[key] or {}
+		it.price = d.price
+		it.vip = d.vip
+		it.hidden = d.hidden
+		if o.price ~= nil then it.price = (o.price > 0) and o.price or nil end
+		if o.vip ~= nil then it.vip = o.vip or nil end
+		if o.hidden ~= nil then it.hidden = o.hidden or nil end
+	end
+	for k, v in pairs(defaultRates) do SURF.Config.Coins[k] = overrides.coins[k] or v end
+	local packs = {}
+	for _, p in ipairs(overrides.vip or defaultVIP) do packs[#packs + 1] = { days = p.days, price = p.price } end
+	table.sort(packs, function(a, b) return a.days < b.days end)
+	SURF.Config.VIPPackages = packs
+end
+
+function S.Overrides() return overrides end
+
+local function SendOverrides(target)
+	net.Start("surf.ShopOverrides")
+	net.WriteTable({ items = overrides.items, coins = SURF.Config.Coins, vip = SURF.Config.VIPPackages })
+	if target then net.Send(target) else net.Broadcast() end
+end
+
+local function SaveOverrides()
+	file.Write(OVERRIDES, util.TableToJSON(overrides))
+	ApplyOverrides()
+	S.WriteCatalog()
+	SendOverrides()
+end
+
+function S.LoadOverrides()
+	local o = util.JSONToTable(file.Read(OVERRIDES, "DATA") or "") or {}
+	overrides = { items = {}, coins = {}, vip = nil }
+	for key, v in pairs(istable(o.items) and o.items or {}) do
+		if SURF.ItemByKey[key] and istable(v) then
+			overrides.items[key] = { price = tonumber(v.price), vip = v.vip == nil and nil or v.vip == true, hidden = v.hidden == nil and nil or v.hidden == true }
+		end
+	end
+	for k, v in pairs(istable(o.coins) and o.coins or {}) do
+		if defaultRates[k] ~= nil and tonumber(v) then overrides.coins[k] = tonumber(v) end
+	end
+	if istable(o.vip) then
+		overrides.vip = {}
+		for _, p in ipairs(o.vip) do
+			local d, pr = tonumber(istable(p) and p.days), tonumber(istable(p) and p.price)
+			if d and pr and d > 0 and pr > 0 then overrides.vip[#overrides.vip + 1] = { days = math.floor(d), price = math.floor(pr) } end
+		end
+	end
+	ApplyOverrides()
+end
+
+-- fields: price (0 = no coin price: free, or VIP only when vip is set), vip (true/false), hidden (true/false)
+function S.SetItem(key, fields)
+	if not SURF.ItemByKey[key] or key == "trail:none" then return false end
+	local o = overrides.items[key] or {}
+	if fields.price ~= nil then o.price = math.Clamp(math.floor(tonumber(fields.price) or 0), 0, 10000000) end
+	if fields.vip ~= nil then o.vip = fields.vip == true end
+	if fields.hidden ~= nil then o.hidden = fields.hidden == true end
+	overrides.items[key] = o
+	SaveOverrides()
+	return true
+end
+
+function S.SetRate(name, value)
+	if defaultRates[name] == nil then return false end
+	value = tonumber(value)
+	if not value or value < 0 or value > 100000 then return false end
+	overrides.coins[name] = value
+	SaveOverrides()
+	return true
+end
+
+function S.SetVIPPrice(days, price)
+	days, price = math.floor(tonumber(days) or 0), math.floor(tonumber(price) or -1)
+	if days < 1 or days > 3650 or price < 0 then return false end
+	local packs = {}
+	for _, p in ipairs(SURF.Config.VIPPackages) do
+		if p.days ~= days then packs[#packs + 1] = { days = p.days, price = p.price } end
+	end
+	if price > 0 then packs[#packs + 1] = { days = days, price = price } end
+	overrides.vip = packs
+	SaveOverrides()
+	return true
+end
+
+function S.Items()
+	local out = {}
+	for _, cat in ipairs(SURF.ShopCategories) do
+		for _, it in ipairs(cat.list) do
+			if it.id ~= "none" then
+				out[#out + 1] = { key = it.key, cat = it.cat, name = it.name, price = it.price or 0, vip = it.vip == true, hidden = it.hidden == true }
+			end
+		end
+	end
+	return out
+end
+
+hook.Add("SurfPlayerReady", "surf_shop_overrides", function(ply) SendOverrides(ply) end)
+
 -- Menu ----------------------------------------------------------------------
 
 function S.MenuData(ply, tab, refresh)
@@ -182,6 +378,7 @@ function S.MenuData(ply, tab, refresh)
 	return {
 		coins = S.Balance(ply:SteamID64()), owned = owned, equipped = S.Equipped(ply), vip = SURF.IsVIP(ply),
 		tab = tab or "trail", refresh = refresh or nil, url = SURF.Config.StoreURL, rates = SURF.Config.Coins,
+		expires = ply.SurfVIPExpires, vipPackages = SURF.Config.VIPPackages,
 	}
 end
 
@@ -205,6 +402,15 @@ net.Receive("surf.ShopBuy", function(_, ply)
 	S.OpenMenu(ply, it and it.cat, true)
 end)
 
+net.Receive("surf.ShopBuyVIP", function(_, ply)
+	local days = net.ReadUInt(16)
+	if Busy(ply) then return end
+	local ok, msg = S.BuyVIP(ply, days)
+	SURF.Chat(ply, GOLD, "[VIP] ", white, msg)
+	if ok then ply:SendLua([[surface.PlaySound("garrysmod/save_load4.wav")]]) end
+	S.OpenMenu(ply, "vip", true)
+end)
+
 net.Receive("surf.ShopEquip", function(_, ply)
 	local cat, id = net.ReadString(), net.ReadString()
 	if Busy(ply) then return end
@@ -221,10 +427,10 @@ net.Receive("surf.ShopEquip", function(_, ply)
 	S.OpenMenu(ply, cat, true)
 end)
 
--- The trail menu (F3) is the shop's trail tab now
+-- The trail menu (F3) and !vip are tabs of the shop now
 local oldOpen = SURF.Menu.Open
 function SURF.Menu.Open(ply, kind, data)
-	if kind == "trails" then return oldOpen(ply, "shop", S.MenuData(ply, "trail")) end
+	if kind == "trails" or kind == "vip" then return oldOpen(ply, "shop", S.MenuData(ply, kind == "vip" and "vip" or "trail")) end
 	oldOpen(ply, kind, data)
 end
 
@@ -298,26 +504,33 @@ function S.WriteCatalog()
 		for _, it in ipairs(cat.list) do
 			if it.id ~= "none" then
 				items[#items + 1] = { key = it.key, id = it.id, name = it.name, price = it.price or 0, vip = it.vip == true,
-					color = Hex(it.color), rainbow = it.rainbow == true }
+					color = Hex(it.color), rainbow = it.rainbow == true, hidden = it.hidden == true, model = it.model,
+					changed = overrides.items[it.key] ~= nil }
 			end
 		end
 		cats[#cats + 1] = { id = cat.id, name = cat.name, items = items }
 	end
 	file.CreateDir("surfline/portal")
-	file.Write("surfline/portal/shop.json", util.TableToJSON({ updated = os.time(), coins = SURF.Config.Coins, categories = cats }))
+	file.Write("surfline/portal/shop.json", util.TableToJSON({ updated = os.time(), coins = SURF.Config.Coins, categories = cats,
+		vip = SURF.Config.VIPPackages }))
 end
 hook.Add("InitPostEntity", "surf_shop", S.WriteCatalog)
+S.LoadOverrides()
 
 -- Commands ------------------------------------------------------------------
 
 local Add = SURF.Commands.Add
 
 local TABS = { trail = "trail", trails = "trail", tag = "tag", tags = "tag", color = "color", colors = "color",
-	sound = "sound", sounds = "sound", vip = "vip" }
+	sound = "sound", sounds = "sound", vip = "vip", hat = "hat", hats = "hat", skin = "skin", skins = "skin",
+	model = "skin", models = "skin" }
 
-Add({ "shop", "items", "inventory", "inv" }, "Spend coins on trails, chat tags, name colors and finish sounds", function(ply, args)
+Add({ "shop", "items", "inventory", "inv" }, "Spend coins on hats, skins, trails, tags, name colors, sounds and VIP", function(ply, args)
 	S.OpenMenu(ply, TABS[string.lower(args[1] or "")] or "trail")
 end)
+
+Add({ "hats", "hat" }, "Hats in the shop", function(ply) S.OpenMenu(ply, "hat") end)
+Add({ "skins", "skin", "models" }, "Player models in the shop", function(ply) S.OpenMenu(ply, "skin") end)
 
 Add({ "coins", "balance", "money", "credits" }, "How many coins you have and how to earn more", function(ply)
 	local C = SURF.Config.Coins

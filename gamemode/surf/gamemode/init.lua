@@ -4,6 +4,7 @@ AddCSLuaFile("cl_init.lua")
 AddCSLuaFile("cl_hud.lua")
 AddCSLuaFile("cl_scoreboard.lua")
 AddCSLuaFile("cl_menus.lua")
+AddCSLuaFile("cl_shop.lua")
 AddCSLuaFile("cl_mapvote.lua")
 AddCSLuaFile("cl_visuals.lua")
 AddCSLuaFile("cl_chat.lua")
@@ -139,7 +140,7 @@ function GM:PlayerSpawn(ply)
 end
 
 function GM:PlayerSetModel(ply)
-	local mdl = player_manager.TranslatePlayerModel(ply:GetInfo("cl_playermodel"))
+	local mdl = ply:IsBot() and player_manager.TranslatePlayerModel(ply:GetInfo("cl_playermodel")) or SURF.Shop.ModelFor(ply)
 	util.PrecacheModel(mdl)
 	ply:SetModel(mdl)
 end

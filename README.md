@@ -53,11 +53,14 @@ in chat is `BRAND_NAME`.
 - Coins and a cosmetic shop (`!shop`, `!coins`; F3 opens it on the trails):
   coins come from finishing maps (more for a first finish and harder tiers),
   personal bests, records, a daily visit and time spent surfing, and buy
-  trails, chat tags, name colors (Rainbow included) and finish sounds. Coins
+  hats, player skins, trails, chat tags, name colors (Rainbow included),
+  finish sounds and VIP time. The menu previews each item (3D for hats and
+  skins). Prices, coin rates and VIP coin prices can be changed on the
+  website (Admin > Shop) without editing files. Coins
   are separate from points, nothing changes movement, and there are no random
   rewards. The website shows the catalog and your coins at `/shop`. Items and
-  rates live in `sh_config.lua` (`Trails`, `ChatTags`, `NameColors`,
-  `FinishSounds`, `Coins`)
+  rates live in `sh_config.lua` (`Trails`, `Hats`, `Skins`, `ChatTags`,
+  `NameColors`, `FinishSounds`, `VIPPackages`, `Coins`)
 - Cosmetic VIP: VIP trails, tag and name color, a gold [VIP] tag and name,
   and 50% more coins. No pay to win.
 
@@ -127,6 +130,8 @@ splits, records, bonuses, ranks, the map vote lists and the portal bridge.
 `python3 tests/test_portal.py` runs the web portal against fake game data, a
 fake Steam login and a fake control helper.
 `python3 tests/test_tebex.py` runs the Tebex poller against a fake Tebex API.
+`python3 tests/client_smoke.py` opens every tab of the shop menu against
+stubbed Derma to catch client Lua errors.
 
 ## Layout
 
