@@ -219,6 +219,34 @@ chats = {}
 function DeriveGamemode() end
 GM = {}
 function ErrorNoHalt(m) print("ERROR: " .. m) end
+function math.NormalizeAngle(a) return (a + 180) % 360 - 180 end
+function string.Replace(s, find, rep) local i, j = string.find(s, find, 1, true) if not i then return s end return s:sub(1, i - 1) .. rep .. s:sub(j + 1) end
+httpCalls = {}
+function HTTP(t) httpCalls[#httpCalls + 1] = t return true end
+
+-- Move data and user commands for the movement hooks
+function MakeMove(o)
+	local mv = {}
+	function mv:GetVelocity() return o.vel or Vector(0, 0, 0) end
+	function mv:GetAngles() return Angle(o.pitch or 0, o.yaw or 0, 0) end
+	function mv:KeyDown(k) return bit.band(o.buttons or 0, k) ~= 0 end
+	function mv:KeyPressed(k) return bit.band(o.pressed or 0, k) ~= 0 end
+	function mv:GetSideSpeed() return o.side or 0 end
+	function mv:GetForwardSpeed() return o.fwd or 0 end
+	function mv:GetButtons() return o.buttons or 0 end
+	function mv:SetButtons(b) o.buttons = b end
+	return mv
+end
+function MakeCmd(fwd, side, buttons)
+	local c = { fwd = fwd, side = side, buttons = buttons }
+	function c:GetForwardMove() return self.fwd end
+	function c:SetForwardMove(v) self.fwd = v end
+	function c:GetSideMove() return self.side end
+	function c:SetSideMove(v) self.side = v end
+	function c:KeyDown(k) return bit.band(self.buttons, k) ~= 0 end
+	function c:RemoveKey(k) self.buttons = bit.band(self.buttons, bit.bnot(k)) end
+	return c
+end
 
 function MakePlayer(name, sid)
 	local nw = {}
@@ -230,7 +258,7 @@ function MakePlayer(name, sid)
 	function p:Team() return self.team end
 	function p:SetNW2Int(k, v) nw[k] = v end
 	p.SetNW2Float, p.SetNW2String, p.SetNW2Bool, p.SetNW2Entity = p.SetNW2Int, p.SetNW2Int, p.SetNW2Int, p.SetNW2Int
-	function p:GetNW2Int(k, d) if nw[k] == nil then return d or 0 end return nw[k] end
+	function p:GetNW2Int(k, d) if nw[k] == nil then if d == nil then return 0 end return d end return nw[k] end
 	p.GetNW2Float, p.GetNW2String, p.GetNW2Bool = p.GetNW2Int, p.GetNW2Int, p.GetNW2Int
 	function p:GetMoveType() return self.mt end
 	function p:SetMoveType(m) self.mt = m end
@@ -247,6 +275,10 @@ function MakePlayer(name, sid)
 	function p:Ping() return 42 end
 	function p:TimeConnected() return 120.5 end
 	function p:Kick(reason) self.kicked = reason end
+	p.gravity, p.ground = 1, false
+	function p:SetGravity(g) self.gravity = g end
+	function p:OnGround() return self.ground end
+	function p:WaterLevel() return 0 end
 	p.nw = nw
 	return p
 end
@@ -258,12 +290,19 @@ def include(name):
 G.include = lambda n: include(n)
 include("sh_config.lua")
 include("shared.lua")
-for f in ["sv_util.lua", "sv_db.lua", "sv_zones.lua", "sv_timer.lua", "sv_replay.lua", "sv_ranks.lua", "sv_mapvote.lua", "sv_portal.lua"]:
+# The webhook and website address are files deploy.sh writes
+vfs["surfline/webhook.txt"] = "https://discord.com/api/webhooks/123456/abc_DEF-ghi\n"
+vfs["surfline/portal_url.txt"] = "https://128.140.7.178\n"
+for f in ["sv_util.lua", "sv_db.lua", "sv_zones.lua", "sv_stats.lua", "sv_timer.lua", "sv_replay.lua", "sv_ranks.lua", "sv_mapvote.lua",
+          "sv_afk.lua", "sv_social.lua", "sv_discord.lua", "sv_commands.lua", "sv_portal.lua"]:
     include(f)
 # SURF.Chat is real (net stubs); capture messages instead
 L.execute('''
 SURF.Chat = function(target, ...) local s = "" for _, v in ipairs({...}) do if type(v) == "string" then s = s .. v end end chats[#chats + 1] = s end
-SURF.Spec = { Toggle = function() end }
+specToggles = {}
+SURF.Spec = { Toggle = function(p) specToggles[#specToggles + 1] = p.name end }
+menus = {}
+SURF.Menu.Open = function(ply, kind, data) menus[#menus + 1] = { kind = kind, data = data } end
 vipCalls = {}
 SURF.VIP = { Load = function() end, Give = function(sid, days) vipCalls[#vipCalls + 1] = "give " .. sid .. " " .. days return 0 end,
              Remove = function(sid) vipCalls[#vipCalls + 1] = "remove " .. sid end }
@@ -329,6 +368,146 @@ SURF.Ranks.Recalc()
 check(G.a.nw["surf_pb"] == 60, "Alice PB stays 60 after slower run")
 check(G.b.nw["surf_points"] == 110 and G.a.nw["surf_points"] == 55, f"points: Bob {G.b.nw['surf_points']}, Alice {G.a.nw['surf_points']}")
 check(G.b.nw["surf_rankpos"] == 1, "Bob is #1")
+
+# Discord record feed (the webhook file is set above)
+posts = [json.loads(c["body"]) for c in G.httpCalls.values()]
+check(len(posts) == 2 and all(c["url"] == "https://discord.com/api/webhooks/123456/abc_DEF-ghi" and c["method"] == "POST" for c in G.httpCalls.values()),
+      f"both records were posted to the webhook ({len(posts)})")
+d2 = posts[-1]["embeds"][0]
+check("**Bob** set the server record on **surf\\_kitsune** with **0:58.500** (-1.500, beating Alice)." == d2["description"], f"record post text ({d2['description']})")
+check(d2["url"] == "https://128.140.7.178/maps/surf_kitsune" and not posts[-1]["allowed_mentions"]["parse"], "post links the map page and pings nobody")
+check(G.SURF.Discord.Escape("*x_y*") == "\\*x\\_y\\*", "player names can't add Discord formatting")
+
+# Styles: key limits (shared StartCommand hook)
+L.execute(r"""
+local hk = hooks.StartCommand.surf_style
+local all = IN_FORWARD + IN_BACK + IN_MOVELEFT + IN_MOVERIGHT
+c_sw = MakeCmd(10000, -10000, all)  a.nw.surf_style = "sw"  hk(a, c_sw)
+c_w = MakeCmd(-10000, 10000, all)   a.nw.surf_style = "w"   hk(a, c_w)
+c_hsw1 = MakeCmd(0, -10000, IN_MOVELEFT)  a.nw.surf_style = "hsw" hk(a, c_hsw1)
+c_hsw2 = MakeCmd(10000, -10000, IN_FORWARD + IN_MOVELEFT) hk(a, c_hsw2)
+c_n = MakeCmd(10000, -10000, all)   a.nw.surf_style = "n"   hk(a, c_n)
+a.nw.surf_style = nil
+""")
+check(G.c_sw.side == 0 and G.c_sw.fwd == 10000 and G.c_sw.buttons == 8 + 16, "Sideways keeps W/S and drops A/D")
+check(G.c_w.side == 0 and G.c_w.fwd == 0 and G.c_w.buttons == 8, "W-Only drops S, A and D")
+check(G.c_hsw1.side == 0 and G.c_hsw1.buttons == 0, "Half-Sideways ignores A on its own")
+check(G.c_hsw2.side == -10000 and G.c_hsw2.fwd == 10000, "Half-Sideways allows W+A")
+check(G.c_n.side == -10000 and G.c_n.buttons == 8 + 16 + 512 + 1024, "Normal is untouched")
+
+# Styles: own records, same map
+L.execute(r"""
+chats = {} httpCalls = {}
+SURF.Commands.Run(a, "style", { "sw" })
+""")
+check(G.a.nw["surf_style"] == "sw" and G.a.SurfStyle == "sw", "!style sw switches to Sideways")
+check(G.a.nw["surf_pb"] == 0 and G.a.nw["surf_wr"] == 0, "Sideways shows its own (empty) PB and WR")
+L.execute(r"""
+Run(a, 1100, { { cp2, 15 } }, 75)
+""")
+row = db.execute("select time from surf_times where map='surf_kitsune@sw' and steamid='76561190000000001'").fetchone()
+check(row is not None and abs(row[0] - 75) < 1e-6, f"Sideways time stored under surf_kitsune@sw ({row})")
+check(abs(G.globals2["surf_wr"] - 58.5) < 1e-6, "the map record shown everywhere stays the Normal one")
+check(any("(Sideways)" in c and "NEW SERVER RECORD" in c for c in G.chats.values()), "Sideways record is announced with the style")
+check(G.SURF.Replay.info is None or G.SURF.Replay.info.time != 75, "Sideways runs don't replace the replay")
+check("on **Sideways**" in json.loads(G.httpCalls[1]["body"])["embeds"][0]["description"], "Discord post names the style")
+L.execute('SURF.Ranks.Recalc()')
+check(G.a.nw["surf_points"] == 110 and G.a.nw["surf_rankpos"] == 1,
+      f"a Sideways record is worth half (Alice 55 + 55 = {G.a.nw['surf_points']}, rank {G.a.nw['surf_rankpos']})")
+L.execute('SURF.Commands.Run(a, "lg", {})')
+check(G.a.SurfStyle == "lg" and G.a.gravity == 0.6, "!lg switches to Low Gravity at 60% gravity")
+L.execute('SURF.Commands.Run(a, "normal", {})')
+check(G.a.SurfStyle == "n" and G.a.gravity == 1 and abs(G.a.nw["surf_pb"] - 60) < 1e-6, "!normal goes back with the Normal PB")
+L.execute('chats = {} SURF.Commands.Run(a, "style", { "zz" })')
+check(any("Styles:" in c for c in G.chats.values()), "unknown style lists the styles")
+L.execute('menus = {} SURF.Commands.Run(a, "style", {})')
+check(G.menus[1].kind == "styles" and G.menus[1].data.current == "n", "!style opens the style menu")
+L.execute('menus = {} SURF.Commands.Run(a, "wr", { "sw" })')
+check(G.menus[1].data.map == "surf_kitsune (Sideways)" and G.menus[1].data.rows[1].time == 75, "!wr sw shows the Sideways top")
+L.execute('SURF.DB.SavePlayer(a)')
+check(db.execute("select style from surf_players where steamid='76561190000000001'").fetchone()[0] == "n", "style is saved with the player")
+
+# Strafe stats
+L.execute(r"""
+chats = {}
+cara = MakePlayer("Cara", "76561190000000003")
+SURF.DB.LoadPlayer(cara) SURF.Timer.SetTrack(cara, 0, true)
+SetCurTime(1500)
+SURF.Timer.OnZoneEnter(cara, startz)
+cara.vel = Vector(300, 0, 0)
+SURF.Timer.OnZoneLeave(cara, startz)
+local hk = hooks.SetupMove.surf_stats
+cara.ground = true
+hk(cara, MakeMove({ vel = Vector(290, 0, 0), buttons = IN_JUMP, yaw = 0 }))       -- autohop jump
+cara.ground = false
+local yaw = 0
+for i = 1, 3 do yaw = yaw + 2 hk(cara, MakeMove({ vel = Vector(600 + i * 100, 0, 0), side = -10000, yaw = yaw })) end  -- A + left: good
+for i = 1, 2 do yaw = yaw - 2 hk(cara, MakeMove({ vel = Vector(1000, 0, 0), side = 10000, yaw = yaw })) end          -- D + right: good
+yaw = yaw + 2 hk(cara, MakeMove({ vel = Vector(2310, 0, 0), side = 10000, yaw = yaw }))                                 -- D + left: bad
+SetCurTime(1580)
+SURF.Timer.OnZoneEnter(cara, endz)
+""")
+row = db.execute("select jumps, strafes, sync, maxspeed from surf_times where map='surf_kitsune' and steamid='76561190000000003'").fetchone()
+check(row is not None and row[0] == 1 and row[1] == 2 and abs(row[2] - 83.33) < 0.01 and abs(row[3] - 2310) < 0.01,
+      f"stats stored with the PB: 1 jump, 2 strafes, 83.33% sync, 2310 max ({row})")
+check(G.cara.nw["surf_fin_strafes"] == 2 and abs(G.cara.nw["surf_fin_sync"] - 83.33) < 0.01, "stats shown on the HUD after the finish")
+check(any(c.startswith("[Stats] Jumps 1  |  Strafes 2  |  Sync 83.3%") for c in G.chats.values()), f"stats in chat ({[c for c in G.chats.values() if 'Stats' in c]})")
+L.execute(r"""
+chats = {}
+SetCurTime(1600) SURF.Timer.OnZoneEnter(cara, startz) cara.vel = Vector(300, 0, 0) SURF.Timer.OnZoneLeave(cara, startz)
+SURF.Timer.ChangeStyle(cara, "sw")
+""")
+check(G.cara.SurfStats is None, "switching style ends the run's stats")
+L.execute(r"""
+SURF.Timer.ChangeStyle(cara, "n")
+SetCurTime(1700) SURF.Timer.OnZoneEnter(cara, startz) cara.vel = Vector(300, 0, 0) SURF.Timer.OnZoneLeave(cara, startz)
+SetCurTime(1790) SURF.Timer.OnZoneEnter(cara, endz)
+""")
+row = db.execute("select time, jumps, strafes, completions from surf_times where map='surf_kitsune' and steamid='76561190000000003'").fetchone()
+check(row == (80.0, 1, 2, 2), f"a slower finish keeps the PB's stats ({row})")
+db.execute("insert into surf_times (map, steamid, name, time, date) values ('surf_old', '76561190000000009', 'Old', 50, 1)")
+check(db.execute("select jumps, sync from surf_times where map='surf_old'").fetchone() == (None, None), "times from before v4 have no stats")
+
+# Join messages, rank-ups and tips
+L.execute(r"""
+chats = {}
+dan = MakePlayer("Dan", "76561190000000004")
+SURF.DB.LoadPlayer(dan)
+hook.Run("SurfPlayerReady", dan)
+SURF.DB.LoadPlayer(b)  -- Bob comes back
+SURF.Ranks.Apply(b)
+hook.Run("SurfPlayerReady", b)
+a.SurfTitleIdx = 1
+SURF.Ranks.Apply(a)
+""")
+msgs = list(G.chats.values())
+check("[Join] Dan joined for the first time. Welcome!" in msgs, f"first visit welcome ({msgs})")
+check(any(m.startswith("[Join] Bob joined (") and "#2" in m for m in msgs), f"join message shows title and rank ({msgs})")
+check("[Rank] Alice ranked up to Rookie!" in msgs, "rank-up is announced")
+L.execute('chats = {} SURF.Ranks.Apply(a)')
+check(len(G.chats) == 0, "no announcement without a new title")
+tips = [G.SURF.Social.NextTip() for _ in range(len(G.SURF.Config.Tips))]
+check(any("https://128.140.7.178" in t for t in tips) and not any("{portal}" in t for t in tips), "tips cycle and fill in the website address")
+
+# AFK players
+L.execute(r"""
+chats = {} specToggles = {}
+SetCurTime(5000)
+SURF.AFK.Touch(a) SURF.AFK.Touch(b)
+SetCurTime(5000 + 299)
+hooks.SetupMove.surf_afk(b, MakeMove({ buttons = IN_FORWARD, yaw = 10 }))
+SetCurTime(5000 + 301)
+active = SURF.AFK.Active()
+SURF.AFK.Check()
+""")
+check(len(G.active) == 1 and G.active[1].name == "Bob", "Alice is AFK after 5 minutes, Bob moved")
+check(list(G.specToggles.values()) == ["Alice"] and any("[AFK]" in c for c in G.chats.values()), "AFK player moved to spectators")
+
+# !mapinfo
+L.execute('chats = {} SURF.Commands.Run(a, "mapinfo", {})')
+msgs = list(G.chats.values())
+check(any("Tier 1" in m and "9 stages" in m for m in msgs) and any("finishers" in m and "record 0:58.500 by Bob" in m for m in msgs),
+      f"!mapinfo shows tier, stages and the record ({msgs})")
 
 # Checkpoints must be in order and only while running
 L.execute('''
@@ -447,6 +626,7 @@ pa = [p for p in st["players"] if p["name"] == "Alice"][0]
 check(pa["steamid"] == "76561190000000001" and pa["ping"] == 42 and pa["title"] in [t["name"] for t in json.loads(G.py_table_to_json(G.SURF.Config.Titles))], "player rows carry steamid, ping and title")
 check(st["wr"]["name"] == "Bob" and abs(st["wr"]["time"] - 58.5) < 1e-6, "status.json has the map record")
 check(any(m["name"] == "surf_kitsune" and m["zoned"] for m in st["maps"]), "status.json lists maps with zone state")
+check(pa["style"] == "n", "player rows carry the style")
 
 # Portal bridge: commands
 def cmd(name, obj):
@@ -472,6 +652,12 @@ check(L.eval('hooks.CheckPassword.surf_bans("76561190000000001")') is None, "oth
 check(res["5_vip"]["ok"] and "give 76561190000000001 30" in G.vipCalls.values(), "givevip grants VIP")
 check(not res["6_bad"]["ok"] and not res["7_what"]["ok"], "bad steamid and unknown actions are refused")
 check(res["8_del"]["ok"] and db.execute("select count(*) from surf_times where map='surf_kitsune' and steamid='76561190000000001'").fetchone()[0] == 0, "deltime removes the time")
+cmd("8_del_sw", {"action": "deltime", "key": "surf_kitsune@sw", "steamid": "76561190000000001"})
+cmd("8_del_bad", {"action": "deltime", "key": "surf_kitsune@zz", "steamid": "76561190000000001"})
+L.execute('SURF.Portal.RunCommands()')
+res = {r["id"]: r for r in map(json.loads, vfs["surfline/portal/results.txt"].strip().split("\n"))}
+check(res["8_del_sw"]["ok"] and db.execute("select count(*) from surf_times where map='surf_kitsune@sw'").fetchone()[0] == 0, "deltime removes a Sideways time")
+check(not res["8_del_bad"]["ok"], "deltime refuses unknown styles")
 cmd("9_unban", {"action": "unban", "steamid": "76561190000000002"})
 L.execute('SURF.Portal.RunCommands()')
 check(L.eval('hooks.CheckPassword.surf_bans("76561190000000002")') is None, "unban lets the player back in")

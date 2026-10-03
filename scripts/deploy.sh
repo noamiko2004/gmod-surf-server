@@ -17,6 +17,7 @@ add_setting BRAND_NAME "SURF" "Short server name shown on the HUD and in chat"
 add_setting MAX_MAPS "100" "Most surf maps to install from the Workshop (each is 20-100 MB)"
 add_setting DISCORD_URL "" "Discord invite link (https://...), shown by !discord"
 add_setting STORE_URL "" "Store link for VIP (https://...), shown by !vip"
+add_setting DISCORD_WEBHOOK "" "Discord webhook URL (https://discord.com/api/webhooks/...): new server records are posted there"
 add_setting PORTAL_ENABLED "1" "Web portal with Steam login and admin page (1 on, 0 off), see portal/README.md"
 # The first install used a placeholder name; give it the current default
 OLD_NAME="Surfline | Surf Timer | !rtv !wr !trail"
@@ -54,6 +55,15 @@ echo "${OWNER_STEAMIDS:-}" > "$GM_DIR/data/surfline/owners.txt"
 # Brand name and links for the gamemode
 printf '%s\n' "${BRAND_NAME:-SURF}" > "$GM_DIR/data/surfline/brand.txt"
 printf '{"discord":"%s","store":"%s"}\n' "${DISCORD_URL:-}" "${STORE_URL:-}" > "$GM_DIR/data/surfline/links.json"
+# Webhook for the Discord record feed (a secret, so only the gmod user may read it)
+( umask 077; printf '%s\n' "${DISCORD_WEBHOOK:-}" > "$GM_DIR/data/surfline/webhook.txt" )
+chmod 600 "$GM_DIR/data/surfline/webhook.txt"
+# Website address for chat tips and Discord links
+if [[ "${PORTAL_ENABLED:-1}" == "1" && -f "$GMOD_HOME/portal_url.txt" ]]; then
+  cp "$GMOD_HOME/portal_url.txt" "$GM_DIR/data/surfline/portal_url.txt"
+else
+  rm -f "$GM_DIR/data/surfline/portal_url.txt"
+fi
 
 # Ready-made zones, tiers, mappers and per-map max velocity
 rm -rf "$GM_DIR/data/surfline/zones"

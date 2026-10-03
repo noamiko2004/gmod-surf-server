@@ -1,5 +1,21 @@
 # Changelog
 
+## 2026-10-03 (v4)
+- Styles with their own leaderboards: Sideways, Half-Sideways, W-Only and Low
+  Gravity (`!style`, `!sw`, `!hsw`, `!wonly`, `!lg`, `!normal`). Times are
+  stored as `map@style` and give half the points. The replay bot and the map
+  record on the HUD stay Normal.
+- Strafe stats after each run (jumps, strafes, sync, average and top speed) in
+  chat and on the HUD, stored with the personal best (new surf_times columns).
+- Discord record feed: set `DISCORD_WEBHOOK` in config.env.
+- Join messages with title and rank, rank-up announcements, a chat tip every
+  4 minutes (including the website address).
+- AFK players (5 minutes without input) move to the spectators and no longer
+  count towards the `!rtv` votes needed.
+- `!mapinfo`; `!wr` and `!bwr` take a style; `!deltime` takes a style.
+- Web portal: leaderboards per style, sync and top speed columns, style
+  badges for live players.
+
 ## 2026-10-03 (v3.1)
 - The web portal is installed by the update (scripts/portal.sh, run by
   deploy.sh while PORTAL_ENABLED=1): Caddy with a Let's Encrypt certificate

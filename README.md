@@ -18,8 +18,16 @@ in chat is `BRAND_NAME`.
 - CS:S-style surf movement (100 tick, airaccelerate 150, per-map maxvelocity, autohop toggle)
 - Server-side timer, speed cap leaving the start, checkpoint splits vs your PB
   and the server record, bonus tracks (`!b`, `!bwr`)
+- Styles with their own records (`!style`): Normal, Sideways (`!sw`),
+  Half-Sideways (`!hsw`), W-Only (`!wonly`) and Low Gravity (`!lg`)
+- Strafe stats after every run (jumps, strafes, sync, average and top speed),
+  stored with the personal best
 - Server record replay bot that loops the WR run (`!replay`)
-- Points, titles (Newbie to Legend) and a server leaderboard (`!rank`, `!top`)
+- Points, titles (Newbie to Legend) and a server leaderboard (`!rank`, `!top`);
+  rank-ups and joins are announced in chat, and a tip shows every few minutes
+- `!mapinfo`: tier, mapper, stages, bonuses, record and your best
+- New server records posted to Discord when `DISCORD_WEBHOOK` is set
+- Players away for 5 minutes move to the spectators and don't block `!rtv`
 - Practice: `!saveloc` / `!tele`, `!stage <n>` (timer turns off)
 - HUD with timer, speed that turns green/red when gaining/losing, CP progress,
   key display (`!keys`), PB/WR; scoreboard with titles and points
@@ -30,7 +38,7 @@ in chat is `BRAND_NAME`.
 
 Admin: `!zone start` / `!zone end` (two corners each; replaces only that zone),
 `!zone delete start`, `!zone reset` (back to ready-made zones), `!zone info`,
-`!map <name>` (any installed map, also ones without zones), `!deltime <steamid64>`,
+`!map <name>` (any installed map, also ones without zones), `!deltime <steamid64> [style]`,
 `!forcevote`. Console: `surf_givevip <id> <days>`, `surf_removevip <id>`.
 
 ## Maps
@@ -132,7 +140,6 @@ run `surf_givevip {id} 30` (or `0` for lifetime), and put the store URL in
 - Stages and bonus zones, checkpoints, per-stage times
 - Replay bot of the server record
 - Points and a global rank (`!rank`, `!top`), map tiers
-- Strafe stats (sync, gains), per-player HUD settings
-- Discord record feed and a web leaderboard
+- Per-player HUD settings, stage records
 - Custom loading screen, map voting thumbnails
 - Tebex store hookup, more VIP cosmetics (rainbow trails, hats, join sounds)

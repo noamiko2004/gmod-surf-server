@@ -145,10 +145,17 @@ function GM:HUDPaint()
 		local info
 		if isReplay then
 			info = "Replay of " .. target:GetNW2String("surf_replay_name", "?")
+		elseif target:GetNW2Int("surf_state", 0) == SURF.STATE_FINISHED then
+			-- Strafe stats of the run that just ended
+			local sync = target:GetNW2Float("surf_fin_sync", -1)
+			info = "Jumps " .. target:GetNW2Int("surf_fin_jumps", 0) .. "  Strafes " .. target:GetNW2Int("surf_fin_strafes", 0)
+				.. (sync >= 0 and string.format("  Sync %.1f%%", sync) or "") .. "  Max " .. math.floor(target:GetNW2Float("surf_fin_max", 0))
 		else
 			local track = target:GetNW2Int("surf_track", 0)
 			local cps = SURF.ClientCPCount(track)
 			info = track > 0 and ("Bonus " .. track) or "Main"
+			local style = SURF.StyleOf(target)
+			if style.id ~= "n" then info = info .. "  |  " .. style.name end
 			if cps > 0 then info = info .. "  |  CP " .. target:GetNW2Int("surf_cp", 0) .. "/" .. cps end
 		end
 		draw.SimpleText(info, "SurfSmall", sw / 2, y + 88, acc, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)

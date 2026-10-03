@@ -104,7 +104,8 @@ function MV.Nominate(ply, query)
 end
 
 local function RTVNeeded()
-	return math.max(1, math.ceil(#player.GetHumans() * SURF.Config.RTVRatio))
+	-- AFK players don't count (sv_afk.lua)
+	return math.max(1, math.ceil(#SURF.AFK.Active() * SURF.Config.RTVRatio))
 end
 
 local function RTVCount()

@@ -32,6 +32,35 @@ function SURF.IsVIP(ply)
 	return IsValid(ply) and ply:GetNW2Bool("surf_vip", false)
 end
 
+function SURF.StyleOf(ply)
+	return SURF.StyleByID[ply:GetNW2String("surf_style", "n")] or SURF.StyleByID.n
+end
+
+-- Key limits of the styles. Shared so client prediction matches.
+local function Block(cmd, ...)
+	for _, k in ipairs({ ... }) do
+		if cmd:KeyDown(k) then cmd:RemoveKey(k) end
+	end
+end
+
+hook.Add("StartCommand", "surf_style", function(ply, cmd)
+	local style = ply:GetNW2String("surf_style", "n")
+	if style == "n" or style == "lg" or ply:GetMoveType() ~= MOVETYPE_WALK then return end
+	if style == "sw" then
+		cmd:SetSideMove(0)
+		Block(cmd, IN_MOVELEFT, IN_MOVERIGHT)
+	elseif style == "w" then
+		cmd:SetSideMove(0)
+		if cmd:GetForwardMove() < 0 then cmd:SetForwardMove(0) end
+		Block(cmd, IN_MOVELEFT, IN_MOVERIGHT, IN_BACK)
+	elseif style == "hsw" and (cmd:GetForwardMove() == 0 or cmd:GetSideMove() == 0) then
+		-- One key alone does nothing; W or S has to go with A or D
+		cmd:SetForwardMove(0)
+		cmd:SetSideMove(0)
+		Block(cmd, IN_FORWARD, IN_BACK, IN_MOVELEFT, IN_MOVERIGHT)
+	end
+end)
+
 -- Holding jump keeps bunnyhopping. Shared so client prediction matches.
 hook.Add("SetupMove", "surf_autohop", function(ply, mv)
 	if not ply:GetNW2Bool("surf_autohop", SURF.Config.DefaultAutoHop) then return end

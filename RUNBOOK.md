@@ -11,9 +11,12 @@ For Claude (or anyone) picking up the server for a scheduled update.
 
 ## 2. Make changes
 - Pick 1-3 roadmap items or fixes. Keep VIP cosmetic only.
-- Run `python3 tests/mock_gmod.py` (mock GMOD server) and
-  `python3 tests/test_maps.py` (map installer); both must pass. Add a check
-  for whatever you change.
+- Run `python3 tests/mock_gmod.py` (mock GMOD server),
+  `python3 tests/test_maps.py` (map installer) and `python3 tests/test_portal.py`
+  (web portal); all must pass. Add a check for whatever you change.
+- Record keys are `map`, `map#bN` (bonus N) and `@style` on top (`map@sw`,
+  `map#b1@lg`). sv_ranks.lua and portal/surfweb/fmt.py compute points the
+  same way; change both together.
 - More maps: read `/home/gmod/maps.log` (or `maps_report.json`) from the server.
   "not on the Garry's Mod Workshop" counts zoned maps no source offers; add
   Workshop items or collections that have them to `maps/sources.txt`.

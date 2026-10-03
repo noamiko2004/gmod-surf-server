@@ -1,4 +1,4 @@
--- Small Derma menus opened by the server (!wr, !help, !trail, !maps, !vip)
+-- Small Derma menus opened by the server (!wr, !help, !trail, !maps, !style, !vip)
 local Menus = {}
 
 local function Frame(title, w, h)
@@ -93,6 +93,33 @@ function Menus.trails()
 			net.Start("surf.SetTrail")
 			net.WriteString(t.id)
 			net.SendToServer()
+			f:Close()
+		end
+	end
+end
+
+function Menus.styles(data)
+	local f = Frame("Styles  -  each has its own records", 460, 360)
+	local scroll = vgui.Create("DScrollPanel", f)
+	scroll:Dock(FILL)
+	scroll:DockMargin(0, 12, 0, 0)
+	for _, st in ipairs(data.styles or SURF.Config.Styles) do
+		local b = scroll:Add("DButton")
+		b:Dock(TOP)
+		b:DockMargin(0, 0, 0, 6)
+		b:SetTall(44)
+		b:SetText("")
+		local current = st.id == data.current
+		b.Paint = function(self, w, h)
+			local acc = SURF.Config.Accent
+			local bg = current and Color(acc.r, acc.g, acc.b, 50) or (self:IsHovered() and Color(255, 255, 255, 20) or Color(255, 255, 255, 8))
+			draw.RoundedBox(6, 0, 0, w, h, bg)
+			draw.SimpleText(st.name, "SurfMedium", 12, 14, color_white, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
+			draw.SimpleText(st.help or "", "SurfSmall", 12, 32, Color(170, 180, 195), TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
+			draw.SimpleText(current and "current" or ("!style " .. st.id), "SurfSmall", w - 12, h / 2, current and acc or Color(170, 180, 195), TEXT_ALIGN_RIGHT, TEXT_ALIGN_CENTER)
+		end
+		b.DoClick = function()
+			RunConsoleCommand("say", "!style " .. st.id)
 			f:Close()
 		end
 	end

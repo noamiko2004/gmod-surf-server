@@ -71,28 +71,80 @@ Add({ "tele", "tp", "load" }, "!tele [number] goes back to a saved position", fu
 	SURF.Timer.PracticeTeleport(ply, s.pos, s.ang, s.vel)
 end)
 
-Add({ "wr", "records", "maptop" }, "Top times on this map (!wr <map>)", function(ply, args)
-	local map = args[1] and string.lower(args[1]) or game.GetMap()
-	SURF.Menu.Open(ply, "records", { map = map, rows = SURF.DB.Top(map, 50), total = SURF.DB.Count(map) })
+-- "!wr", "!wr sw", "!wr surf_x", "!wr surf_x sw": the style defaults to your own
+local function MapAndStyle(ply, args)
+	local map, style = nil, nil
+	for _, a in ipairs(args) do
+		a = string.lower(a)
+		if SURF.StyleByID[a] then style = a else map = map or a end
+	end
+	return map, style or ply.SurfStyle or "n"
+end
+
+Add({ "wr", "records", "maptop" }, "Top times on this map (!wr [map] [style])", function(ply, args)
+	local map, style = MapAndStyle(ply, args)
+	local key = (map or game.GetMap()) .. (style ~= "n" and ("@" .. style) or "")
+	SURF.Menu.Open(ply, "records", { map = (map or game.GetMap()) .. SURF.Timer.StyleSuffix(style), rows = SURF.DB.Top(key, 50), total = SURF.DB.Count(key) })
 end)
 
-Add({ "bwr", "btop" }, "Top times on a bonus (!bwr [number])", function(ply, args)
-	local n = tonumber(args[1] or "") or SURF.Zones.Bonuses()[1] or 1
-	local key = SURF.MapKey(n)
-	SURF.Menu.Open(ply, "records", { map = game.GetMap() .. " bonus " .. n, rows = SURF.DB.Top(key, 50), total = SURF.DB.Count(key) })
+Add({ "bwr", "btop" }, "Top times on a bonus (!bwr [number] [style])", function(ply, args)
+	local n
+	local rest = {}
+	for _, a in ipairs(args) do
+		if not n and tonumber(a) then n = tonumber(a) else rest[#rest + 1] = a end
+	end
+	n = n or SURF.Zones.Bonuses()[1] or 1
+	local _, style = MapAndStyle(ply, rest)
+	local key = SURF.MapKey(n, style)
+	SURF.Menu.Open(ply, "records", { map = game.GetMap() .. " bonus " .. n .. SURF.Timer.StyleSuffix(style), rows = SURF.DB.Top(key, 50), total = SURF.DB.Count(key) })
 end)
 
 Add({ "pb" }, "Your best time and rank here", function(ply)
 	local track = ply.SurfTrack or 0
-	local key = SURF.MapKey(track)
+	local key = SURF.MapKey(track, ply.SurfStyle)
 	local pb = SURF.DB.GetRecord(key, ply:SteamID64())
-	local where = track > 0 and ("bonus " .. track) or game.GetMap()
+	local where = (track > 0 and ("bonus " .. track) or game.GetMap()) .. SURF.Timer.StyleSuffix(ply.SurfStyle)
 	if not pb then
 		SURF.Chat(ply, acc, "[Timer] ", white, "You haven't finished " .. where .. " yet.")
 		return
 	end
 	SURF.Chat(ply, acc, "[Timer] ", white, "Your best on " .. where .. ": ", acc, SURF.FormatTime(pb), white,
 		" (rank " .. SURF.DB.RankOf(key, pb) .. "/" .. SURF.DB.Count(key) .. ")")
+end)
+
+Add({ "style", "styles" }, "Pick a style: !style sw|hsw|w|lg|n (own records each)", function(ply, args)
+	local id = string.lower(args[1] or "")
+	if id == "" then return SURF.Menu.Open(ply, "styles", { current = ply.SurfStyle or "n", styles = SURF.Config.Styles }) end
+	if not SURF.Timer.ChangeStyle(ply, id) then
+		local ids = {}
+		for _, st in ipairs(SURF.Config.Styles) do ids[#ids + 1] = st.id .. " (" .. st.name .. ")" end
+		SURF.Chat(ply, acc, "[Style] ", white, "Styles: " .. table.concat(ids, ", ") .. ".")
+	end
+end)
+
+-- Shortcuts: !normal, !sw, !hsw, !wonly, !lg
+for id, names in pairs({ n = { "normal", "n", "nm" }, sw = { "sw", "sideways" }, hsw = { "hsw", "halfsideways" }, w = { "wonly", "w-only" }, lg = { "lg", "lowgrav", "lowgravity" } }) do
+	for _, name in ipairs(names) do
+		C.list[name] = { names = names, help = "", fn = function(ply) SURF.Timer.ChangeStyle(ply, id) end }
+	end
+end
+
+Add({ "mapinfo", "tier" }, "Tier, mapper, stages, record and your best on this map", function(ply)
+	local map = game.GetMap()
+	local tier, mapper = SURF.MapVote.Tier(map), SURF.MapVote.Mapper(map)
+	local stages, bonuses = SURF.Zones.cpCount[0] or 0, SURF.Zones.Bonuses()
+	local parts = { tier > 0 and ("Tier " .. tier) or "Tier unknown" }
+	if mapper ~= "" then parts[#parts + 1] = "by " .. mapper end
+	parts[#parts + 1] = stages > 0 and (stages .. " stages/checkpoints") or "linear"
+	parts[#parts + 1] = #bonuses > 0 and (#bonuses .. (#bonuses == 1 and " bonus" or " bonuses")) or "no bonuses"
+	SURF.Chat(ply, acc, "[Map] ", white, map .. ": " .. table.concat(parts, ", ") .. ".")
+	local key = SURF.MapKey(0, ply.SurfStyle)
+	local wr = SURF.DB.GetWR(key)
+	local pb = SURF.DB.GetRecord(key, ply:SteamID64())
+	local line = SURF.DB.Count(key) .. " finishers" .. SURF.Timer.StyleSuffix(ply.SurfStyle)
+	if wr then line = line .. ", record " .. SURF.FormatTime(wr.time) .. " by " .. wr.name end
+	line = line .. (pb and (", your best " .. SURF.FormatTime(pb) .. " (#" .. SURF.DB.RankOf(key, pb) .. ")") or ", you haven't finished it yet") .. "."
+	SURF.Chat(ply, acc, "[Map] ", white, line)
 end)
 
 Add({ "rank", "points" }, "Your points, title and server rank", function(ply) SURF.Ranks.Describe(ply) end)
@@ -148,10 +200,11 @@ Add({ "help", "commands", "cmds" }, "Show this list", function(ply) SURF.Menu.Op
 
 Add({ "zone", "zones" }, "Place zones (!zone start|end|delete|reset|info)", function(ply, args) SURF.Zones.EditCommand(ply, args) end, true)
 
-Add({ "deltime" }, "!deltime <steamid64> removes a time on this map", function(ply, args)
-	if not args[1] then return SURF.Chat(ply, white, "Usage: !deltime <steamid64>") end
-	SURF.DB.DeleteTime(game.GetMap(), args[1])
-	SURF.Chat(ply, acc, "[Admin] ", white, "Deleted the time for " .. args[1] .. ".")
+Add({ "deltime" }, "!deltime <steamid64> [style] removes a main-track time on this map", function(ply, args)
+	if not args[1] then return SURF.Chat(ply, white, "Usage: !deltime <steamid64> [style]") end
+	local style = SURF.StyleByID[string.lower(args[2] or "n")] and string.lower(args[2] or "n") or "n"
+	SURF.DB.DeleteTime(SURF.MapKey(0, style), args[1])
+	SURF.Chat(ply, acc, "[Admin] ", white, "Deleted the time for " .. args[1] .. SURF.Timer.StyleSuffix(style) .. ".")
 end, true)
 
 Add({ "forcevote" }, "Start a map vote now", function() if not SURF.MapVote.active then SURF.MapVote.Start(true) end end, true)

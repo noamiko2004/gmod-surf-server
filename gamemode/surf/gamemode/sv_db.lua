@@ -1,5 +1,6 @@
 -- SQLite storage (garrysmod/sv.db). Back it up with scripts/backup.sh.
--- Times are keyed by "map" for the main track and "map#bN" for bonus N.
+-- Times are keyed by "map" for the main track and "map#bN" for bonus N, plus
+-- "@style" for styles other than Normal ("map@sw", "map#b1@lg").
 SURF.DB = {}
 
 local function q(str, ...)
@@ -33,6 +34,12 @@ local function Setup()
 	if not HasColumn("surf_times", "splits") then
 		q("ALTER TABLE surf_times ADD COLUMN splits TEXT")
 	end
+	-- Strafe stats of the run that set the time (NULL for older times)
+	for _, col in ipairs({ "jumps INTEGER", "strafes INTEGER", "sync REAL", "avgspeed REAL", "maxspeed REAL" }) do
+		if not HasColumn("surf_times", string.match(col, "^%S+")) then
+			q("ALTER TABLE surf_times ADD COLUMN " .. col)
+		end
+	end
 	q([[CREATE TABLE IF NOT EXISTS surf_zones (
 		map TEXT NOT NULL, ztype TEXT NOT NULL,
 		x1 REAL, y1 REAL, z1 REAL, x2 REAL, y2 REAL, z2 REAL, PRIMARY KEY (map, ztype))]])
@@ -46,12 +53,17 @@ local function Setup()
 	q([[CREATE TABLE IF NOT EXISTS surf_players (
 		steamid TEXT PRIMARY KEY, name TEXT, trail TEXT, autohop INTEGER,
 		playtime INTEGER DEFAULT 0, firstseen INTEGER, lastseen INTEGER)]])
+	if not HasColumn("surf_players", "style") then
+		q("ALTER TABLE surf_players ADD COLUMN style TEXT")
+	end
 end
 Setup()
 
-function SURF.MapKey(track)
+function SURF.MapKey(track, style)
 	track = track or 0
-	return game.GetMap() .. (track > 0 and ("#b" .. track) or "")
+	local key = game.GetMap() .. (track > 0 and ("#b" .. track) or "")
+	if style and style ~= "n" then key = key .. "@" .. style end
+	return key
 end
 
 -- Splits are stored as [[cp, seconds], ...] so JSON keeps the numbers intact
@@ -77,16 +89,22 @@ function SURF.DB.LoadPlayer(ply)
 	local sid = ply:SteamID64()
 	ply.SurfJoinTime = os.time()
 	local row = q("SELECT * FROM surf_players WHERE steamid = %s", sid)
+	ply.SurfFirstVisit = nil
 	if row and row[1] then
 		row = row[1]
 		ply.SurfTrail = row.trail
 		if row.autohop and row.autohop ~= "NULL" then
 			ply:SetNW2Bool("surf_autohop", tonumber(row.autohop) == 1)
 		end
+		if SURF.StyleByID[row.style or ""] then
+			ply.SurfStyle = row.style
+			ply:SetNW2String("surf_style", row.style)
+		end
 		q("UPDATE surf_players SET name = %s, lastseen = %d WHERE steamid = %s", ply:Nick(), os.time(), sid)
 	else
 		ply:SetNW2Bool("surf_autohop", SURF.Config.DefaultAutoHop)
 		q("INSERT INTO surf_players (steamid, name, firstseen, lastseen) VALUES (%s, %s, %d, %d)", sid, ply:Nick(), os.time(), os.time())
+		ply.SurfFirstVisit = true
 	end
 	SURF.VIP.Load(ply)
 	SURF.DB.RefreshPB(ply)
@@ -96,8 +114,8 @@ function SURF.DB.SavePlayer(ply)
 	if not ply.SurfJoinTime or ply:IsBot() then return end
 	local played = os.time() - ply.SurfJoinTime
 	ply.SurfJoinTime = os.time()
-	q("UPDATE surf_players SET name = %s, trail = %s, autohop = %d, playtime = playtime + %d, lastseen = %d WHERE steamid = %s",
-		ply:Nick(), ply.SurfTrail or "none", ply:GetNW2Bool("surf_autohop", true) and 1 or 0, played, os.time(), ply:SteamID64())
+	q("UPDATE surf_players SET name = %s, trail = %s, autohop = %d, style = %s, playtime = playtime + %d, lastseen = %d WHERE steamid = %s",
+		ply:Nick(), ply.SurfTrail or "none", ply:GetNW2Bool("surf_autohop", true) and 1 or 0, ply.SurfStyle or "n", played, os.time(), ply:SteamID64())
 end
 
 -- Times --------------------------------------------------------------------
@@ -146,20 +164,30 @@ function SURF.DB.RankOf(key, time)
 	return (row and tonumber(row[1].c) or 0) + 1
 end
 
+-- SQL values for the strafe stats (numbers we format ourselves, or NULL)
+local function StatsSQL(st)
+	st = st or {}
+	local function num(v, fmt) return v and string.format(fmt, v) or "NULL" end
+	return num(st.jumps, "%d"), num(st.strafes, "%d"), num(st.sync, "%.2f"), num(st.avg, "%.1f"), num(st.max, "%.1f")
+end
+
 -- Returns { improved, oldPB, rank, total, wr, oldWR }
-function SURF.DB.SubmitTime(ply, key, time, splits)
+function SURF.DB.SubmitTime(ply, key, time, splits, stats)
 	local sid = ply:SteamID64()
 	local wr = SURF.DB.GetWR(key)
 	local oldWR = wr and wr.time or 0
 	local oldPB = SURF.DB.GetRecord(key, sid)
 	local improved = false
+	local j, s, sy, avg, mx = StatsSQL(stats)
 
 	if not oldPB then
-		q("INSERT INTO surf_times (map, steamid, name, time, date, splits) VALUES (%s, %s, %s, %.6f, %d, %s)",
+		q("INSERT INTO surf_times (map, steamid, name, time, date, splits, jumps, strafes, sync, avgspeed, maxspeed) VALUES (%s, %s, %s, %.6f, %d, %s, "
+			.. j .. ", " .. s .. ", " .. sy .. ", " .. avg .. ", " .. mx .. ")",
 			key, sid, ply:Nick(), time, os.time(), EncodeSplits(splits))
 		improved = true
 	elseif time < oldPB then
-		q("UPDATE surf_times SET time = %.6f, name = %s, date = %d, splits = %s, completions = completions + 1 WHERE map = %s AND steamid = %s",
+		q("UPDATE surf_times SET time = %.6f, name = %s, date = %d, splits = %s, completions = completions + 1, jumps = "
+			.. j .. ", strafes = " .. s .. ", sync = " .. sy .. ", avgspeed = " .. avg .. ", maxspeed = " .. mx .. " WHERE map = %s AND steamid = %s",
 			time, ply:Nick(), os.time(), EncodeSplits(splits), key, sid)
 		improved = true
 	else
@@ -176,7 +204,7 @@ function SURF.DB.SubmitTime(ply, key, time, splits)
 	SURF.DB.RefreshPB(ply)
 	return {
 		improved = improved, oldPB = oldPB, rank = SURF.DB.RankOf(key, best),
-		total = SURF.DB.Count(key), wr = isWR, oldWR = oldWR,
+		total = SURF.DB.Count(key), wr = isWR, oldWR = oldWR, oldName = wr and wr.name or nil,
 	}
 end
 

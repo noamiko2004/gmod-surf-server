@@ -1,11 +1,14 @@
 -- Points and titles. Every finished map is worth points: more for a better
--- rank, a bonus for holding the record, half for bonus tracks.
+-- rank, a bonus for holding the record, half for bonus tracks and half for
+-- styles other than Normal (both halvings for a bonus on a style).
 SURF.Ranks = { list = {}, bySid = {} }
 local Ranks = SURF.Ranks
 
-local function Points(pos, bonus)
+local function Points(pos, bonus, style)
 	local p = 10 + math.max(0, 50 - (pos - 1) * 5) + (pos == 1 and 50 or 0)
-	return bonus and math.floor(p / 2) or p
+	if bonus then p = math.floor(p / 2) end
+	if style then p = math.floor(p / 2) end
+	return p
 end
 
 function SURF.TitleFor(points)
@@ -22,7 +25,11 @@ local function Apply(ply)
 	local pts = r and r.points or 0
 	ply:SetNW2Int("surf_points", pts)
 	ply:SetNW2Int("surf_rankpos", r and r.pos or 0)
-	ply:SetNW2Int("surf_title", SURF.TitleFor(pts))
+	local idx = SURF.TitleFor(pts)
+	local old = ply.SurfTitleIdx
+	ply.SurfTitleIdx = idx
+	ply:SetNW2Int("surf_title", idx)
+	if old and idx > old then hook.Run("SurfRankUp", ply, idx) end
 end
 Ranks.Apply = Apply
 
@@ -33,7 +40,7 @@ function Ranks.Recalc()
 	for _, r in ipairs(rows or {}) do
 		if r.map ~= curMap then curMap, pos = r.map, 0 end
 		pos = pos + 1
-		pts[r.steamid] = (pts[r.steamid] or 0) + Points(pos, string.find(r.map, "#b", 1, true) ~= nil)
+		pts[r.steamid] = (pts[r.steamid] or 0) + Points(pos, string.find(r.map, "#b", 1, true) ~= nil, string.find(r.map, "@", 1, true) ~= nil)
 		names[r.steamid] = r.name
 	end
 	local list = {}

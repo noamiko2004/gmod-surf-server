@@ -14,12 +14,19 @@ local function TrackName(track)
 	return track > 0 and ("Bonus " .. track) or "the map"
 end
 
+-- " (Sideways)" for styles other than Normal
+local function StyleSuffix(style)
+	local st = SURF.StyleByID[style or "n"]
+	return (st and st.id ~= "n") and (" (" .. st.name .. ")") or ""
+end
+T.StyleSuffix = StyleSuffix
+
 -- Loads PB/WR (and their splits) for the track the player is on
 function T.SetTrack(ply, track, force)
 	if ply.SurfTrack == track and not force then return end
 	ply.SurfTrack = track
 	ply:SetNW2Int("surf_track", track)
-	local key = SURF.MapKey(track)
+	local key = SURF.MapKey(track, ply.SurfStyle)
 	local pb, splits = SURF.DB.GetRecord(key, ply:SteamID64())
 	ply.SurfPBSplits = splits or {}
 	ply:SetNW2Float("surf_pb", pb or 0)
@@ -33,6 +40,7 @@ local function ClearRun(ply)
 	ply.SurfLastCP = 0
 	ply:SetNW2Int("surf_cp", 0)
 	SURF.Replay.StopRecording(ply)
+	SURF.Stats.Stop(ply)
 end
 
 function T.Reset(ply)
@@ -77,7 +85,7 @@ local function Split(ply, index)
 	ply:SetNW2Int("surf_cp", index)
 
 	local pb = ply.SurfPBSplits and ply.SurfPBSplits[index]
-	local wr = SURF.DB.GetWR(SURF.MapKey(ply.SurfTrack or 0))
+	local wr = SURF.DB.GetWR(SURF.MapKey(ply.SurfTrack or 0, ply.SurfStyle))
 	local wrs = wr and wr.splits and wr.splits[index]
 	net.Start("surf.Split")
 	net.WriteUInt(index, 8)
@@ -118,19 +126,32 @@ function T.OnZoneLeave(ply, zone)
 	ClearRun(ply)
 	ply:SetNW2Float("surf_start", CurTime())
 	SetState(ply, SURF.STATE_RUNNING)
-	if zone.track == 0 then SURF.Replay.StartRecording(ply) end
+	SURF.Stats.Start(ply)
+	-- The replay bot shows the Normal style record of the main track
+	if zone.track == 0 and (ply.SurfStyle or "n") == "n" then SURF.Replay.StartRecording(ply) end
+end
+
+-- Shown on the HUD under the final time
+local function PublishStats(ply, st)
+	ply:SetNW2Int("surf_fin_jumps", st and st.jumps or 0)
+	ply:SetNW2Int("surf_fin_strafes", st and st.strafes or 0)
+	ply:SetNW2Float("surf_fin_sync", (st and st.sync) or -1)
+	ply:SetNW2Float("surf_fin_max", st and st.max or 0)
 end
 
 function T.Finish(ply, time)
 	local track = ply.SurfTrack or 0
+	local style = ply.SurfStyle or "n"
 	local frames, nframes = SURF.Replay.StopRecording(ply)
+	local stats = SURF.Stats.Stop(ply)
 	ply:SetNW2Float("surf_final", time)
+	PublishStats(ply, stats)
 	SetState(ply, SURF.STATE_FINISHED)
 
-	local res = SURF.DB.SubmitTime(ply, SURF.MapKey(track), time, ply.SurfSplits)
+	local res = SURF.DB.SubmitTime(ply, SURF.MapKey(track, style), time, ply.SurfSplits, stats)
 	local acc, white = SURF.Config.Accent, color_white
 	local gold = Color(255, 200, 40)
-	local where = track > 0 and ("Bonus " .. track .. " of " .. game.GetMap()) or game.GetMap()
+	local where = (track > 0 and ("Bonus " .. track .. " of " .. game.GetMap()) or game.GetMap()) .. StyleSuffix(style)
 
 	local diff = ""
 	if res.oldPB then
@@ -143,14 +164,17 @@ function T.Finish(ply, time)
 		SURF.Chat(nil, gold, "[NEW SERVER RECORD] ", team.GetColor(ply:Team()), ply:Nick(), white,
 			" set the record on ", acc, where, white, " with ", gold, SURF.FormatTime(time), white, wrdiff .. "!")
 		for _, p in ipairs(player.GetHumans()) do p:SendLua([[surface.PlaySound("garrysmod/save_load4.wav")]]) end
-		if track == 0 and frames then SURF.Replay.SetRecord(ply, time, frames, nframes) end
-		hook.Run("SurfNewRecord", ply, time, res, track)
+		if track == 0 and style == "n" and frames then SURF.Replay.SetRecord(ply, time, frames, nframes) end
+		hook.Run("SurfNewRecord", ply, time, res, track, style)
 	elseif res.improved then
-		SURF.Chat(nil, acc, "[Timer] ", team.GetColor(ply:Team()), ply:Nick(), white, " finished " .. TrackName(track) .. " in ", acc, SURF.FormatTime(time),
+		SURF.Chat(nil, acc, "[Timer] ", team.GetColor(ply:Team()), ply:Nick(), white, " finished " .. TrackName(track) .. StyleSuffix(style) .. " in ", acc, SURF.FormatTime(time),
 			white, diff .. " and is now rank ", acc, res.rank .. "/" .. res.total, white, ".")
 		ply:SendLua([[surface.PlaySound("buttons/blip1.wav")]])
 	else
-		SURF.Chat(ply, acc, "[Timer] ", white, "You finished " .. TrackName(track) .. " in ", acc, SURF.FormatTime(time), white, diff .. ".")
+		SURF.Chat(ply, acc, "[Timer] ", white, "You finished " .. TrackName(track) .. StyleSuffix(style) .. " in ", acc, SURF.FormatTime(time), white, diff .. ".")
+	end
+	if stats then
+		for _, p in ipairs(Watchers(ply)) do SURF.Chat(p, acc, "[Stats] ", white, SURF.Stats.Describe(stats)) end
 	end
 
 	-- Refresh PB/WR display and everyone's WR on this track
@@ -158,7 +182,38 @@ function T.Finish(ply, time)
 		if p == ply or (res.wr and p.SurfTrack == track) then T.SetTrack(p, p.SurfTrack or 0, true) end
 	end
 	if res.improved then timer.Simple(0, SURF.Ranks.Recalc) end
-	hook.Run("SurfFinish", ply, time, res, track)
+	hook.Run("SurfFinish", ply, time, res, track, style)
+end
+
+-- Switch style (!style). Each style has its own records, so the player goes
+-- back to the start of the track they were on.
+function T.SetStyle(ply, id)
+	local st = SURF.StyleByID[id or ""]
+	if not st then return false end
+	ply.SurfStyle = st.id
+	ply:SetNW2String("surf_style", st.id)
+	ply:SetGravity(st.gravity or 1)
+	return true
+end
+
+function T.ChangeStyle(ply, id)
+	local st = SURF.StyleByID[id or ""]
+	if not st then return false end
+	local acc, white = SURF.Config.Accent, color_white
+	if (ply.SurfStyle or "n") == st.id then
+		SURF.Chat(ply, acc, "[Style] ", white, "You are already on " .. st.name .. ".")
+		return true
+	end
+	T.SetStyle(ply, st.id)
+	local track = ply.SurfTrack or 0
+	if ply:Team() ~= TEAM_SPECTATOR and SURF.Zones.StartPos(track) then
+		T.GoToStart(ply, track)
+	else
+		T.Stop(ply)
+	end
+	T.SetTrack(ply, track, true)
+	SURF.Chat(ply, acc, "[Style] ", white, "Style: ", acc, st.name, white, " (" .. st.help .. "). It has its own records; !style n goes back to Normal.")
+	return true
 end
 
 -- Put a player in a start zone (main track by default, or a bonus)

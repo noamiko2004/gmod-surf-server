@@ -42,3 +42,13 @@ end
 function SURF.Humans()
 	return player.GetHumans()
 end
+
+-- The web portal's address (deploy.sh writes it when the portal is on)
+local portalURL
+function SURF.PortalURL()
+	if portalURL == nil then
+		local url = string.Trim(file.Read("surfline/portal_url.txt", "DATA") or "")
+		portalURL = string.match(url, "^https://[%w%.%-:]+$") and url or false
+	end
+	return portalURL or nil
+end

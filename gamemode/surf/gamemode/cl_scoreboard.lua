@@ -65,7 +65,8 @@ local function Build()
 					local nameCol = SURF.IsVIP(p) and Color(255, 220, 120) or color_white
 					local tag = p:IsAdmin() and "[ADMIN] " or (SURF.IsVIP(p) and "[VIP] " or "")
 					if p:Team() == TEAM_SPECTATOR then tag = tag .. "(spec) " end
-					draw.SimpleText(tag .. p:Nick(), "SurfMedium", 50, rh / 2, nameCol, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
+					local style = SURF.StyleOf(p)
+					draw.SimpleText(tag .. p:Nick() .. (style.id ~= "n" and ("  [" .. style.short .. "]") or ""), "SurfMedium", 50, rh / 2, nameCol, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
 					local title = SURF.Config.Titles[p:GetNW2Int("surf_title", 1)] or SURF.Config.Titles[1]
 					draw.SimpleText(title.name .. "  " .. p:GetNW2Int("surf_points", 0), "SurfMedium", rw - 390, rh / 2, title.color, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
 				end

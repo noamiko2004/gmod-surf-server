@@ -27,7 +27,7 @@ local function PlayerRow(p)
 	local title = SURF.Config.Titles[p:GetNW2Int("surf_title", 1)] or SURF.Config.Titles[1]
 	return {
 		steamid = p:SteamID64(), name = p:Nick(), points = p:GetNW2Int("surf_points", 0), title = title.name,
-		rank = p:GetNW2Int("surf_rankpos", 0), state = state, track = p:GetNW2Int("surf_track", 0),
+		rank = p:GetNW2Int("surf_rankpos", 0), state = state, track = p:GetNW2Int("surf_track", 0), style = SURF.StyleOf(p).id,
 		time = math.Round(t, 3), pb = math.Round(p:GetNW2Float("surf_pb", 0), 3), vip = SURF.IsVIP(p),
 		admin = p:IsAdmin(), ping = p:Ping(), connected = math.floor(p:TimeConnected()),
 	}
@@ -150,9 +150,19 @@ ACTIONS.removevip = function(c)
 	return true, "removed VIP from " .. KnownName(c.steamid)
 end
 
+-- Record keys: surf_x, surf_x#b2, surf_x@sw, surf_x#b2@sw
+local function ValidKey(key)
+	local base, style = string.match(key, "^(.-)@(%w+)$")
+	if base then
+		if not SURF.StyleByID[style] or style == "n" then return false end
+		key = base
+	end
+	return string.match(key, "^surf_[%w_]+$") ~= nil or string.match(key, "^surf_[%w_]+#b%d+$") ~= nil
+end
+
 ACTIONS.deltime = function(c)
 	local key = tostring(c.key or "")
-	if not ValidID(c.steamid) or not string.match(key, "^surf_[%w_]+$") and not string.match(key, "^surf_[%w_]+#b%d+$") then
+	if not ValidID(c.steamid) or not ValidKey(key) then
 		return false, "bad map or steamid"
 	end
 	SURF.DB.DeleteTime(key, c.steamid)
