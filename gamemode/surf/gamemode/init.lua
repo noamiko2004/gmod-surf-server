@@ -6,6 +6,7 @@ AddCSLuaFile("cl_scoreboard.lua")
 AddCSLuaFile("cl_menus.lua")
 AddCSLuaFile("cl_mapvote.lua")
 AddCSLuaFile("cl_visuals.lua")
+AddCSLuaFile("cl_chat.lua")
 
 include("shared.lua")
 include("sv_util.lua")

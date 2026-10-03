@@ -28,15 +28,20 @@ end)
 
 -- Tips ----------------------------------------------------------------------
 
+-- {portal} and {discord} in a tip become the links; tips whose link isn't set
+-- up are skipped
+local PLACEHOLDERS = { portal = function() return SURF.PortalURL() end, discord = function() return SURF.DiscordURL() end }
 local nextTip = 0
 function Social.NextTip()
 	local tips = SURF.Config.Tips
 	for _ = 1, #tips do
 		nextTip = nextTip % #tips + 1
 		local tip = tips[nextTip]
-		if string.find(tip, "{portal}", 1, true) then
-			local url = SURF.PortalURL()
-			tip = url and string.Replace(tip, "{portal}", url) or nil
+		for key, get in pairs(PLACEHOLDERS) do
+			if tip and string.find(tip, "{" .. key .. "}", 1, true) then
+				local url = get()
+				tip = url and string.Replace(tip, "{" .. key .. "}", url) or nil
+			end
 		end
 		if tip then return tip end
 	end

@@ -166,3 +166,33 @@ hook.Add("PostDrawTranslucentRenderables", "surf_zones", function(depth, skybox)
 		end
 	end
 end)
+
+-- Map light ---------------------------------------------------------------------
+-- F (the flashlight key) or !light lights up the whole map for this player
+-- only, for dark maps. Off again on every map change.
+local mapLight = false
+function V.MapLightOn() return mapLight end
+
+function V.ToggleMapLight()
+	mapLight = not mapLight
+	surface.PlaySound("items/flashlight1.wav")
+	chat.AddText(SURF.Config.Accent, "[Light] ", color_white,
+		mapLight and "The map is lit up for you. Press F again to turn it off." or "Map light off.")
+end
+
+hook.Add("PlayerBindPress", "surf_maplight", function(ply, bind, pressed)
+	if pressed and string.find(bind, "impulse 100", 1, true) then
+		V.ToggleMapLight()
+		return true -- instead of the normal flashlight
+	end
+end)
+
+-- Fullbright while the world renders, normal lighting again for the HUD
+hook.Add("PreRender", "surf_maplight", function()
+	if mapLight then render.SetLightingMode(2) end
+end)
+local function LightOff()
+	if mapLight then render.SetLightingMode(0) end
+end
+hook.Add("PostRender", "surf_maplight", LightOff)
+hook.Add("PreDrawHUD", "surf_maplight", LightOff)

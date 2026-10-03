@@ -39,6 +39,10 @@ in chat is `BRAND_NAME`.
 - You spawn and restart (`!r`) facing the way the map goes
 - `!graphics`: color presets (Vivid by default, Cinematic or Off) and glowing
   START/END zones with labels (`!zonefx` turns the glow off)
+- F (or `!light`) lights up the whole map for that player on dark maps
+- Chat hints: typing `!` lists the matching commands with what they do, and
+  Tab completes them
+- `!discord` shows and opens the invite (DISCORD_URL, else the bot's invite)
 - Players away for 5 minutes move to the spectators and don't block `!rtv`
 - Practice: `!saveloc` / `!tele`, `!stage <n>` (timer turns off)
 - HUD with timer, speed that turns green/red when gaining/losing, CP progress,

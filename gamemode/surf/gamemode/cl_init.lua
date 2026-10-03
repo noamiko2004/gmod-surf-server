@@ -4,6 +4,7 @@ include("cl_scoreboard.lua")
 include("cl_menus.lua")
 include("cl_mapvote.lua")
 include("cl_visuals.lua")
+include("cl_chat.lua")
 
 local function Font(name, size, weight)
 	surface.CreateFont(name, { font = "Roboto", size = size, weight = weight or 500, antialias = true, extended = true })
@@ -59,6 +60,8 @@ net.Receive("surf.Action", function()
 		local on = not showKeys:GetBool()
 		RunConsoleCommand("surf_showkeys", on and "1" or "0")
 		chat.AddText(SURF.Config.Accent, "[Settings] ", color_white, "Key display " .. (on and "on" or "off") .. ".")
+	elseif action == "maplight" then
+		SURF.Visuals.ToggleMapLight()
 	elseif action == "zonefx" then
 		SURF.Visuals.ToggleZones()
 	elseif string.StartWith(action, "graphics:") then

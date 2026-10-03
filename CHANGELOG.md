@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-10-03 (v4.4)
+- Chat hints (cl_chat.lua): typing `!` or `/` shows the matching commands with
+  their help above the chat box; Tab completes and cycles. The server sends
+  each player the commands they may use (net message surf.Commands).
+- F (the flashlight key) or `!light` lights up the whole map for that player
+  (client-side fullbright, `render.SetLightingMode(2)`), also in `!graphics`.
+- `!discord` (also `!dc`) shows the invite in chat, opens it and explains
+  `!link`. It uses DISCORD_URL, the bot's invite from links.json, or
+  data/surfline/discord/invite.txt. The Discord chat tip carries the invite
+  and is skipped while there is none.
+
 ## 2026-10-03 (v4.3)
 - Website name: `scripts/set-domain.sh <name>` checks that the name points at
   the server, saves `PORTAL_DOMAIN` and applies it (`off` goes back to the IP).

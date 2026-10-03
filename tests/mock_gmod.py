@@ -848,6 +848,43 @@ L.execute('SURF.DiscordBridge.Poll()')
 check(not any(k.endswith(".json") for k in vfs if k.startswith(INBOX)), "the rest is read on the next tick")
 del vfs[INBOX + "1_00005.tmp"]
 
+# Command list for the chat hints, !discord and the Discord tip
+L.execute(r"""
+sent = {}
+hook.Run("SurfPlayerReady", b)
+userList = SURF.Commands.ClientList(false)
+adminList = SURF.Commands.ClientList(true)
+""")
+names = lambda lst: [n for c in lst.values() for n in c["n"].values()]
+check(any(e[1] == "Start" and e[2] == "surf.Commands" for e in G.sent.values()), "players get the command list when they join")
+check({"r", "style", "link", "light", "discord", "graphics"} <= set(names(G.userList)) and "hidemap" not in names(G.userList),
+      "the list has player commands only")
+check("hidemap" in names(G.adminList) and any(c["a"] for c in G.adminList.values()), "admins also get admin commands, marked")
+bridge_events()
+L.execute(r"""
+chats = {}
+SURF.Commands.Run(a, "discord", {})
+noInvite = SURF.DiscordURL()
+""")
+check(G.noInvite is None and any("isn't set up yet" in c for c in G.chats.values()), "!discord without an invite says so")
+check(not any("{discord}" in (G.SURF.Social.NextTip() or "") or "!discord" in (G.SURF.Social.NextTip() or "") for _ in range(len(G.SURF.Config.Tips))),
+      "the Discord tip is skipped without an invite")
+vfs["surfline/discord/invite.txt"] = "https://discord.gg/SurfEU42\n"
+L.execute(r"""
+chats = {}
+SURF.Commands.Run(a, "dc", {})
+invite = SURF.DiscordURL()
+""")
+check(G.invite == "https://discord.gg/SurfEU42" and any("https://discord.gg/SurfEU42" in c and "!link" in c for c in G.chats.values()),
+      "!discord shows the bot's invite and how to link")
+tips = [G.SURF.Social.NextTip() for _ in range(len(G.SURF.Config.Tips))]
+check(any("https://discord.gg/SurfEU42" in t for t in tips), "the Discord tip carries the invite")
+vfs["surfline/discord/invite.txt"] = "javascript:alert(1)"
+check(G.SURF.DiscordURL() is None, "anything but a Discord invite is ignored")
+del vfs["surfline/discord/invite.txt"]
+L.execute('SURF.ClientAction = function(p, act) lastAction = act end SURF.Commands.Run(a, "light", {})')
+check(G.lastAction == "maplight", "!light toggles the map light on the client")
+
 # Bot not running: stop queueing at 500 files
 for i in range(500):
     vfs[OUTBOX + f"0_{i:05d}.json"] = "{}"

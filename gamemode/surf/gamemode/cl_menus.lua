@@ -127,7 +127,7 @@ end
 
 function Menus.graphics()
 	local V = SURF.Visuals
-	local f = Frame("Graphics", 460, 330)
+	local f = Frame("Graphics", 460, 390)
 	local scroll = vgui.Create("DScrollPanel", f)
 	scroll:Dock(FILL)
 	scroll:DockMargin(0, 12, 0, 0)
@@ -154,6 +154,8 @@ function Menus.graphics()
 	end
 	Row("Glowing zones", "Start and end zones glow, with labels over them.",
 		function() return V.ZonesOn() and "on" or "off" end, V.ZonesOn, V.ToggleZones)
+	Row("Map light", "Lights up the whole map for you on dark maps. Same as F.",
+		function() return V.MapLightOn() and "on" or "off" end, V.MapLightOn, V.ToggleMapLight)
 end
 
 function Menus.vip(data)
