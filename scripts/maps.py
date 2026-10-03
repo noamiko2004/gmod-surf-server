@@ -293,9 +293,13 @@ def main():
 
     zones_dir = os.path.join(args.repo, "zones")
     zoned = {f[:-5] for f in os.listdir(zones_dir) if f.endswith(".json")}
+    data_dir = os.path.join(args.garrysmod, "data", "surfline")
+    # Maps that loaded in game without a working start and end (sv_zones.lua
+    # lists them in bad_zones.txt) count as having no zones, so maps that work
+    # get their slots. Placing zones in game with !zone takes a map off the list.
+    zoned -= set(read_list(os.path.join(data_dir, "bad_zones.txt")))
     wanted = zoned | set(read_list(os.path.join(args.repo, "maps", "extra_maps.txt")))
     # Maps we never want: maps/blocked_maps.txt and the ones admins hid in game (!hidemap)
-    data_dir = os.path.join(args.garrysmod, "data", "surfline")
     blocked = set(read_list(os.path.join(args.repo, "maps", "blocked_maps.txt"))) | \
         set(read_list(os.path.join(data_dir, "hidden_maps.txt")))
     wanted -= blocked

@@ -207,7 +207,9 @@ function string.StripExtension(s) return (s:gsub("%.%w+$", "")) end
 hooks = {}
 hook = { Add = function(ev, name, fn) hooks[ev] = hooks[ev] or {} hooks[ev][name] = fn end,
          Run = function(ev, ...) for _, fn in pairs(hooks[ev] or {}) do local r = fn(...) if r ~= nil then return r end end end }
-timer = { Simple = function(_, fn) fn() end, Create = function() end }
+timers = {}      -- repeating timers by name, run by hand in the tests
+timer = { Simple = function(_, fn) fn() end, Create = function(name, _, _, fn) timers[name] = fn end,
+          Remove = function(name) timers[name] = nil end }
 sent = {}
 net = {}
 for _, k in ipairs({ "Start", "WriteUInt", "WriteFloat", "WriteBool", "WriteString", "WriteTable", "WriteColor" }) do
@@ -659,6 +661,8 @@ SURF.Zones.Load()
 check(Z.HasTimer(0), f"hooked zones resolve to the map's trigger brushes ({Z.source})")
 L.execute('mapEnts = {} SURF.Zones.Load()')
 check(not Z.HasTimer(0), "hooked zones are skipped when the triggers are missing")
+check("surf_25_lighters" in G.SURF.Zones.KnownBad() and not G.SURF.MapVote.HasZones("surf_25_lighters"),
+      "a map that loaded without a working start and end counts as having no zones")
 
 # Maps without zone files but with timer triggers built in
 L.execute('''
@@ -715,6 +719,44 @@ a.IsAdmin = userIsAdmin
 ''')
 check("surf_mesa" in list(G.playable3.values()) and vfs.get("surfline/hidden_maps.txt") == "", "!unhidemap puts it back")
 del vfs["surfline/blocked_maps.txt"]
+
+# Never a map without zones in votes or picked automatically, however few have zones
+L.execute('''
+installed_maps = { "surf_unknown_map", "surf_25_lighters" }
+playable4 = SURF.MapVote.Playable()
+installed_maps = { "surf_kitsune", "surf_lessons", "surf_mesa", "surf_25_lighters", "surf_unknown_map" }
+''')
+check(len(list(G.playable4.values())) == 0, "no zoned maps means an empty vote pool, not every map")
+
+# A map that turns out to have no working zones starts a vote for another one
+L.execute('''
+savedNow = CurTime()
+SURF.MapVote.nominations = { x = "surf_unknown_map", y = "surf_mesa" }
+mapname = "surf_25_lighters"
+SURF.Zones.Load()
+hooks.InitPostEntity.surf_nozones_leave()
+hasLeaveTimer = timers.surf_nozones_leave ~= nil
+SetCurTime(savedNow + 60)
+timers.surf_nozones_leave()
+leaveChoices = SURF.MapVote.choices
+leaveActive = SURF.MapVote.active
+leaveTimerGone = timers.surf_nozones_leave == nil
+SURF.MapVote.active = false
+SURF.MapVote.nominations = {}
+''')
+choices = list(G.leaveChoices.values())
+check(G.hasLeaveTimer and G.leaveActive and G.leaveTimerGone, "a map without working zones starts a map vote once people play")
+check("surf_25_lighters" not in choices and "surf_unknown_map" not in choices and "__extend" not in choices and "surf_mesa" in choices,
+      f"that vote offers only maps with zones and no extend ({choices})")
+vfs["surfline/admin_map.txt"] = "surf_25_lighters"
+L.execute('''
+hooks.InitPostEntity.surf_nozones_leave()
+adminLeaveTimer = timers.surf_nozones_leave ~= nil
+SetCurTime(savedNow)
+mapname = "surf_kitsune"
+SURF.Zones.Load()
+''')
+check(not G.adminLeaveTimer and "surfline/admin_map.txt" not in vfs, "a map an admin loaded with !map stays, to place zones")
 
 # Server records are logged for the portal
 recs = db.execute("select map, name, time, prev_time from surf_records order by id").fetchall()
