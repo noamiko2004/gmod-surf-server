@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-10-03 (v3.1)
+- The web portal is installed by the update (scripts/portal.sh, run by
+  deploy.sh while PORTAL_ENABLED=1): Caddy with a Let's Encrypt certificate
+  for the server's IP, the surf-portal service, ports 80/443, and a sudo rule
+  for the restart/update buttons. Noam approved this on 2026-10-03.
+
 ## 2026-10-03 (v3)
 - v2 live result: only 6 maps installed (7 of 91 wanted maps were on the GMOD
   Workshop in our sources), 2 of them with zones.
@@ -24,7 +30,7 @@
 - Groundwork for the web portal: server records log (surf_records), bans
   (surf_bans, enforced on connect), status file and command queue in
   data/surfline/portal/ (sv_portal.lua).
-- Web portal app in portal/ with tests (not installed on the server yet).
+- Web portal app in portal/ with tests.
 - Times show as 1:23.456 (was 01:23.456), same as the portal; rank ties are
   broken by date then SteamID, same as the portal.
 

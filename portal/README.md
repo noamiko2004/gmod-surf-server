@@ -45,6 +45,9 @@ config.env keys used: `SERVER_NAME`, `BRAND_NAME` (default `Surf`),
 
 ### Deploying (for the install scripts)
 
+`scripts/portal.sh` does all of this on the server (deploy.sh runs it as root
+while `PORTAL_ENABLED=1`). For reference:
+
 Run it as the `gmod` user: it reads `sv.db` and writes `DATA/portal/cmd/*.txt`,
 `DATA/portal/audit.log` and `DATA/portal/avatars.json`, and the game must be
 able to delete the command files. Example unit:
@@ -64,10 +67,20 @@ RestartSec=3
 WantedBy=multi-user.target
 ```
 
-Caddyfile:
+Caddyfile (Caddy 2.10+; Let's Encrypt issues IP-address certificates only
+with its 6-day `shortlived` profile, and browsers send no SNI for an IP):
 
 ```
-128-140-7-178.sslip.io {
+{
+    default_sni 128.140.7.178
+}
+
+128.140.7.178 {
+    tls {
+        issuer acme {
+            profile shortlived
+        }
+    }
     encode gzip
     reverse_proxy 127.0.0.1:8090
 }

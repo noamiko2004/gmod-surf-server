@@ -53,10 +53,15 @@ status and players, a Join button, leaderboard, map pages with records, player
 profiles, and an owner-only admin area behind Steam sign-in (kick, ban, VIP,
 change map, broadcast, delete times, logs, restart/update). It talks to the
 game through files in `garrysmod/data/surfline/portal/` (see
-`gamemode/surf/gamemode/sv_portal.lua` and `portal/README.md`). It is not
-installed on the server yet: that needs Caddy for HTTPS, a systemd service,
-ports 80/443 and a sudo rule for the restart/update buttons, which wait for
-the owner's go-ahead.
+`gamemode/surf/gamemode/sv_portal.lua` and `portal/README.md`).
+
+`scripts/portal.sh` sets it up on the server and runs on every deploy while
+`PORTAL_ENABLED=1` (the default; `0` turns it off). It installs Caddy for
+HTTPS (a Let's Encrypt certificate for the server's IP, or for `PORTAL_DOMAIN`
+when set), the `surf-portal` systemd service, opens ports 80/443, and adds
+`/usr/local/sbin/surfline-ctl` with a sudo rule so the admin page can restart
+and update the game server. The address is written to
+`/home/gmod/portal_url.txt` (https://128.140.7.178 on the live server).
 
 ## Tests
 

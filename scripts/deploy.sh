@@ -17,6 +17,7 @@ add_setting BRAND_NAME "SURF" "Short server name shown on the HUD and in chat"
 add_setting MAX_MAPS "100" "Most surf maps to install from the Workshop (each is 20-100 MB)"
 add_setting DISCORD_URL "" "Discord invite link (https://...), shown by !discord"
 add_setting STORE_URL "" "Store link for VIP (https://...), shown by !vip"
+add_setting PORTAL_ENABLED "1" "Web portal with Steam login and admin page (1 on, 0 off), see portal/README.md"
 # The first install used a placeholder name; give it the current default
 OLD_NAME="Surfline | Surf Timer | !rtv !wr !trail"
 NEW_NAME="[EU] SURF | Timer, Ranks, WR Replays | Easy to Hard Maps"
@@ -69,4 +70,14 @@ if [[ "${SKIP_MAPS:-0}" != "1" ]]; then
 fi
 
 chown -R "$GMOD_USER:$GMOD_USER" "$GM_DIR/gamemodes/surf" "$GM_DIR/cfg" 2>/dev/null || true
+
+# Web portal (needs root, so only when run by update.sh or install.sh)
+if [[ $EUID -eq 0 ]]; then
+  if [[ "${PORTAL_ENABLED:-1}" == "1" ]]; then
+    bash "$REPO_DIR/scripts/portal.sh" || log "Portal setup had problems, see the lines above"
+  elif systemctl is-enabled --quiet surf-portal 2>/dev/null; then
+    log "Turning the web portal off (PORTAL_ENABLED=0)"
+    systemctl disable --now surf-portal || true
+  fi
+fi
 log "Deploy complete"
