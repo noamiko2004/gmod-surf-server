@@ -425,6 +425,11 @@ check(guild.get_channel(state["channels"]["announcements"]).is_news(), "announce
 check(len(guild.automod_rules) == len(L.AUTOMOD), "AutoMod rules created")
 check(guild.icon == "set" and guild.settings.get("verification_level") == discord.VerificationLevel.medium, "icon and verification level")
 check(state.get("invite") == "https://discord.gg/surfabc", "permanent invite saved")
+check(guild.settings.get("name") == L.GUILD_NAME and state.get("named"), "server renamed once")
+check(state.get("built") == L.LAYOUT_VERSION, "layout version saved")
+wc = [w.channel for w in guild.welcome["welcome_channels"]]
+check(wc and all(c._ows[guild.default_role].view_channel for c in wc),
+      "welcome screen only lists channels everyone can read (Discord rejects others)")
 welcome = guild.get_channel(state["channels"]["welcome"])
 check(len(welcome.sent) == 1 and len(welcome.sent[0].embeds) == 3, "welcome message posted once with 3 embeds")
 surfer = guild.get_role(state["roles"]["surfer"])
@@ -444,11 +449,13 @@ print("  first build:", len(notes), "notes")
 created_before = [c for c in guild.calls if c[0].startswith("create") or c[0] in ("automod", "delete")]
 guild.calls.clear()
 status_vc.name = "\U0001F7E2 3/24 on surf_mesa"  # the live name must survive a re-run
+guild.settings.clear()
 notes2 = asyncio.run(build(guild, state))
 created = [c for c in guild.calls if c[0].startswith("create") or c[0] in ("automod", "delete")]
 check(not created, f"second build creates and deletes nothing: {created}")
 check(len(welcome.sent) == 1 and ("message.edit", welcome.name) in guild.calls, "second build edits the welcome message in place")
 check(status_vc.name.startswith("\U0001F7E2 3/24"), "second build keeps the live status channel name")
+check("name" not in guild.settings, "second build leaves the server name alone (the owner may rename it)")
 
 # Owner deletes a channel and renames another; a repair brings them back without duplicates
 guild.chans.remove(guild.get_channel(state["channels"]["bugs"]))

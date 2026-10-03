@@ -97,8 +97,9 @@ class SurfBot(discord.Client):
         await self.pick_home()
         if self.home is None:
             return
-        if not self.gstate().get("built"):
+        if self.gstate().get("built") != layout.LAYOUT_VERSION:
             await self.build()
+        await self.profile()
         if not self.synced:
             guild = discord.Object(self.home.id)
             self.tree.copy_global_to(guild=guild)  # guild commands show up at once, global ones take an hour
@@ -132,6 +133,32 @@ class SurfBot(discord.Client):
             await guild.leave()
         elif self.home is None:
             await self.on_ready()
+
+    async def profile(self):
+        """The bot's own name and avatar, set once per layout version (Discord rate-limits these)."""
+        if self.state.get("profile") == layout.LAYOUT_VERSION:
+            return
+        kw = {}
+        if self.user.name != layout.BOT_NAME:
+            kw["username"] = layout.BOT_NAME
+        try:
+            with open(os.path.join(HERE, "..", "assets", "bot.png"), "rb") as f:
+                kw["avatar"] = f.read()
+        except OSError:
+            pass
+        try:
+            await self.user.edit(**kw)
+            log.info("Set the bot's name and avatar")
+        except discord.HTTPException as ex:
+            log.warning("Could not set the bot's name/avatar: %s", ex)
+            if "username" in kw:  # name taken or changed too often; the avatar still matters
+                kw.pop("username")
+                try:
+                    await self.user.edit(**kw)
+                except discord.HTTPException:
+                    return
+        self.state["profile"] = layout.LAYOUT_VERSION
+        self.save()
 
     async def build(self):
         async with self.building:

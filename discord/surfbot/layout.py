@@ -9,6 +9,15 @@ Access model: @everyone only sees START HERE. Pressing "Accept the rules" in
 and spam accounts out of the chat channels.
 """
 
+# Bump when the layout changes: the bot rebuilds/repairs on start when the saved
+# version is older, so a git pull is enough to roll changes out.
+LAYOUT_VERSION = 2
+
+# Discord server name (set once; rename it yourself later and the bot keeps yours)
+# and the bot's own name. Matches the in-game "[EU] SURF" brand.
+GUILD_NAME = "SURF EU 🌊 Surf Timer & Ranks"
+BOT_NAME = "SURF"
+
 ACCENT = 0x14C8FF       # portal cyan
 GOLD = 0xFFC828         # same gold as the in-game record feed
 GREEN = 0x3BD16F

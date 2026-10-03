@@ -259,13 +259,18 @@ class Builder:
                                                                join_notification_replies=False),
             "reason": "Surf server setup",
         }
-        if self.guild.icon is None:
+        if not self.state.get("named"):
+            kw["name"] = layout.GUILD_NAME
+        if self.guild.icon is None or not self.state.get("named"):
             try:
                 with open(os.path.join(ASSETS, "icon.png"), "rb") as f:
                     kw["icon"] = f.read()
             except OSError:
                 pass
         await self.guild.edit(**kw)
+        if "name" in kw:
+            self.state["named"] = True
+            self.note(f"Named the server {layout.GUILD_NAME}")
 
     async def community(self):
         if self.is_community:
@@ -284,8 +289,10 @@ class Builder:
     async def welcome_screen(self):
         if not self.is_community:
             return
-        picks = [("welcome", "Rules and how to join", "\U0001F44B"), ("status", "Who's on and which map", "\U0001F4E1"),
-                 ("records", "Live server records", "\U0001F3C6"), ("general", "Chat with other surfers", "\U0001F4AC")]
+        # Discord only allows channels @everyone can read here
+        picks = [("welcome", "Rules, how to join, and the button that unlocks the server", "\U0001F44B"),
+                 ("status", "Who's on and which map, live", "\U0001F4E1"),
+                 ("announcements", "News, updates and new maps", "\U0001F4E2")]
         chans = [discord.WelcomeChannel(channel=self.channel(k), description=d, emoji=discord.PartialEmoji(name=e))
                  for k, d, e in picks if self.channel(k)]
         try:
@@ -400,7 +407,7 @@ class Builder:
         await self.automod()
         await self.messages(game)
         await self.invite()
-        self.state["built"] = True
+        self.state["built"] = layout.LAYOUT_VERSION
         return self.notes
 
     async def settings_safe(self):
