@@ -1,4 +1,5 @@
 include("shared.lua")
+include("cl_ui.lua")
 include("cl_hud.lua")
 include("cl_scoreboard.lua")
 include("cl_menus.lua")
