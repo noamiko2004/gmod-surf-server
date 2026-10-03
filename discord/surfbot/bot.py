@@ -19,7 +19,7 @@ from discord.ext import tasks
 from . import bridge as BR
 from . import game as G
 from . import layout
-from .setup import AcceptView, Builder, LinksView, RolesView, to_embed
+from .setup import AcceptView, Builder, LinksView, RolesView, texts_key, to_embed
 
 log = logging.getLogger("surfbot")
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -43,6 +43,23 @@ def save_state(path, state):
     with open(tmp, "w") as f:
         json.dump(state, f, indent=1, sort_keys=True)
     os.replace(tmp, path)
+
+
+def write_line(path, text):
+    """One line to a file, only when it changed. Written whole so a reader never sees half."""
+    try:
+        with open(path) as f:
+            if f.read() == text + "\n":
+                return
+    except OSError:
+        pass
+    try:
+        tmp = path + ".tmp"
+        with open(tmp, "w") as f:
+            f.write(text + "\n")
+        os.replace(tmp, path)
+    except OSError as ex:
+        log.warning("Could not write %s: %s", path, ex)
 
 
 def code_stamp():
@@ -80,10 +97,12 @@ class SurfBot(discord.Client):
 
     def save(self):
         save_state(self.state_path, self.state)
-        inv = self.state.get("invite")
-        if inv:  # deploy.sh can pick this up for !discord when DISCORD_URL is empty
-            with open(os.path.join(self.data_dir, "invite.txt"), "w") as f:
-                f.write(inv + "\n")
+        inv = self.gstate().get("invite")
+        if inv:
+            # For deploy.sh and the website, and for the game's !discord right away
+            write_line(os.path.join(self.data_dir, "invite.txt"), inv)
+            if os.path.isdir(self.bridge.root):
+                write_line(os.path.join(self.bridge.root, "invite.txt"), inv)
 
     def gstate(self):
         return self.state.setdefault("guild", {})
@@ -262,6 +281,19 @@ class SurfBot(discord.Client):
     @tasks.loop(seconds=60)
     async def status_loop(self):
         await self.guarded(self.status_tick)
+        await self.guarded(self.refresh_texts)
+
+    async def refresh_texts(self):
+        """The welcome message links the website and the server address: edit it when they move."""
+        st = self.gstate()
+        if st.get("built") != layout.LAYOUT_VERSION or self.building.locked():
+            return
+        if st.get("texts") == list(texts_key(self.game)):
+            return
+        async with self.building:
+            await Builder(self, self.home, st).messages(self.game)
+        self.save()
+        log.info("Welcome message updated for %s", self.game.portal_url() or "no website")
 
     async def status_tick(self):
         st = await asyncio.to_thread(self.current_status)
