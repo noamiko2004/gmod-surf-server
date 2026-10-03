@@ -1,17 +1,18 @@
 """Public pages: home, leaderboard, maps, map detail, player profile, /api/status."""
 import time
 
-from .fmt import (TITLES, e, fmt_clock, fmt_duration, fmt_gap, fmt_improve, fmt_int, fmt_time, hash_index,
-                  track_label, track_of)
-from .views import (avatar, empty, icon, layout, map_url, page_head, player_link, player_url, short_map,
-                    thumb, tier_badge, title_chip, ttime, when)
+from .fmt import (STYLES, TITLES, e, fmt_clock, fmt_duration, fmt_gap, fmt_improve, fmt_int, fmt_speed, fmt_sync,
+                  fmt_time, hash_index, make_key, style_label, style_order, track_label)
+from .views import (avatar, bonus_tag, empty, icon, layout, map_url, page_head, player_link, player_url, short_map,
+                    style_tag, thumb, tier_badge, title_chip, track_url, ttime, when)
 
 STATE_TEXT = {"start": "In start zone", "idle": "Surfing", "nozones": "Free surf", "spec": "Spectating"}
 
 
 def state_html(p):
-    st, track = p["state"], p["track"]
-    bonus = f' <span class="tag tag-bonus">Bonus {int(track)}</span>' if track else ""
+    st = p["state"]
+    tags = " ".join(t for t in (bonus_tag(p["track"]), style_tag(p.get("style", "n"))) if t)
+    bonus = f' <span class="ptags">{tags}</span>' if tags else ""
     if st == "running":
         return (f'<span class="state st-run"><span class="pulse" aria-hidden="true"></span>Running '
                 f'<span class="mono js-run" data-t="{p["time"]:.3f}">{e(fmt_time(p["time"]))}</span></span>{bonus}')
@@ -169,9 +170,8 @@ def community_card(app):
 def record_items(ctx, recs, show_map=True):
     out = []
     for r in recs:
-        where = f'<a href="{e(map_url(r["map"]))}">{e(r["map"])}</a>' if show_map else ""
-        if r["track"]:
-            where += f' <span class="tag tag-bonus">Bonus {int(r["track"])}</span>'
+        link = f'<a href="{e(track_url(r["map"], r["track"], r["style"]))}">{e(r["map"])}</a>' if show_map else ""
+        where = " ".join(x for x in (link, bonus_tag(r["track"]), style_tag(r["style"])) if x)
         if r["prev_time"] > 0:
             delta = f' <span class="delta">({e(fmt_improve(r["prev_time"] - r["time"]))})</span>'
             beat = f'beat {e(r["prev_name"])}' if r["prev_name"] else "new record"
@@ -217,9 +217,10 @@ def leaderboard(ctx):
     else:
         table = f'<div class="card">{empty("Nobody is ranked yet.", "Finish any map to earn points.", "trophy")}</div>'
     titles = "".join(f'<li>{title_chip(i)}<span class="mono">{need:,}+</span></li>' for i, (n, need, _) in enumerate(TITLES))
+    styles_txt = ", ".join(name for _, name in STYLES[1:])
     how = f'''<section class="card howto">
 <header class="card-h"><h2>{icon("star")}How points work</h2></header>
-<p>Each map and bonus is ranked by time. Position 1 earns 110 points, 2nd 55, 3rd 50, then 5 less per place down to 10 for everyone below 10th. Bonus tracks are worth half. Your total decides your title.</p>
+<p>Each map and bonus is ranked by time. Position 1 earns 110 points, 2nd 55, 3rd 50, then 5 less per place down to 10 for everyone below 10th. Bonus tracks are worth half. Every style ({e(styles_txt)}) has its own leaderboards, also worth half, so a bonus on a style is worth a quarter. Your total decides your title.</p>
 <ul class="title-scale">{titles}</ul>
 </section>'''
     sub = f"Top {min(100, len(rank['players']))} of {fmt_int(len(rank['players']))} ranked surfers by points." if rank["players"] else "Points from every finished map and bonus."
@@ -270,6 +271,17 @@ def maps_page(ctx):
     return layout(ctx, "Maps", body, page="maps")
 
 
+def stat_cells(r):
+    """Sync and max speed of the run that set the time ("-" when not measured or before v4)."""
+    sync_tip = " · ".join(f"{fmt_int(r[k])} {k}" for k in ("strafes", "jumps") if r.get(k) is not None)
+    speed_tip = f'Average {fmt_speed(r["avgspeed"])}' if r.get("avgspeed") is not None else ""
+    out = []
+    for text, tip in ((fmt_sync(r.get("sync")), sync_tip), (fmt_speed(r.get("maxspeed")), speed_tip)):
+        t = f' title="{e(tip)}"' if tip else ""
+        out.append(f'<td class="num mono hide-sm c-stat{" muted" if text == "-" else ""}"{t}>{e(text)}</td>')
+    return "".join(out)
+
+
 def map_detail(ctx, name):
     app = ctx.app
     st = app.store.status()
@@ -285,8 +297,15 @@ def map_detail(ctx, name):
     tracks = [0] + m["bonuses"]
     if track not in tracks:
         track = 0
-    key = name if not track else f"{name}#b{track}"
-    rows_data = rank["keys"].get(key, [])[:100]
+    # every key is its own leaderboard: Normal first, then the styles with times on this track
+    present = rank["variants"].get(name, {}).get(track, {})
+    styles = sorted(set(present) | {"n"}, key=style_order)
+    style = ctx.query.get("style", "n") or "n"
+    if style not in styles:
+        style = "n"
+    key = present.get(style) or make_key(name, track, style)
+    board = rank["keys"].get(key, [])
+    rows_data = board[:100]
     best = rows_data[0]["time"] if rows_data else 0
     rows = []
     for r in rows_data:
@@ -294,18 +313,25 @@ def map_detail(ctx, name):
         rows.append(f'<tr{" class=is-wr" if r["pos"] == 1 else ""}><td class="c-pos"><span class="pos pos-{min(r["pos"], 4)}">{r["pos"]}</span></td>'
                     f'<td class="c-player"><div class="pcell">{avatar(ctx, r["sid"], r["name"], "sm")}{player_link(r["sid"], r["name"])}</div></td>'
                     f'<td class="num mono strong">{e(fmt_time(r["time"]))}</td><td class="num mono muted">{gap}</td>'
-                    f'<td class="num muted hide-sm">{when(r["date"], "date")}</td></tr>')
+                    f'{stat_cells(r)}<td class="num muted hide-sm">{when(r["date"], "date")}</td></tr>')
     tabs = ""
     if len(tracks) > 1:
         tabs = '<nav class="tabs" aria-label="Track">' + "".join(
-            f'<a href="{e(map_url(name))}{"" if not t else "?track=" + str(t)}"{" class=on aria-current=page" if t == track else ""}>{e(track_label(t))}</a>'
+            f'<a href="{e(track_url(name, t))}"{" class=on aria-current=page" if t == track else ""}>{e(track_label(t))}</a>'
             for t in tracks) + "</nav>"
+    if len(styles) > 1:
+        tabs += '<nav class="tabs tabs-style" aria-label="Style">' + "".join(
+            f'<a href="{e(track_url(name, track, s))}"{" class=on aria-current=page" if s == style else ""}>{e(style_label(s))}</a>'
+            for s in styles) + "</nav>"
     if rows:
-        table = (f'<div class="table-scroll"><table class="tbl"><thead><tr><th class="c-pos">#</th><th>Player</th>'
-                 f'<th class="num">Time</th><th class="num">Gap</th><th class="num hide-sm">Date</th></tr></thead><tbody>{"".join(rows)}</tbody></table></div>')
+        table = (f'<div class="table-scroll"><table class="tbl tbl-compact"><thead><tr><th class="c-pos">#</th><th>Player</th>'
+                 f'<th class="num">Time</th><th class="num">Gap</th><th class="num hide-sm" title="Strafe sync">Sync</th>'
+                 f'<th class="num hide-sm">Max speed</th><th class="num hide-sm">Date</th></tr></thead><tbody>{"".join(rows)}</tbody></table></div>')
     else:
-        table = empty("No times on this track yet.", "Be the first to finish and take the record.", "flag")
-    total = len(rank["keys"].get(key, []))
+        table = empty("No Normal times on this track yet." if len(styles) > 1 else "No times on this track yet.",
+                      "Be the first to finish and take the record.", "flag")
+    total = len(board)
+    board_label = track_label(track) + ("" if style == "n" else " · " + style_label(style))
     recs = record_items(ctx, app.store.recent_records(10, name), show_map=False)
     rec_html = f'<ul class="reclist compact">{recs}</ul>' if recs else empty("No records yet.", "", "trophy")
     rec = m["record"]
@@ -343,7 +369,7 @@ def map_detail(ctx, name):
 </section>
 <div class="wrap map-grid-2">
 <section class="card flush">
-<header class="card-h pad"><h2>{icon("flag")}{e(track_label(track))} leaderboard</h2><span class="muted small">{fmt_int(total)} finisher{"s" if total != 1 else ""}</span></header>
+<header class="card-h pad"><h2>{icon("flag")}{e(board_label)} leaderboard</h2><span class="muted small">{fmt_int(total)} finisher{"s" if total != 1 else ""}</span></header>
 {tabs}
 {table}
 </section>
@@ -394,17 +420,19 @@ def player_page(ctx, sid):
     held_html = ""
     if held:
         chips = "".join(
-            f'<a class="rec-chip" href="{e(map_url(track_of(t["key"])[0]))}{"?track=" + str(track_of(t["key"])[1]) if track_of(t["key"])[1] else ""}">'
-            f'{icon("trophy", "ic ic-gold")}<span>{e(track_of(t["key"])[0])}</span>'
-            f'{(" <span class=tag>B" + str(track_of(t["key"])[1]) + "</span>") if track_of(t["key"])[1] else ""}'
+            f'<a class="rec-chip" href="{e(track_url(t["map"], t["track"], t["style"]))}">'
+            f'{icon("trophy", "ic ic-gold")}<span>{e(t["map"])}</span>'
+            f'{(" <span class=tag>B" + str(t["track"]) + "</span>") if t["track"] else ""}{style_tag(t["style"])}'
             f'<span class="mono gold">{e(fmt_time(t["time"]))}</span></a>' for t in held)
         held_html = f'<section class="card"><header class="card-h"><h2>{icon("trophy")}Records held</h2><span class="muted small">{len(held)}</span></header><div class="rec-chips">{chips}</div></section>'
     rows = []
-    for t in sorted(p["times"], key=lambda x: (track_of(x["key"])[0], track_of(x["key"])[1])):
-        base, tr = track_of(t["key"])
-        href = map_url(base) + (f"?track={tr}" if tr else "")
+    for t in p["times"]:  # sorted by map, track, style
+        base, tr = t["map"], t["track"]
+        href = track_url(base, tr, t["style"])
         pos_cls = " gold" if t["pos"] == 1 else ""
         btag = f' <span class="show-sm tag tag-bonus">B{tr}</span>' if tr else ""
+        if t["style"] != "n":
+            btag += " " + style_tag(t["style"])
         rows.append(f'<tr{" class=is-wr" if t["pos"] == 1 else ""}><td class="wrap-sm"><a href="{e(href)}">{e(base)}</a>{btag}</td>'
                     f'<td class="hide-sm">{e(track_label(tr)) if tr else "<span class=muted>Main</span>"}</td>'
                     f'<td class="num mono strong{pos_cls}">{e(fmt_time(t["time"]))}</td>'
@@ -442,7 +470,7 @@ def api_status(ctx):
         players.append({
             "steamid": p["steamid"], "name": p["name"], "title": p["title"] or TITLES[p["title_idx"]][0],
             "title_idx": p["title_idx"], "points": p["points"], "rank": p["rank"], "state": p["state"],
-            "track": p["track"], "time": round(p["time"], 3), "pb": round(p["pb"], 3), "vip": p["vip"],
+            "track": p["track"], "style": p["style"], "time": round(p["time"], 3), "pb": round(p["pb"], 3), "vip": p["vip"],
             "connected": p["connected"], "avatar": app.avatars.get(p["steamid"]) if p["steamid"] else "",
             "av": hash_index(p["steamid"] or p["name"] or "?", 8),
         })

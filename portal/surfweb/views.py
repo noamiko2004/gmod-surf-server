@@ -2,7 +2,7 @@
 import urllib.parse
 
 from .fmt import (TITLES, e, fmt_ago, fmt_date, fmt_datetime, fmt_time, hash_index, initial, iso,
-                  track_label)
+                  parse_key, style_label, track_label)
 
 ICONS = {
     "play": '<path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z" fill="currentColor"/>',
@@ -42,6 +42,16 @@ def q(s):
 
 def map_url(name):
     return "/maps/" + q(name)
+
+
+def track_url(name, track=0, style="n"):
+    """Map page for one leaderboard: /maps/surf_x?track=2&style=sw (Normal main has no query)."""
+    args = []
+    if track:
+        args.append(f"track={int(track)}")
+    if style and style != "n":
+        args.append("style=" + q(style))
+    return map_url(name) + ("?" + "&".join(args) if args else "")
 
 
 def player_url(sid):
@@ -100,8 +110,23 @@ def when(ts, mode="ago"):
 
 
 def key_label(key):
-    base, _, n = str(key).partition("#b")
-    return base, (track_label(int(n)) if n.isdigit() else "Main")
+    """'surf_x#b2@sw' -> ('surf_x', 'Bonus 2 · Sideways'); Normal is not named."""
+    base, track, style = parse_key(key)
+    label = track_label(track)
+    return base, (label if style == "n" else f"{label} · {style_label(style)}")
+
+
+def bonus_tag(track, short=False):
+    if not track:
+        return ""
+    return f'<span class="tag tag-bonus">{"B" if short else "Bonus "}{int(track)}</span>'
+
+
+def style_tag(style):
+    """Small tag for a run style; nothing for Normal."""
+    if not style or style == "n":
+        return ""
+    return f'<span class="tag tag-style">{e(style_label(style))}</span>'
 
 
 def empty(msg, sub="", ic="map"):

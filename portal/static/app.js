@@ -118,6 +118,7 @@
   /* ---------------------------------------------------------- live status */
   var FLAG = '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 21V4.5M5.5 5h11l-2 4 2 4h-11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
   var STATE_TEXT = { start: "In start zone", idle: "Surfing", nozones: "Free surf", spec: "Spectating" };
+  var STYLE_NAMES = { sw: "Sideways", hsw: "Half-Sideways", w: "W-Only", lg: "Low Gravity" }; /* Normal has no tag */
   var base = { age: 0, left: 0, at: 0, online: false };
 
   function avatarEl(p) {
@@ -154,7 +155,15 @@
       st.textContent = STATE_TEXT[p.state] || "Surfing";
     }
     wrap.appendChild(st);
-    if (p.track > 0) { wrap.appendChild(document.createTextNode(" ")); wrap.appendChild(el("span", "tag tag-bonus", "Bonus " + p.track)); }
+    var style = Object.prototype.hasOwnProperty.call(STYLE_NAMES, p.style) ? STYLE_NAMES[p.style] : "";
+    if (p.track > 0 || style) {
+      var tags = el("span", "ptags");
+      if (p.track > 0) tags.appendChild(el("span", "tag tag-bonus", "Bonus " + p.track));
+      if (p.track > 0 && style) tags.appendChild(document.createTextNode(" "));
+      if (style) tags.appendChild(el("span", "tag tag-style", style));
+      wrap.appendChild(document.createTextNode(" "));
+      wrap.appendChild(tags);
+    }
   }
 
   function playerRow(p) {

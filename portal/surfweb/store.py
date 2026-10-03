@@ -12,13 +12,17 @@ import threading
 import time
 import urllib.parse
 
-from .fmt import (MAPNAME_RE, as_dict, as_list, clean_text, points_for, title_index,
-                  title_index_by_name, to_bool, to_float, to_int, to_str, track_of, valid_steamid)
+from .fmt import (MAPNAME_RE, STYLE_NAMES, as_dict, as_list, clean_text, key_points, make_key, opt_num,
+                  parse_key, style_order, title_index, title_index_by_name, to_bool, to_float, to_int, to_str,
+                  valid_steamid)
 
 STALE_AFTER = 30
 RANK_TTL = 30
 MAPS_TTL = 10
 STATES = {"running", "start", "finished", "idle", "nozones", "spec"}
+# surf_times columns besides map/steamid/time; older DBs may lack any of them (v4 added the stats)
+TIME_COLS = ("name", "date", "completions")
+STAT_COLS = ("jumps", "strafes", "sync", "avgspeed", "maxspeed")
 PREVIEW_HOSTS = ("images.steamusercontent.com", "steamuserimages-a.akamaihd.net",
                  "steamcdn-a.akamaihd.net")
 
@@ -93,6 +97,7 @@ def normalize_status(o):
         if tidx < 0:
             tidx = title_index(points)
         state = to_str(p.get("state"), "idle", 16)
+        style = to_str(p.get("style"), "n", 8)
         players.append({
             "steamid": sid if valid_steamid(sid) else "",
             "name": to_str(p.get("name"), "unnamed", 128) or "unnamed",
@@ -102,6 +107,7 @@ def normalize_status(o):
             "rank": max(0, to_int(p.get("rank"))),
             "state": state if state in STATES else "idle",
             "track": max(0, to_int(p.get("track"))),
+            "style": style if style in STYLE_NAMES else "n",
             "time": max(0.0, to_float(p.get("time"))),
             "pb": max(0.0, to_float(p.get("pb"))),
             "vip": to_bool(p.get("vip")),
@@ -233,10 +239,16 @@ class Store:
             self._rank_at = 0.0
         self._maps_at = 0.0
 
+    def time_columns(self):
+        """Lower-case column names of surf_times (empty when the table is missing)."""
+        return {to_str(r["name"]).lower() for r in self.query("PRAGMA table_info(surf_times)")}
+
     def _compute_ranking(self):
-        rows = self.query("SELECT map, steamid, name, time, date, completions FROM surf_times")
-        if not rows:
-            rows = self.query("SELECT map, steamid, name, time FROM surf_times")
+        cols = self.time_columns()
+        rows = []
+        if {"map", "steamid", "time"} <= cols:
+            sel = ", ".join(c if c in cols else f"NULL AS {c}" for c in ("map", "steamid", "time") + TIME_COLS + STAT_COLS)
+            rows = self.query(f"SELECT {sel} FROM surf_times")
         names = self.player_names()
         keys = {}
         latest_name = {}
@@ -253,39 +265,46 @@ class Store:
             if nm and date >= latest_name.get(sid, (-1, ""))[0]:
                 latest_name[sid] = (date, nm)
             finishes += max(1, to_int(d.get("completions"), 1))
-            keys.setdefault(key, []).append({"sid": sid, "name": nm, "time": t, "date": date})
+            row = {"sid": sid, "name": nm, "time": t, "date": date}
+            for c in STAT_COLS:
+                row[c] = opt_num(d.get(c))
+            keys.setdefault(key, []).append(row)
 
         def name_of(sid):
             return names.get(sid) or latest_name.get(sid, (0, ""))[1] or sid
 
-        points, finished, bonuses, records, times = {}, {}, {}, {}, {}
+        # every key is its own leaderboard; variants[map][track][style] -> key
+        points, finished, bonuses, records, times, variants = {}, {}, {}, {}, {}, {}
         for key, lst in keys.items():
             lst.sort(key=lambda x: (x["time"], x["date"] or 0, x["sid"]))
-            bonus = "#b" in key
+            base, track, style = parse_key(key)
+            slot = variants.setdefault(base, {}).setdefault(track, {})
+            if style not in slot or key == make_key(base, track, style):
+                slot[style] = key
             total = len(lst)
             for pos, row in enumerate(lst, 1):
                 sid = row["sid"]
                 row["pos"] = pos
                 row["name"] = name_of(sid)
-                points[sid] = points.get(sid, 0) + points_for(pos, bonus)
-                if bonus:
-                    bonuses[sid] = bonuses.get(sid, 0) + 1
+                points[sid] = points.get(sid, 0) + key_points(pos, key)
+                if track:
+                    bonuses.setdefault(sid, set()).add((base, track))
                 else:
-                    finished[sid] = finished.get(sid, 0) + 1
+                    finished.setdefault(sid, set()).add(base)
                 if pos == 1:
                     records[sid] = records.get(sid, 0) + 1
-                times.setdefault(sid, []).append({"key": key, "pos": pos, "total": total,
-                                                  "time": row["time"], "date": row["date"],
+                times.setdefault(sid, []).append({"key": key, "map": base, "track": track, "style": style,
+                                                  "pos": pos, "total": total, "time": row["time"], "date": row["date"],
                                                   "gap": row["time"] - lst[0]["time"]})
         order = sorted(points, key=lambda s: (-points[s], s))
         players, by_sid = [], {}
         for i, sid in enumerate(order, 1):
             ent = {"sid": sid, "name": name_of(sid), "points": points[sid], "pos": i,
-                   "finished": finished.get(sid, 0), "bonuses": bonuses.get(sid, 0),
+                   "finished": len(finished.get(sid, ())), "bonuses": len(bonuses.get(sid, ())),
                    "records": records.get(sid, 0), "title_idx": title_index(points[sid])}
             players.append(ent)
             by_sid[sid] = ent
-        return {"keys": keys, "players": players, "by_sid": by_sid, "times": times,
+        return {"keys": keys, "variants": variants, "players": players, "by_sid": by_sid, "times": times,
                 "finishes": finishes, "names": names}
 
     # ------------------------------------------------------------ maps
@@ -360,14 +379,9 @@ class Store:
         online = status.get("online")
         st_maps = {m["name"]: m for m in status["maps"]} if online else {}
         rank = self.ranking()
-        names = f["installed"] | set(st_maps) | {track_of(k)[0] for k in rank["keys"]}
+        names = f["installed"] | set(st_maps) | set(rank["variants"])
         if online and status.get("map"):
             names.add(status["map"])
-        bonus_of = {}
-        for k in rank["keys"]:
-            base, track = track_of(k)
-            if track:
-                bonus_of.setdefault(base, []).append(track)
         out = {}
         for name in names:
             if not MAPNAME_RE.match(name):
@@ -378,7 +392,7 @@ class Store:
             if not tier and f["tiers"].get(name):
                 tier = to_int(f["tiers"][name].split()[0])
             zoned = st["zoned"] if st is not None else (name in f["ready"] or name in f["placed"])
-            main = rank["keys"].get(name, [])
+            main = rank["keys"].get(name, [])  # the record shown for a map is main track, Normal
             out[name] = {
                 "name": name,
                 "installed": name in f["installed"] or name in st_maps,
@@ -391,7 +405,7 @@ class Store:
                 "zone_src": "in game" if name in f["placed"] else ("ready-made" if name in f["ready"] else ""),
                 "record": main[0] if main else None,
                 "finishers": len(main),
-                "bonuses": sorted(bonus_of.get(name, [])),
+                "bonuses": sorted(t for t in rank["variants"].get(name, {}) if t),
                 "current": bool(online and status.get("map") == name),
             }
         cur = status.get("map")
@@ -405,17 +419,19 @@ class Store:
     # ------------------------------------------------------------ records, stats
     def recent_records(self, limit=10, mapname=None):
         if mapname:
-            rows = self.query("SELECT * FROM surf_records WHERE map = ? OR substr(map, 1, ?) = ? "
-                              "ORDER BY id DESC LIMIT ?", (mapname, len(mapname) + 2, mapname + "#b", limit))
+            rows = self.query("SELECT * FROM surf_records WHERE map = ? OR substr(map, 1, ?) = ? OR substr(map, 1, ?) = ? "
+                              "ORDER BY id DESC LIMIT ?",
+                              (mapname, len(mapname) + 2, mapname + "#b", len(mapname) + 1, mapname + "@", limit))
         else:
             rows = self.query("SELECT * FROM surf_records ORDER BY id DESC LIMIT ?", (limit,))
         out = []
         for r in rows:
             d = dict(r)
             key = to_str(d.get("map"), "", 128)
-            base, track = track_of(key)
+            base, track, style = parse_key(key)
             sid = to_str(d.get("steamid"), "", 24)
-            out.append({"key": key, "map": base, "track": track, "steamid": sid if valid_steamid(sid) else "",
+            out.append({"key": key, "map": base, "track": track, "style": style,
+                        "steamid": sid if valid_steamid(sid) else "",
                         "name": to_str(d.get("name"), "unknown", 128), "time": to_float(d.get("time")),
                         "prev_time": to_float(d.get("prev_time")), "prev_name": to_str(d.get("prev_name"), "", 128),
                         "date": to_int(d.get("date"))})
@@ -444,7 +460,7 @@ class Store:
         prow = dict(rows[0]) if rows else None
         rank = self.ranking()
         ent = rank["by_sid"].get(sid)
-        times = sorted(rank["times"].get(sid, []), key=lambda x: (track_of(x["key"])[0], track_of(x["key"])[1]))
+        times = sorted(rank["times"].get(sid, []), key=lambda x: (x["map"], x["track"], style_order(x["style"])))
         if not prow and not ent:
             return None
         vip = self.vip_map().get(sid)

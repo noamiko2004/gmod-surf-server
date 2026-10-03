@@ -201,6 +201,8 @@ form.inline { display: inline; margin: 0; }
 
 .tag { display: inline-block; font-size: 11.5px; font-weight: 700; padding: 1px 7px; border-radius: 6px; background: rgba(255, 255, 255, 0.07); color: var(--text-2); white-space: nowrap; }
 .tag-bonus { background: rgba(200, 120, 255, 0.14); color: #dcb3ff; }
+.tag-style { background: rgba(45, 212, 191, 0.13); color: #7eeadb; }
+.ptags { display: inline-flex; flex-wrap: wrap; gap: 4px; }
 
 .tier {
   display: inline-flex; align-items: center; justify-content: center; min-width: 30px; height: 22px; padding: 0 7px;
@@ -351,7 +353,8 @@ a.sc-mapname:hover { color: var(--accent); }
 .st-start { color: var(--text-2); }
 .st-spec, .st-idle { color: var(--muted); }
 .pulse { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 10px var(--accent); animation: blink 1s ease-in-out infinite; }
-.prow-state .tag { align-self: flex-end; }
+.prow-state .tag, .prow-state .ptags { align-self: flex-end; }
+.prow-state .ptags { justify-content: flex-end; }
 
 .toplist { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
 .toplist li { display: flex; align-items: center; gap: 12px; padding: 8px 10px; border-radius: 12px; }
@@ -421,6 +424,7 @@ a.sc-mapname:hover { color: var(--accent); }
 .tbl th:last-child, .tbl td:last-child { padding-right: 22px; }
 .tbl tr.is-wr { background: linear-gradient(90deg, rgba(255, 200, 40, 0.07), transparent 60%); }
 .tbl td.wrap-text { white-space: normal; min-width: 180px; max-width: 360px; overflow-wrap: anywhere; }
+.tbl-compact th, .tbl-compact td { padding-left: 10px; padding-right: 10px; }  /* map leaderboards: 7 columns */
 .c-pos { width: 56px; }
 .recs { display: inline-flex; align-items: center; gap: 5px; font-weight: 650; }
 .pcell-txt { display: flex; flex-direction: column; gap: 3px; min-width: 0; align-items: flex-start; }
@@ -515,6 +519,9 @@ a.sc-mapname:hover { color: var(--accent); }
 .tabs a { padding: 7px 14px; border-radius: 999px; color: var(--text-2); font-weight: 600; font-size: 14px; white-space: nowrap; border: 1px solid transparent; }
 .tabs a:hover { color: var(--text); background: rgba(255, 255, 255, 0.04); }
 .tabs a.on { color: var(--text); background: var(--accent-soft); border-color: rgba(0, 200, 255, 0.3); }
+.tabs + .tabs-style { margin-top: -6px; }
+.tabs-style a { padding: 5px 12px; font-size: 13px; }
+.tabs-style a.on { color: #7eeadb; background: rgba(45, 212, 191, 0.12); border-color: rgba(45, 212, 191, 0.32); }
 
 /* ------------------------------------------------------------ player */
 .profile-hero { position: relative; overflow: hidden; border-bottom: 1px solid var(--line); }

@@ -83,7 +83,8 @@ def build(root):
 
     db = sqlite3.connect(os.path.join(gm, "sv.db"))
     db.executescript("""
-    CREATE TABLE surf_times(map TEXT, steamid TEXT, name TEXT, time REAL, date INTEGER, completions INTEGER, splits TEXT, PRIMARY KEY(map, steamid));
+    CREATE TABLE surf_times(map TEXT, steamid TEXT, name TEXT, time REAL, date INTEGER, completions INTEGER, splits TEXT,
+                            jumps INTEGER, strafes INTEGER, sync REAL, avgspeed REAL, maxspeed REAL, PRIMARY KEY(map, steamid));
     CREATE TABLE surf_players(steamid TEXT PRIMARY KEY, name TEXT, trail TEXT, autohop INTEGER, playtime INTEGER, firstseen INTEGER, lastseen INTEGER);
     CREATE TABLE surf_vip(steamid TEXT PRIMARY KEY, expires INTEGER);
     CREATE TABLE surf_records(id INTEGER PRIMARY KEY AUTOINCREMENT, map TEXT, steamid TEXT, name TEXT, time REAL, prev_time REAL, prev_name TEXT, date INTEGER);
@@ -99,19 +100,31 @@ def build(root):
     db.execute("INSERT INTO surf_players VALUES (?,?,?,?,?,?,?)", (OWNER, "Noam", "gold", 1, 720000, now - 86400 * 40, now - 600))
     skill[OWNER] = 0.3
     events = []
-    for name, tier, _, zoned, base in MAPS:
+    # (style, share of players, time factor): Normal everywhere, styles on the first maps' main track and bonus 1
+    styles = [("n", 1.0, 1.0), ("sw", 0.35, 1.45), ("hsw", 0.3, 1.2), ("w", 0.2, 1.6), ("lg", 0.4, 0.85)]
+    for mi, (name, tier, _, zoned, base) in enumerate(MAPS):
         if not zoned:
             continue
         for track in (0, 1, 2) if base > 100 else (0, 1):
-            key = name if not track else f"{name}#b{track}"
-            tbase = base if not track else base * (0.18 + 0.07 * track)
-            players = [s for s in skill if rnd.random() < 0.75 - 0.08 * tier - 0.15 * track]
-            for s in players:
-                t = tbase * (1 + 0.02 + skill[s] * 0.35 + rnd.uniform(0, 0.05))
-                d = now - rnd.randint(600, 86400 * 30)
-                nm = "Noam" if s == OWNER else NAMES[int(s) - 76561198000000100]
-                db.execute("INSERT INTO surf_times VALUES (?,?,?,?,?,?,?)", (key, s, nm, round(t, 3), d, rnd.randint(1, 30), "[]"))
-                events.append((d, key, s, nm, round(t, 3)))
+            for style, share, factor in styles:
+                if style != "n" and (mi > 5 or track > 1 or (track == 1 and style not in ("lg", "sw"))):
+                    continue
+                key = (name if not track else f"{name}#b{track}") + ("" if style == "n" else "@" + style)
+                tbase = (base if not track else base * (0.18 + 0.07 * track)) * factor
+                players = [s for s in skill if rnd.random() < (0.75 - 0.08 * tier - 0.15 * track) * share]
+                for s in players:
+                    t = tbase * (1 + 0.02 + skill[s] * 0.35 + rnd.uniform(0, 0.05))
+                    d = now - rnd.randint(600, 86400 * 30)
+                    nm = "Noam" if s == OWNER else NAMES[int(s) - 76561198000000100]
+                    if d < now - 86400 * 12:  # set before v4: no strafe stats
+                        stats = (None,) * 5
+                    else:
+                        avg = rnd.uniform(900, 1600) * (0.8 if style == "lg" else 1.0)
+                        sync = None if style in ("sw", "w") else round(rnd.uniform(62, 94) - skill[s] * 15, 2)
+                        stats = (rnd.randint(8, 60), rnd.randint(20, 140), sync, round(avg, 1), round(avg * rnd.uniform(1.4, 2.2), 1))
+                    db.execute("INSERT INTO surf_times VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                               (key, s, nm, round(t, 3), d, rnd.randint(1, 30), "[]") + stats)
+                    events.append((d, key, s, nm, round(t, 3)))
     events.sort()
     best = {}
     for d, key, s, nm, t in events:
@@ -138,13 +151,13 @@ def build(root):
 
 def status_obj():
     now = int(time.time())
-    states = [("running", 0, 47.215, 92.884), ("start", 0, 0, 95.12), ("finished", 0, 93.402, 93.402), ("running", 1, 12.5, 0),
-              ("idle", 0, 0, 110.3), ("spec", 0, 0, 0), ("running", 0, 81.03, 99.2)]
+    states = [("running", 0, "n", 47.215, 92.884), ("start", 0, "sw", 0, 95.12), ("finished", 0, "n", 93.402, 93.402),
+              ("running", 1, "lg", 12.5, 0), ("idle", 0, "n", 0, 110.3), ("spec", 0, "n", 0, 0), ("running", 0, "hsw", 81.03, 99.2)]
     players = []
-    for i, (st, tr, t, pb) in enumerate(states):
+    for i, (st, tr, style, t, pb) in enumerate(states):
         s = sid(i * 3)
         players.append({"steamid": s, "name": NAMES[i * 3], "points": 420 - i * 50.0, "title": "", "rank": i + 1.0,
-                        "state": st, "track": float(tr), "time": t, "pb": pb if pb else False, "vip": i % 3 == 0,
+                        "state": st, "track": float(tr), "style": style, "time": t, "pb": pb if pb else False, "vip": i % 3 == 0,
                         "admin": False, "ping": 30.0 + i * 7, "connected": 300.0 + i * 600})
     return {"updated": now, "hostname": "[EU] SURF | Timer, Ranks, WR Replays | Easy to Hard Maps", "brand": "SURF",
             "map": "surf_kitsune", "tier": 1.0, "mapper": "Kitsune", "maxplayers": 24.0, "timeleft": 1462.0,

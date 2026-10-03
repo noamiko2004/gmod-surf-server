@@ -7,7 +7,8 @@ Python 3.10+ (standard library only, no pip, no external JS/CSS/fonts).
 - **Everyone** sees live status (map, players, what they are doing, time left),
   a Join button (`steam://connect/...`) and copy-IP, the top 10, recent server
   records, a points leaderboard, every map with its record, map pages with
-  per-track leaderboards, and player profiles.
+  a leaderboard per track and run style (with sync and max speed), and player
+  profiles.
 - **The owner** (any SteamID64 in `OWNER_STEAMIDS`) signs in with Steam and gets
   `/admin`: restart/update the server, kick/ban/VIP live players, broadcast,
   change map, extend, start a vote, search players, delete times, manage bans
@@ -106,7 +107,7 @@ unknown fields, and never fails a request because a file or table is missing
  "wr": {"time": 123.456, "name": "Bob"} or false,
  "replay": {"time": 123.456, "name": "Bob"} or false,
  "players": [{"steamid": "76561198000000001", "name": "Alice", "points": 120, "title": "Surfer", "rank": 3,
-              "state": "running"|"start"|"finished"|"idle"|"nozones"|"spec", "track": 0, "time": 12.3,
+              "state": "running"|"start"|"finished"|"idle"|"nozones"|"spec", "track": 0, "style": "n", "time": 12.3,
               "pb": 0 or 98.7, "vip": true, "admin": false, "ping": 40, "connected": 360}],
  "maps": [{"name": "surf_kitsune", "tier": 1, "zoned": true}, ...]}
 ```
@@ -116,10 +117,13 @@ unknown fields, and never fails a request because a file or table is missing
   error the portal retries once after 100 ms, then keeps using the last file
   that parsed while its `updated` is under 30 s old.
 - `time` is the running time (`running`), the final time (`finished`), else 0.
-  `track` > 0 means bonus N. `title` should be a title name (`Newbie`..`Legend`);
-  anything else falls back to the title for `points`. Unknown states show as idle.
+  `track` > 0 means bonus N. `style` is a style id (see 3.); missing or unknown
+  means Normal, other styles get a small badge. `title` should be a title name
+  (`Newbie`..`Legend`); anything else falls back to the title for `points`.
+  Unknown states show as idle.
   A player without a valid SteamID64 (a bot) is shown without a profile link.
-- `/api/status` republishes only whitelisted fields (no IPs, ping or admin flag).
+- `/api/status` republishes only whitelisted fields (no IPs, ping or admin flag);
+  `style` is one of them.
 
 ### 2. Commands to the game
 
@@ -138,7 +142,7 @@ JSON object with `"by": "<admin steamid64>"`. Every field is validated first:
 | `unban` | `steamid` |
 | `givevip` | `steamid`, `days` (0 = permanent, max 3650) |
 | `removevip` | `steamid` |
-| `deltime` | `key` (`^surf_[a-z0-9_]+(#b[0-9]+)?$`), `steamid` |
+| `deltime` | `key` (`^surf_[a-z0-9_]+(#b[0-9]+)?(@(n\|sw\|hsw\|w\|lg))?$`), `steamid` |
 
 SteamIDs match `^7656\d{13}$`; numbers are JSON integers. The game runs the
 file, deletes it and appends `{"id": "<file name without .txt>", "ok": true,
@@ -152,20 +156,50 @@ Every admin action and owner login is appended as a JSON line to
 
 ### 3. SQLite tables (any may be missing)
 
-`surf_times(map, steamid, name, time, date, completions, splits)` (one PB per
-player per key; key `surf_x` or `surf_x#bN`), `surf_players(steamid, name,
+`surf_times(map, steamid, name, time, date, completions, splits, jumps,
+strafes, sync, avgspeed, maxspeed)` (one PB per player per key), `surf_players(steamid, name,
 trail, autohop, playtime, firstseen, lastseen)`, `surf_vip(steamid, expires)`
 (0 = permanent), `surf_records(id, map, steamid, name, time, prev_time,
 prev_name, date)`, `surf_bans(steamid, name, reason, admin, created, expires)`
 (0 = permanent), `surf_zones(map, ztype, ...)` (rows = zones placed in game).
 
+**Time keys** (`surf_times.map`, `surf_records.map`): `<map>[#b<N>][@<style>]`,
+track suffix first, then style; no style suffix means Normal. Every key is its
+own leaderboard. Styles, in display order:
+
+| id | name |
+|---|---|
+| (none) / `n` | Normal |
+| `sw` | Sideways |
+| `hsw` | Half-Sideways |
+| `w` | W-Only |
+| `lg` | Low Gravity |
+
+Examples: `surf_kitsune` (main, Normal), `surf_kitsune@sw` (main, Sideways),
+`surf_kitsune#b2` (bonus 2, Normal), `surf_kitsune#b2@lg` (bonus 2, Low
+Gravity). The game writes Normal without a suffix (`deltime` still accepts
+`@n`). A style id the portal does not know is shown by its id (its own tab and
+tag, halved points like any style) instead of breaking a page, but it cannot be
+deleted from the admin pages. Map pages show Normal first, then only the
+styles with times on that track; the maps list and the map's "server record"
+are always main track, Normal.
+
+**Strafe stats** (added in v4, all nullable): `jumps INTEGER`, `strafes INTEGER`,
+`sync REAL` (percent 0-100; NULL when not measured, e.g. Sideways and W-Only),
+`avgspeed REAL`, `maxspeed REAL` (units per second), describing the run that
+set the PB. Older rows have NULL, and older databases may not have the columns
+at all: the portal checks `PRAGMA table_info(surf_times)` and shows `-` for
+anything missing. `surf_records` has no stats.
+
 ### 4. Points (same as `sv_ranks.lua`)
 
 Per key, rows ordered by time (ties: earlier date, then steamid); position p
 is worth `10 + max(0, 50 - (p-1)*5) + (50 if p == 1 else 0)`, halved (floor)
-for keys containing `#b`. A player's points are the sum; ties in points are
-ordered by steamid. Titles: Newbie 0, Rookie 30, Surfer 120, Skilled 300, Pro
-600, Elite 1200, Legend 2500. The ranking is cached for 30 s.
+for keys containing `#b` (bonus), then halved (floor) again for keys
+containing `@` (a style other than Normal). Example: #1 on `surf_x#b2@sw` is
+`floor(floor(110 / 2) / 2) = 27`. A player's points are the sum over all keys;
+ties in points are ordered by steamid. Titles: Newbie 0, Rookie 30, Surfer 120,
+Skilled 300, Pro 600, Elite 1200, Legend 2500. The ranking is cached for 30 s.
 
 ### 5. Files
 
@@ -232,8 +266,9 @@ status files), a fake Steam OpenID provider and a fake ctl, starts the portal
 on a free port, and checks every page, escaping, points and ranks, offline
 detection, the full Steam login (owner, non-owner, forged and replayed
 responses), CSRF/Origin, every admin action with good and bad input, the ctl,
-and `/api/status`. Prints `PASS`/`FAIL` lines and `N failure(s)`; exits 1 on
-any failure.
+`/api/status`, run styles (key parsing, points, style tabs, tags, deltime keys)
+and strafe stats, including a database from before v4 without the stat columns.
+Prints `PASS`/`FAIL` lines and `N failure(s)`; exits 1 on any failure.
 
 Local preview with realistic data, and screenshots (needs Node + Playwright):
 

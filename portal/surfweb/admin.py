@@ -3,10 +3,11 @@ import os
 import time
 
 from .actions import describe, parse_ctl_status, run_ctl
-from .fmt import (e, fmt_clock, fmt_date, fmt_duration, fmt_int, fmt_time, to_int, to_str, valid_steamid)
+from .fmt import (MAPKEY_RE, e, fmt_clock, fmt_date, fmt_duration, fmt_int, fmt_time, to_int, to_str, track_label,
+                  valid_steamid)
 from .store import tail_lines
 from .views import (avatar, csrf_field, empty, icon, key_label, layout, map_url, player_link, player_url,
-                    q, tier_badge, title_chip, when)
+                    q, style_tag, tier_badge, title_chip, track_url, when)
 from .pages import state_html
 
 VIP_BADGE = ' <span class="badge badge-vip">VIP</span>'
@@ -245,10 +246,16 @@ def player_detail(ctx, sid):
     rows = []
     for t in (p["times"] if p else []):
         base, label = key_label(t["key"])
-        delete = form(ctx, "deltime", sid_field(sid) + hidden("key", t["key"]) + button("Delete", "btn-danger"), back, "inline",
-                      f"Delete {name}'s time on {t['key']}? This cannot be undone.")
-        btag = f' <span class="show-sm tag tag-bonus">{e(label)}</span>' if label != "Main" else ""
-        rows.append(f'<tr><td class="wrap-sm"><a href="{e(map_url(base))}">{e(base)}</a>{btag}</td><td class="hide-sm">{e(label)}</td>'
+        if MAPKEY_RE.match(t["key"]):
+            delete = form(ctx, "deltime", sid_field(sid) + hidden("key", t["key"]) + button("Delete", "btn-danger"), back, "inline",
+                          f"Delete {name}'s time on {base} · {label}? This cannot be undone.")
+        else:  # a key the game would not accept (e.g. a style this portal does not know)
+            delete = f'<span class="muted small" title="{e(t["key"])}">Unknown key</span>'
+        tr = track_label(t["track"])
+        btag = f' <span class="show-sm tag tag-bonus">{e(tr)}</span>' if t["track"] else ""
+        if t["style"] != "n":
+            btag += " " + style_tag(t["style"])
+        rows.append(f'<tr><td class="wrap-sm"><a href="{e(track_url(base, t["track"], t["style"]))}">{e(base)}</a>{btag}</td><td class="hide-sm">{e(tr)}</td>'
                     f'<td class="num mono strong">{e(fmt_time(t["time"]))}</td><td class="num mono">#{t["pos"]}<span class="muted">/{t["total"]}</span></td>'
                     f'<td class="num muted hide-sm">{when(t["date"], "date")}</td>'
                     f'<td class="c-act">{delete}</td></tr>')

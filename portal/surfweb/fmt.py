@@ -7,7 +7,8 @@ import time
 import unicodedata
 
 STEAMID_RE = re.compile(r"^7656\d{13}$")
-MAPKEY_RE = re.compile(r"^surf_[a-z0-9_]+(#b[0-9]+)?$")
+# Time keys: <map>[#b<N>][@<style>] (track first, then style; no style = Normal)
+MAPKEY_RE = re.compile(r"^surf_[a-z0-9_]+(#b[0-9]+)?(@(n|sw|hsw|w|lg))?$")
 # Anything that can be a map file name. Pages for unknown maps 404 anyway.
 MAPNAME_RE = re.compile(r"^[A-Za-z0-9_.\-]{1,96}$")
 
@@ -21,6 +22,17 @@ TITLES = [
     ("Elite", 1200, (255, 120, 60)),
     ("Legend", 2500, (255, 200, 40)),
 ]
+
+# (id, name) in display order - must match SURF.Config.Styles in sh_config.lua.
+# Keys and status.json use the id; Normal has no suffix in keys.
+STYLES = [
+    ("n", "Normal"),
+    ("sw", "Sideways"),
+    ("hsw", "Half-Sideways"),
+    ("w", "W-Only"),
+    ("lg", "Low Gravity"),
+]
+STYLE_NAMES = dict(STYLES)
 
 MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 _BIDI = set(range(0x202A, 0x202F)) | set(range(0x2066, 0x206A))
@@ -253,20 +265,79 @@ def initial(name):
     return "?"
 
 
-def track_of(key):
-    """'surf_x#b2' -> ('surf_x', 2); 'surf_x' -> ('surf_x', 0)."""
+def parse_key(key):
+    """'surf_x#b2@sw' -> ('surf_x', 2, 'sw'); 'surf_x' -> ('surf_x', 0, 'n').
+
+    Unknown style ids are returned as they are (pages label them by id)."""
     key = str(key or "")
-    if "#b" in key:
-        base, _, n = key.partition("#b")
-        return base, to_int(n)
-    return key, 0
+    head, _, style = key.partition("@")
+    base, track = head, 0
+    if "#b" in head:
+        base, _, n = head.partition("#b")
+        track = max(0, to_int(n))
+    return base, track, (style[:32] or "n")
+
+
+def make_key(base, track=0, style="n"):
+    return base + (f"#b{int(track)}" if track else "") + (f"@{style}" if style and style != "n" else "")
+
+
+def track_of(key):
+    """'surf_x#b2@sw' -> ('surf_x', 2); 'surf_x' -> ('surf_x', 0)."""
+    base, track, _ = parse_key(key)
+    return base, track
 
 
 def track_label(track):
     return "Main" if not track else f"Bonus {track}"
 
 
-def points_for(pos, bonus):
-    """Points for position pos (1-based) on a track. Same as sv_ranks.lua."""
+def style_label(style):
+    return STYLE_NAMES.get(style) or str(style or "")
+
+
+def style_order(style):
+    """Sort key: Normal first, the known styles in display order, then unknown ids."""
+    for i, (sid, _) in enumerate(STYLES):
+        if sid == style:
+            return (i, "")
+    return (len(STYLES), str(style))
+
+
+def points_for(pos, bonus, styled=False):
+    """Points for position pos (1-based) on a key. Same as sv_ranks.lua:
+    half (floor) on a bonus track, half again on a style other than Normal."""
     p = 10 + max(0, 50 - (pos - 1) * 5) + (50 if pos == 1 else 0)
-    return p // 2 if bonus else p
+    if bonus:
+        p //= 2
+    if styled:
+        p //= 2
+    return p
+
+
+def key_points(pos, key):
+    """points_for() with bonus/style taken from the key the way sv_ranks.lua does
+    (it looks for "#b" and "@" in the key)."""
+    key = str(key or "")
+    return points_for(pos, "#b" in key, "@" in key)
+
+
+def opt_num(v):
+    """A nullable stat column: a finite number >= 0, else None (shown as "-")."""
+    if v is None or isinstance(v, bool):
+        return None
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return f if math.isfinite(f) and f >= 0 else None
+
+
+def fmt_sync(v):
+    v = opt_num(v)
+    return "-" if v is None else "%.1f%%" % min(v, 100.0)
+
+
+def fmt_speed(v):
+    v = opt_num(v)
+    return "-" if v is None else f"{int(math.floor(v + 0.5)):,} u/s"

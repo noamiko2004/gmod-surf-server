@@ -16,6 +16,7 @@ const pages = [
   ["home", "/"],
   ["maps", "/maps"],
   ["map", "/maps/surf_kitsune"],
+  ["map_style", "/maps/surf_kitsune?track=1&style=lg"],
   ["player", "/players/76561198000000100"],
   ["leaderboard", "/leaderboard"],
   ["admin", "/admin"],

@@ -39,6 +39,7 @@ def check(c, m):
 OWNER = "76561198000000001"
 OTHER = "76561198000000002"
 A, B, CC, D, E = (f"765611980000000{n}" for n in (11, 12, 13, 14, 15))
+FIO, GUS = "76561198000000016", "76561198000000017"  # style runners
 XSS1 = "<script>alert(1)</script>"
 XSS2 = '"><img src=x onerror=alert(1)>'
 RAW_BAD = [XSS1, "<img src=x onerror=alert(1)>", "<b>bold</b>", "<i>x</i>", "javascript:alert(1)", "evil.example.com"]
@@ -52,6 +53,29 @@ check(F.fmt_time(3723.5) == "1:02:03.500", f"fmt_time past an hour ({F.fmt_time(
 check(F.fmt_time(0) == "-" and F.fmt_time(False) == "-", "fmt_time of no time")
 check([F.points_for(p, False) for p in (1, 2, 3, 10, 11, 12)] == [110, 55, 50, 15, 10, 10], "points per position")
 check([F.points_for(p, True) for p in (1, 2, 3)] == [55, 27, 25], "bonus points are half, floored")
+# styles (v4): halved for a style other than Normal, after the bonus halving
+check(F.points_for(1, True, True) == 27, "pos 1 on a bonus with a style = floor(floor(110/2)/2) = 27")
+check([F.points_for(p, False, True) for p in (1, 2, 3, 11)] == [55, 27, 25, 5], "style points are half, floored")
+check([F.points_for(p, True, True) for p in (1, 2, 3, 11)] == [27, 13, 12, 2], "bonus on a style is halved twice")
+check([F.key_points(1, k) for k in ("surf_kitsune", "surf_kitsune@sw", "surf_kitsune#b2", "surf_kitsune#b2@lg")] == [110, 55, 55, 27],
+      "points by key: main, style, bonus, bonus with a style")
+check(F.parse_key("surf_kitsune") == ("surf_kitsune", 0, "n") and F.parse_key("surf_kitsune@sw") == ("surf_kitsune", 0, "sw")
+      and F.parse_key("surf_kitsune#b2") == ("surf_kitsune", 2, "n") and F.parse_key("surf_kitsune#b2@lg") == ("surf_kitsune", 2, "lg"),
+      "time keys parse into map, track and style")
+check(F.parse_key("surf_x@zz") == ("surf_x", 0, "zz") and F.style_label("zz") == "zz" and F.parse_key(None) == ("", 0, "n")
+      and F.parse_key("surf_x#bx@") == ("surf_x", 0, "n"), "unknown style ids are kept (labelled by id), junk does not crash")
+check(F.track_of("surf_x#b2@sw") == ("surf_x", 2) and F.make_key("surf_x", 2, "sw") == "surf_x#b2@sw"
+      and F.make_key("surf_x", 0, "n") == "surf_x" and F.make_key("surf_x", 3) == "surf_x#b3", "make_key and track_of with styles")
+check([F.style_label(s) for s, _ in F.STYLES] == ["Normal", "Sideways", "Half-Sideways", "W-Only", "Low Gravity"]
+      and sorted(["zz", "lg", "n", "sw"], key=F.style_order) == ["n", "sw", "lg", "zz"], "style names and display order")
+good_keys = ["surf_x", "surf_x#b2", "surf_x@sw", "surf_x#b2@sw", "surf_x@hsw", "surf_x@w", "surf_x#b10@lg", "surf_x@n"]
+bad_keys = ["surf_x@zz", "surf_x@sw#b2", "surf_x@", "surf_x@SW", "surf_x#b2@sw@lg", "surf_x#b@sw", "surf_x@sw@", "x@sw"]
+check(all(F.MAPKEY_RE.match(k) for k in good_keys) and not any(F.MAPKEY_RE.match(k) for k in bad_keys),
+      f"MAPKEY_RE: track then optional known style ({[k for k in good_keys if not F.MAPKEY_RE.match(k)]}, {[k for k in bad_keys if F.MAPKEY_RE.match(k)]})")
+check(F.fmt_sync(78.24) == "78.2%" and F.fmt_sync(None) == "-" and F.fmt_sync(False) == "-" and F.fmt_sync(0) == "0.0%",
+      "sync format")
+check(F.fmt_speed(2310.4) == "2,310 u/s" and F.fmt_speed(None) == "-" and F.fmt_speed(float("nan")) == "-" and F.fmt_speed("x") == "-",
+      "speed format")
 check(F.e(XSS2) == "&quot;&gt;&lt;img src=x onerror=alert(1)&gt;", "escape helper")
 check(F.clean_text("Hi\x07 there\x1b‮!") == "Hi there!", "control characters stripped")
 check(F.to_int(24.0) == 24 and F.to_int(False) == 0 and F.to_float("x") == 0.0, "GMOD JSON number coercion")
@@ -115,10 +139,11 @@ def status(updated=None, **over):
          "map": "surf_alpha", "tier": 1.0, "mapper": "", "maxplayers": 24.0, "timeleft": 1800.0, "map_started": NOW - 100.0,
          "wr": {"time": 10.0, "name": XSS2}, "replay": False,
          "players": [{"steamid": A, "name": "Alice", "points": 137.0, "title": "Surfer", "rank": 2.0, "state": "running",
-                      "track": 0.0, "time": 12.3, "pb": 10.0, "vip": True, "admin": False, "ping": 40.0, "connected": 360.0,
-                      "ip": "203.0.113.7:27005", "address": "203.0.113.7"},
+                      "track": 0.0, "style": "hsw", "time": 12.3, "pb": 10.0, "vip": True, "admin": False, "ping": 40.0,
+                      "connected": 360.0, "ip": "203.0.113.7:27005", "address": "203.0.113.7"},
                      {"steamid": B, "name": XSS1, "points": 110.0, "title": "Rookie", "rank": 3.0, "state": "finished",
-                      "track": 1.0, "time": 5.0, "pb": False, "vip": False, "admin": True, "ping": 80.0, "connected": 60.0},
+                      "track": 1.0, "style": "zz", "time": 5.0, "pb": False, "vip": False, "admin": True, "ping": 80.0,
+                      "connected": 60.0},
                      {"steamid": "BOT", "name": XSS2, "points": 0, "title": [], "rank": 0, "state": "weird", "track": 0,
                       "time": 0, "pb": 0, "vip": False, "admin": False, "ping": 0, "connected": 0}],
          "maps": [{"name": "surf_alpha", "tier": 1.0, "zoned": True}, {"name": "surf_beta", "tier": 3.0, "zoned": True},
@@ -140,7 +165,8 @@ write_status(status())
 
 db = sqlite3.connect(os.path.join(gm, "sv.db"))
 db.executescript("""
-CREATE TABLE surf_times(map TEXT, steamid TEXT, name TEXT, time REAL, date INTEGER, completions INTEGER, splits TEXT);
+CREATE TABLE surf_times(map TEXT, steamid TEXT, name TEXT, time REAL, date INTEGER, completions INTEGER, splits TEXT,
+                        jumps INTEGER, strafes INTEGER, sync REAL, avgspeed REAL, maxspeed REAL);
 CREATE TABLE surf_players(steamid TEXT PRIMARY KEY, name TEXT, trail TEXT, autohop INTEGER, playtime INTEGER, firstseen INTEGER, lastseen INTEGER);
 CREATE TABLE surf_vip(steamid TEXT PRIMARY KEY, expires INTEGER);
 CREATE TABLE surf_records(id INTEGER PRIMARY KEY AUTOINCREMENT, map TEXT, steamid TEXT, name TEXT, time REAL, prev_time REAL, prev_name TEXT, date INTEGER);
@@ -149,10 +175,16 @@ CREATE TABLE surf_zones(map TEXT, ztype TEXT, x1 REAL, y1 REAL, z1 REAL, x2 REAL
 """)
 times = [("surf_alpha", A, 10.0), ("surf_alpha", B, 11.0), ("surf_alpha", CC, 12.0),
          ("surf_alpha#b1", B, 5.0), ("surf_alpha#b1", A, 6.0),
-         ("surf_beta", CC, 20.0), ("surf_beta#b2", D, 30.0), ("surf_gamma", E, 40.0)]
-names = {A: "Alice", B: XSS1, CC: XSS2, D: "Dave", E: "Eve"}
+         ("surf_beta", CC, 20.0), ("surf_beta#b2", D, 30.0), ("surf_gamma", E, 40.0),
+         # v4 styles: each key is its own leaderboard; "zz" is a style this portal does not know
+         ("surf_alpha@sw", FIO, 14.0), ("surf_alpha@sw", GUS, 15.0), ("surf_alpha#b1@lg", FIO, 7.0),
+         ("surf_alpha#b1@lg", GUS, 8.0), ("surf_alpha@zz", GUS, 50.0), ("surf_gamma", FIO, 45.0)]
+# strafe stats (jumps, strafes, sync, avgspeed, maxspeed); every other row is NULL like pre-v4 times
+run_stats = {("surf_alpha", A): (31, 58, 78.24, 1820.2, 3456.6), ("surf_alpha@sw", FIO): (12, 40, None, 1500.0, 2310.4)}
+names = {A: "Alice", B: XSS1, CC: XSS2, D: "Dave", E: "Eve", FIO: "Fiona", GUS: "Gus"}
 for key, sid, t in times:
-    db.execute("INSERT INTO surf_times VALUES (?,?,?,?,?,?,?)", (key, sid, names[sid], t, NOW - 3600, 2, "[]"))
+    db.execute("INSERT INTO surf_times VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+               (key, sid, names[sid], t, NOW - 3600, 2, "[]") + run_stats.get((key, sid), (None,) * 5))
 for sid, nm in list(names.items()) + [(OWNER, "Owner"), (OTHER, "Other")]:
     db.execute("INSERT INTO surf_players VALUES (?,?,?,?,?,?,?)", (sid, nm, "", 1, 7200, NOW - 86400 * 10, NOW - 300))
 db.execute("INSERT INTO surf_vip VALUES (?, 0)", (A,))
@@ -161,22 +193,57 @@ db.execute("INSERT INTO surf_records(map, steamid, name, time, prev_time, prev_n
            (A, "Alice", XSS2, NOW - 60))
 db.execute("INSERT INTO surf_records(map, steamid, name, time, prev_time, prev_name, date) VALUES ('surf_alpha#b1', ?, ?, 5.0, 0, '', ?)",
            (B, XSS1, NOW - 30))
+db.execute("INSERT INTO surf_records(map, steamid, name, time, prev_time, prev_name, date) VALUES ('surf_alpha@sw', ?, 'Fiona', 14.0, 0, '', ?)",
+           (FIO, NOW - 20))
 db.execute("INSERT INTO surf_bans VALUES (?,?,?,?,?,?)", ("76561198000000099", XSS2, XSS1, OWNER, NOW - 100, 0))
 db.execute("INSERT INTO surf_zones VALUES ('surf_beta','start',0,0,0,1,1,1)")
 db.commit()
 db.close()
 
-# expected ranking: C 50+110=160, A 110+27=137, B 55+55=110, E 110 (tie with B, B's steamid sorts first), D 55
-EXPECT = [(CC, 160), (A, 137), (B, 110), (E, 110), (D, 55)]
+# expected ranking: C 50+110=160, A 110+27=137, B 55+55=110, E 110 (tie with B, B's steamid sorts first), D 55,
+# Fiona 55 (sw #1) + 27 (b1@lg #1) + 55 (gamma #2) = 137 (tie with A, A sorts first),
+# Gus 27 (sw #2) + 13 (b1@lg #2: 55 -> 27 -> 13) + 55 (unknown style zz #1, halved like any style) = 95
+EXPECT = [(CC, 160), (A, 137), (FIO, 137), (B, 110), (E, 110), (GUS, 95), (D, 55)]
 st = Store(data, os.path.join(gm, "sv.db"), gm, logs)
 rk = st.ranking()
 got = [(p["sid"], p["points"]) for p in rk["players"]]
 check(got == EXPECT, f"points and order match the formula ({got})")
-check([p["pos"] for p in rk["players"]] == [1, 2, 3, 4, 5], "ranks are sequential")
+check([p["pos"] for p in rk["players"]] == list(range(1, len(EXPECT) + 1)), "ranks are sequential")
 check(F.title_name(160) == "Surfer" and F.title_name(110) == "Rookie" and F.title_name(2500) == "Legend", "titles by points")
 check(rk["by_sid"][A]["records"] == 1 and rk["by_sid"][A]["finished"] == 1 and rk["by_sid"][A]["bonuses"] == 1, "records/maps counted")
+fio = rk["by_sid"][FIO]
+check(fio["records"] == 2 and fio["finished"] == 2 and fio["bonuses"] == 1, f"style runs count as maps/bonuses finished and records ({fio})")
+check(rk["variants"]["surf_alpha"] == {0: {"n": "surf_alpha", "sw": "surf_alpha@sw", "zz": "surf_alpha@zz"},
+                                       1: {"n": "surf_alpha#b1", "lg": "surf_alpha#b1@lg"}}, "leaderboards indexed by map, track and style")
+row_a = rk["keys"]["surf_alpha"][0]
+check(row_a["sid"] == A and row_a["sync"] == 78.24 and row_a["maxspeed"] == 3456.6 and row_a["jumps"] == 31
+      and rk["keys"]["surf_alpha"][1]["sync"] is None, "strafe stats read, NULL stays None")
 missing = Store(os.path.join(tmp, "nodata"), os.path.join(tmp, "missing.db"), os.path.join(tmp, "nogm"), tmp)
 check(missing.ranking()["players"] == [] and missing.status()["online"] is False and missing.bans() == [], "missing DB and files mean empty")
+old_root = os.path.join(tmp, "old")  # a pre-v4 server: surf_times without the strafe stat columns
+old_gm = os.path.join(old_root, "gm")
+os.makedirs(os.path.join(old_gm, "maps"))
+os.makedirs(os.path.join(old_root, "repo"))
+open(os.path.join(old_gm, "maps", "surf_old.bsp"), "wb").write(b"VBSP")
+odb = sqlite3.connect(os.path.join(old_gm, "sv.db"))
+odb.execute("CREATE TABLE surf_times(map TEXT, steamid TEXT, name TEXT, time REAL, date INTEGER, completions INTEGER, splits TEXT)")
+odb.executemany("INSERT INTO surf_times VALUES (?,?,?,?,?,?,?)", [("surf_old", A, "Alice", 10.0, NOW - 60, 1, "[]"),
+                                                                  ("surf_old@sw", B, "Bob", 12.0, NOW - 60, 1, "[]")])
+odb.commit()
+odb.close()
+ork = Store(os.path.join(old_gm, "data", "surfline"), os.path.join(old_gm, "sv.db"), old_gm, old_root).ranking()
+check([(p["sid"], p["points"]) for p in ork["players"]] == [(A, 110), (B, 55)]
+      and ork["keys"]["surf_old"][0]["sync"] is None and ork["keys"]["surf_old@sw"][0]["maxspeed"] is None,
+      "DB without the stat columns: times and points read, stats None")
+tiny = os.path.join(tmp, "tiny.db")  # the oldest schema: no name, date or completions either
+tdb = sqlite3.connect(tiny)
+tdb.execute("CREATE TABLE surf_times(map TEXT, steamid TEXT, time REAL)")
+tdb.executemany("INSERT INTO surf_times VALUES (?,?,?)", [("surf_t#b1@w", A, 3.0), ("surf_t#b1@w", B, 4.0)])
+tdb.commit()
+tdb.close()
+trk = Store(os.path.join(tmp, "nodata"), tiny, os.path.join(tmp, "nogm"), tmp).ranking()
+check([(p["sid"], p["points"]) for p in trk["players"]] == [(A, 27), (B, 13)] and trk["finishes"] == 2,
+      f"oldest schema still ranks ({[(p['sid'], p['points']) for p in trk['players']]})")
 
 # ------------------------------------------------------------------ fake ctl
 ctl_log = os.path.join(tmp, "ctl.log")
@@ -316,6 +383,13 @@ check('href="steam://connect/1.2.3.4:27015"' in home.body and 'data-copy="1.2.3.
 check("Alice" in home.body and "Running" in home.body and "Finished" in home.body and "Bonus 1" in home.body, "home: live players and what they do")
 check("&lt;script&gt;alert(1)&lt;/script&gt;" in home.body and "&quot;&gt;&lt;img src=x onerror=alert(1)&gt;" in home.body, "home: malicious names shown escaped")
 check("set the record on" in home.body and "(-0.512)" in home.body, "home: recent records with improvement")
+live = home.body.split('<ul class="plist js-plist"')[1].split("</ul>")[0]
+check('<span class="tag tag-style">Half-Sideways</span>' in live and live.count("tag-style") == 1,
+      "home: style badge for a live player on a style (unknown style shows as Normal)")
+recs_home = home.body.split('<ul class="reclist">')[1].split("</ul>")[0]
+check('href="/maps/surf_alpha?style=sw">surf_alpha</a> <span class="tag tag-style">Sideways</span>' in recs_home
+      and '<span class="tag tag-bonus">Bonus 1</span>' in recs_home and recs_home.count("tag-style") == 1,
+      "home: recent records name the style when it is not Normal")
 top = home.body.split('<ol class="toplist">')[1].split("</ol>")[0] if '<ol class="toplist">' in home.body else ""
 check(top.find(f"/players/{CC}") < top.find(f"/players/{A}") < top.find(f"/players/{B}") and top.find(f"/players/{CC}") >= 0, "home: top 10 in order")
 check("pill-on" in home.body and "Online" in home.body, "home: server online")
@@ -330,7 +404,10 @@ check(home.headers.get("x-content-type-options") == "nosniff" and home.headers.g
 
 pages = {"/": home}
 for path in ["/leaderboard", "/maps", "/maps/surf_alpha", "/maps/surf_alpha?track=1", "/maps/surf_beta?track=2",
-             f"/players/{A}", f"/players/{B}", f"/players/{CC}", "/maps/surf_delta"]:
+             f"/players/{A}", f"/players/{B}", f"/players/{CC}", "/maps/surf_delta", "/maps/surf_beta",
+             "/maps/surf_alpha?style=sw", "/maps/surf_alpha?track=1&style=lg", "/maps/surf_alpha?style=zz",
+             "/maps/surf_alpha?style=lg", "/maps/surf_alpha?style=%3Cscript%3E", "/maps/surf_alpha?track=1&style=sw",
+             f"/players/{FIO}", f"/players/{GUS}"]:
     pages[path] = r = get(path)
     check(r.status == 200, f"GET {path} is 200 ({r.status})")
 for path, r in pages.items():
@@ -343,18 +420,67 @@ lb = pages["/leaderboard"].body
 order = [lb.find(f'href="/players/{sid}"', lb.find("<tbody>")) for sid, _ in EXPECT]
 check(all(x > 0 for x in order) and order == sorted(order), "leaderboard: order by points, ties by steamid")
 check(">160<" in lb and ">137<" in lb and "t2" in lb and "t1" in lb, "leaderboard: points and title colors")
+check("Sideways, Half-Sideways, W-Only, Low Gravity" in lb and "worth a quarter" in lb, "leaderboard: points rule mentions styles")
 
 mp = pages["/maps"].body
 check("surf_alpha" in mp and "surf_beta" in mp and "surf_gamma" in mp and "surf_evil" not in mp, "maps: installed maps listed, bad file name skipped")
 check("Playing now" in mp and "Zones needed" in mp and "tier-3" in mp, "maps: playing now, zones needed, tier badge")
 check('src="https://images.steamusercontent.com/ugc/1/alpha.jpg"' in mp, "maps: preview from allowed host")
 check('data-tier="3"' in mp and "js-mapsearch" in mp, "maps: client-side filter hooks")
+alpha_card = mp.split('href="/maps/surf_alpha"')[1].split("</a>")[0]
+check("0:10.000" in alpha_card and "Alice" in alpha_card and "Fiona" not in alpha_card and "3 finishers" in alpha_card
+      and "1 bonus<" in alpha_card, "maps: the record shown is main track, Normal")
 
 ma = pages["/maps/surf_alpha"].body
 check("https://steamcommunity.com/sharedfiles/filedetails/?id=123456" in ma, "map page: workshop link")
 check("Alpha Mapper &lt;i&gt;x&lt;/i&gt;" in ma and "+1.000" in ma and "Record" in ma and "?track=1" in ma, "map page: mapper, gap to #1, bonus tab")
 check("0:10.000" in ma and "Record history" in ma, "map page: time format and records")
 check("Bonus 1 leaderboard" in pages["/maps/surf_alpha?track=1"].body, "map page: bonus track view")
+
+
+def style_nav(body):
+    m = re.search(r'<nav class="tabs tabs-style" aria-label="Style">(.*?)</nav>', body)
+    return re.findall(r">([^<]+)</a>", m.group(1)) if m else []
+
+
+def stat_rows(body):
+    """Sync and max speed cell texts per leaderboard row."""
+    tb = body.split("<tbody>")[1].split("</tbody>")[0] if "<tbody>" in body else ""
+    return [re.findall(r'<td class="[^"]*\bc-stat\b[^"]*"[^>]*>([^<]*)</td>', tr) for tr in tb.split("</tr>") if "<td" in tr]
+
+
+def board_names(body):
+    tb = body.split("<tbody>")[1].split("</tbody>")[0] if "<tbody>" in body else ""
+    return re.findall(r'class="pname"[^>]*>([^<]*)<', tb)
+
+
+check(style_nav(ma) == ["Normal", "Sideways", "zz"] and 'href="/maps/surf_alpha?style=sw"' in ma and "Main leaderboard" in ma,
+      f"map page: style tabs, Normal first, only styles with times, unknown id last ({style_nav(ma)})")
+check(style_nav(pages["/maps/surf_alpha?track=1"].body) == ["Normal", "Low Gravity"]
+      and 'href="/maps/surf_alpha?track=1&amp;style=lg"' in pages["/maps/surf_alpha?track=1"].body,
+      "map page: bonus 1 shows Low Gravity but no Sideways tab")
+mb = pages["/maps/surf_beta"].body
+check(style_nav(mb) == [] and "tabs-style" not in mb and "Sideways" not in mb and "style=" not in mb,
+      "map page: no style tabs on a map without style times")
+check(">Sync</th>" in ma and ">Max speed</th>" in ma and stat_rows(ma) == [["78.2%", "3,457 u/s"], ["-", "-"], ["-", "-"]],
+      f"map page: sync and max speed, '-' for NULL ({stat_rows(ma)})")
+check('title="58 strafes · 31 jumps"' in ma and 'title="Average 1,820 u/s"' in ma, "map page: strafes, jumps and average speed on hover")
+msw = pages["/maps/surf_alpha?style=sw"].body
+check("Main · Sideways leaderboard" in msw and board_names(msw) == ["Fiona", "Gus"] and "+1.000" in msw
+      and stat_rows(msw) == [["-", "2,310 u/s"], ["-", "-"]] and "2 finishers" in msw,
+      f"map page: Sideways leaderboard ({board_names(msw)}, {stat_rows(msw)})")
+check('class=on aria-current=page>Sideways</a>' in msw and "0:10.000" in msw, "map page: Sideways tab active, hero keeps the Normal record")
+mlg = pages["/maps/surf_alpha?track=1&style=lg"].body
+check("Bonus 1 · Low Gravity leaderboard" in mlg and board_names(mlg) == ["Fiona", "Gus"], "map page: bonus on a style")
+check("Main · zz leaderboard" in pages["/maps/surf_alpha?style=zz"].body and board_names(pages["/maps/surf_alpha?style=zz"].body) == ["Gus"],
+      "map page: unknown style labelled by its id")
+for path in ["/maps/surf_alpha?style=lg", "/maps/surf_alpha?style=%3Cscript%3E", "/maps/surf_alpha?track=1&style=sw"]:
+    body = pages[path].body
+    check(board_names(body)[:1] == (["Alice"] if "track" not in path else [F.e(XSS1)]) and "· " not in body.split("leaderboard</h2>")[0][-80:],
+          f"map page: {path} falls back to Normal")
+mhist = ma.split("Record history")[1]
+check('<span class="tag tag-style">Sideways</span>' in mhist and '<span class="tag tag-bonus">Bonus 1</span>' in mhist,
+      "map page: record history includes style records")
 check(get("/maps/surf_nope").status == 404 and get("/maps/..%2F..%2Fetc").status == 404, "unknown map is 404")
 
 pa = pages[f"/players/{A}"].body
@@ -362,6 +488,17 @@ check("Alice" in pa and "#2" in pa and "137" in pa and "badge-vip" in pa and "Su
 check("surf_alpha" in pa and "Bonus 1" in pa and "#1" in pa and "/2" in pa and "Records held" in pa, "player page: times with position/total")
 check('src="https://avatars.steamstatic.com/abc_medium.jpg"' in pa, "player page: cached Steam avatar")
 check("evil.example.com" not in pages[f"/players/{CC}"].body, "avatar from a foreign host ignored")
+pf = pages[f"/players/{FIO}"].body
+check("Fiona" in pf and "<b>137</b> points" in pf and '<dd class="mono">#3</dd>' in pf, "player page: style points count")
+check('href="/maps/surf_alpha?style=sw">surf_alpha</a> <span class="tag tag-style">Sideways</span>' in pf
+      and 'href="/maps/surf_alpha?track=1&amp;style=lg">surf_alpha</a> <span class="show-sm tag tag-bonus">B1</span> <span class="tag tag-style">Low Gravity</span>' in pf,
+      "player page: times name the style next to map and track")
+held = pf.split("Records held")[1].split("</section>")[0]
+check(held.count('class="rec-chip"') == 2 and "Sideways" in held and "Low Gravity" in held, "player page: records held on styles")
+check(pf.find(">Sideways<") < pf.find(">Low Gravity<") and pf.find('href="/maps/surf_gamma"') > pf.find(">Low Gravity<"),
+      "player page: times sorted by map, track, style")
+check('<span class="tag tag-style">zz</span>' in pages[f"/players/{GUS}"].body, "player page: unknown style labelled by id")
+check("tag-style" not in pages[f"/players/{CC}"].body, "player page: no style tag for Normal times")
 check(get("/players/123").status == 404 and get("/players/76561198999999999").status == 404, "unknown player is 404")
 check(get("/nope").status == 404 and get("/static/../server.py").status == 404, "404s, no path traversal")
 check(get("/static/style.css").status == 200 and "javascript" in get("/static/app.js?v=1").headers.get("content-type", ""),
@@ -371,10 +508,11 @@ api = get("/api/status")
 j = json.loads(api.body)
 check(api.status == 200 and api.headers.get("content-type", "").startswith("application/json"), "api: JSON")
 check(j["online"] is True and j["map"] == "surf_alpha" and j["maxplayers"] == 24 and len(j["players"]) == 3, "api: live fields")
-allowed = {"steamid", "name", "title", "title_idx", "points", "rank", "state", "track", "time", "pb", "vip", "connected", "avatar", "av"}
+allowed = {"steamid", "name", "title", "title_idx", "points", "rank", "state", "track", "style", "time", "pb", "vip", "connected", "avatar", "av"}
 check(all(set(p) <= allowed for p in j["players"]), f"api: player fields whitelisted ({sorted(set().union(*map(set, j['players'])))})")
 check("203.0.113.7" not in api.body and '"ip"' not in api.body and '"admin"' not in api.body and '"ping"' not in api.body, "api: no IPs or admin flags")
 check(j["players"][2]["state"] == "idle" and j["players"][2]["steamid"] == "" and j["wr"]["name"] == XSS2, "api: odd values normalized")
+check([p.get("style") for p in j["players"]] == ["hsw", "n", "n"], "api: style republished, missing or unknown is Normal")
 
 # ------------------------------------------------------------------ offline detection
 write_status(status(updated=time.time() - 60))
@@ -525,6 +663,9 @@ bad_cases = [
     {"action": "deltime", "key": "surf_alpha#x", "steamid": A}, {"action": "deltime", "key": "SURF_ALPHA", "steamid": A},
     {"action": "deltime", "key": "surf_alpha'; drop table surf_times;--", "steamid": A},
     {"action": "deltime", "key": "surf_alpha", "steamid": "1"},
+    {"action": "deltime", "key": "surf_x@zz", "steamid": A}, {"action": "deltime", "key": "surf_x@sw#b2", "steamid": A},
+    {"action": "deltime", "key": "surf_x@", "steamid": A}, {"action": "deltime", "key": "surf_x@SW", "steamid": A},
+    {"action": "deltime", "key": "surf_x#b2@sw@lg", "steamid": A},
     {"action": "rcon", "cmd": "quit"}, {},
 ]
 for form in bad_cases:
@@ -559,6 +700,11 @@ check("Broadcast sent" in adm and "res-ok" in adm and "res-err" in adm and F.e("
 check("res-sent" in adm and "res-wait" in adm, "commands without result show sent/queued")
 check(no_raw(adm) == [], f"admin: no raw malicious markup ({no_raw(adm)})")
 check('data-confirm="Restart the game server' in adm and 'optgroup label="Zoned"' in adm and "surf_delta" in adm, "admin: confirm hooks and map select")
+# time keys with a style (v4); sent after the checks above so the first commands stay in the dashboard list
+for form, want in [({"action": "deltime", "key": "surf_x#b2@sw", "steamid": A}, {"action": "deltime", "key": "surf_x#b2@sw", "steamid": A}),
+                   ({"action": "deltime", "key": " surf_alpha@lg ", "steamid": B}, {"action": "deltime", "key": "surf_alpha@lg", "steamid": B})]:
+    r, new, obj = send(form, ip="10.0.4.3")
+    check(r.status == 303 and len(new) == 1 and obj == dict(want, by=OWNER), f"deltime with a style writes {want} ({r.status}, {obj})")
 
 # ------------------------------------------------------------------ ctl
 open(ctl_log, "w").close()
@@ -584,6 +730,18 @@ for path in ["/admin/players", "/admin/players?q=Ali", "/admin/players?q=%25_", 
 check("Alice" in get("/admin/players?q=Ali", cookies=OWN).body, "player search by name")
 det = get(f"/admin/players?sid={A}", cookies=OWN).body
 check('name="key" value="surf_alpha#b1"' in det and 'value="deltime"' in det and 'value="removevip"' in det, "player detail: delete time and VIP buttons")
+detf = get(f"/admin/players?sid={FIO}", cookies=OWN).body
+keys_f = re.findall(r'name="key" value="([^"]*)"', detf)
+check(sorted(keys_f) == ["surf_alpha#b1@lg", "surf_alpha@sw", "surf_gamma"] and "Low Gravity" in detf and "Sideways" in detf,
+      f"player detail: delete buttons for style times ({keys_f})")
+r, new, obj = send({"action": "deltime", "key": keys_f[keys_f.index("surf_alpha#b1@lg")], "steamid": FIO,
+                    "back": f"/admin/players?sid={FIO}"}, ip="10.0.7.1")
+check(r.status == 303 and r.location == f"/admin/players?sid={FIO}" and obj == {"action": "deltime", "key": "surf_alpha#b1@lg", "steamid": FIO, "by": OWNER},
+      f"delete a style time end to end: form, validation, command file ({obj})")
+detg = get(f"/admin/players?sid={GUS}", cookies=OWN).body
+check('value="surf_alpha@zz"' not in detg and "Unknown key" in detg and 'name="key" value="surf_alpha@sw"' in detg,
+      "player detail: no delete button for a key the game would refuse")
+check("Half-Sideways" in get("/admin", cookies=OWN).body, "admin dashboard: live player style")
 bans = get("/admin/bans", cookies=OWN).body
 check(F.e(XSS1) in bans and 'value="unban"' in bans and "Permanent" in bans, "bans list with unban")
 vip = get("/admin/vip", cookies=OWN).body
@@ -616,6 +774,20 @@ if port2:
         check(r.status in (200, 404) and r.status != 500 and (path != "/" or "Offline" in r.body), f"no data: {path} -> {r.status}")
     check("Surf" in get("/", port=port2).body, "BRAND_NAME defaults to Surf")
     proc2.terminate()
+
+proc3, port3 = start_portal(["--repo", os.path.join(old_root, "repo"), "--gmod-dir", old_gm, "--logs-dir", old_root,
+                             "--secret-file", os.path.join(old_root, "s"), "--ctl", os.path.join(old_root, "missing-ctl")], "portal3.log")
+check(port3 is not None, "third portal (pre-v4 DB without stat columns) started")
+if port3:
+    r = get("/maps/surf_old", port=port3)
+    check(r.status == 200 and ">Sync</th>" in r.body and stat_rows(r.body) == [["-", "-"]] and style_nav(r.body) == ["Normal", "Sideways"],
+          f"old DB: map page shows '-' for missing stat columns ({r.status}, {stat_rows(r.body)})")
+    r = get("/maps/surf_old?style=sw", port=port3)
+    check(r.status == 200 and "Main · Sideways leaderboard" in r.body and stat_rows(r.body) == [["-", "-"]], "old DB: style leaderboard")
+    for path in ["/", "/leaderboard", "/maps", f"/players/{A}", f"/players/{B}"]:
+        check(get(path, port=port3).status == 200, f"old DB: {path} is 200")
+    proc3.terminate()
+    check("Traceback" not in open(os.path.join(tmp, "portal3.log")).read(), "old DB: no server-side exceptions")
 
 proc.terminate()
 steam.shutdown()
