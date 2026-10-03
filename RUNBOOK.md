@@ -11,8 +11,13 @@ For Claude (or anyone) picking up the server for a scheduled update.
 
 ## 2. Make changes
 - Pick 1-3 roadmap items or fixes. Keep VIP cosmetic only.
-- Run `python3 tests/mock_gmod.py` (mock GMOD server; must pass) and add a
-  check for whatever you change.
+- Run `python3 tests/mock_gmod.py` (mock GMOD server) and
+  `python3 tests/test_maps.py` (map installer); both must pass. Add a check
+  for whatever you change.
+- More maps: read `/home/gmod/maps.log` (or `maps_report.json`) from the server.
+  "not on the Garry's Mod Workshop" counts zoned maps no source offers; add
+  Workshop items or collections that have them to `maps/sources.txt`.
+  New zone data: `scripts/dev/import_surftimer.py` (see zones/README.md).
 - Syntax-check all Lua with LuaJIT before shipping (GMOD runs LuaJIT 2.1).
   Avoid GMOD-only syntax (`!=`, `//`, `continue`) so the check works:
   `python3 -m pip install lupa`, then loadstring() each file.
@@ -32,3 +37,6 @@ For Claude (or anyone) picking up the server for a scheduled update.
 ## 4. Check
 - `journalctl -u gmod-surf -n 200` has no Lua errors.
 - Join, run `!r`, finish a map, `!wr`, `!rtv`, `!spec`, `!trail`.
+- `!zone info` shows where the current map's zones came from (map, triggers,
+  admin) and how many stages/bonuses loaded. Maps whose ready-made zones don't
+  fit are listed in `garrysmod/data/surfline/bad_zones.txt`.

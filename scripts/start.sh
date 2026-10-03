@@ -3,7 +3,7 @@
 source "$(dirname "$0")/common.sh"
 
 ARGS=(-game garrysmod -console -norestart -port "$PORT" -tickrate "$TICKRATE"
-      +maxplayers "$MAXPLAYERS" +gamemode surfline +map "$START_MAP")
+      +maxplayers "$MAXPLAYERS" +gamemode surf +map "$START_MAP")
 [[ -n "$GSLT" ]] && ARGS+=(+sv_setsteamaccount "$GSLT")
 [[ -n "$WORKSHOP_COLLECTION" ]] && ARGS+=(+host_workshop_collection "$WORKSHOP_COLLECTION")
 

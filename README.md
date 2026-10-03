@@ -1,15 +1,20 @@
-# Surfline: a Garry's Mod surf server
+# SURF: a Garry's Mod surf server
 
 Everything needed to run a public GMOD surf server on a Linux VPS: install and
-update scripts, server configs, and a custom surf gamemode (`surfline`).
-"Surfline" is a working name; change it in `config.env` (server browser) and
-`gamemode/surfline/gamemode/sh_config.lua` (in-game).
+update scripts, server configs, and a custom surf gamemode (`surf`, shown as
+"Surf" in the server browser so the server lists with other surf servers).
+The server name is `SERVER_NAME` in `config.env`; the short name on the HUD and
+in chat is `BRAND_NAME`.
 
 ## What players get
 
 - Classic surf maps (kitsune, utopia, mesa, beginner, deathstar, lux, ...)
-  installed straight from the Workshop, with ready-made start/end/stage/bonus
-  zones for 81 maps (KSF-style zoning, see zones/README.md)
+  installed straight from the Workshop, up to `MAX_MAPS` (100), with
+  ready-made start/end/stage/bonus zones for 763 maps (zones/README.md), map
+  tiers and mapper names. Maps that ship their own timer triggers
+  (`mod_zone_start` and friends) get zones automatically. Ready-made zones are
+  checked against the installed copy of each map, and maps without a working
+  start and end are left out of votes and `!maps`.
 - CS:S-style surf movement (100 tick, airaccelerate 150, per-map maxvelocity, autohop toggle)
 - Server-side timer, speed cap leaving the start, checkpoint splits vs your PB
   and the server record, bonus tracks (`!b`, `!bwr`)
@@ -18,30 +23,36 @@ update scripts, server configs, and a custom surf gamemode (`surfline`).
 - Practice: `!saveloc` / `!tele`, `!stage <n>` (timer turns off)
 - HUD with timer, speed that turns green/red when gaining/losing, CP progress,
   key display (`!keys`), PB/WR; scoreboard with titles and points
-- `!r` restart, `!spec` spectating, `!rtv`, `!nominate`, `!maps`, map vote every
-  40 minutes (zoned maps first) with extend option
+- `!r` restart, `!spec` spectating, `!rtv`, `!nominate`, `!maps` (with tiers),
+  map vote every 40 minutes with tiers shown and an extend option
 - `!hide` other players, `!trail` trails, colored chat tags
 - Cosmetic VIP (trails, gold tag and name). No pay to win.
 
-Admin: `!zone start` / `!zone end` (two corners each), `!zone delete start`,
-`!zone reset` (back to ready-made zones), `!zone info`, `!deltime <steamid64>`,
+Admin: `!zone start` / `!zone end` (two corners each; replaces only that zone),
+`!zone delete start`, `!zone reset` (back to ready-made zones), `!zone info`,
+`!map <name>` (any installed map, also ones without zones), `!deltime <steamid64>`,
 `!forcevote`. Console: `surf_givevip <id> <days>`, `surf_removevip <id>`.
 
 ## Maps
 
 `scripts/maps.py` (run by every deploy/update) reads `maps/sources.txt`, asks
 the Steam API which items are Garry's Mod surf maps we want (every map in
-`zones/` plus `maps/extra_maps.txt`), downloads the most-subscribed match per
-map with SteamCMD, and unpacks only the .bsp and models. Clients get each map
-from the Workshop automatically. Log: /home/gmod/maps.log. To add maps, add
-Workshop IDs (items or collections) to `maps/sources.txt` and names to
-`maps/extra_maps.txt`.
+`zones/` plus `maps/extra_maps.txt`), and downloads the best match per map with
+SteamCMD: preferred items first, then the most subscribed, always keeping a set
+of tier 1-2 maps for new players, up to `MAX_MAPS`. It unpacks only the .bsp
+and models, deletes the download, retries a broken download from its direct
+link, and stops if the disk gets full. Clients get each map from the Workshop
+automatically. Log: /home/gmod/maps.log; summary for tools:
+`garrysmod/data/surfline/maps_report.json`. To add maps, add Workshop IDs
+(items or collections) to `maps/sources.txt` and names to `maps/extra_maps.txt`.
 
 ## Tests
 
 `python3 tests/mock_gmod.py` (needs `pip install lupa`) runs the server-side
 gamemode in LuaJIT against a mock GMOD API and a real SQLite database: zone
-loading for every bundled map, the timer, splits, records, bonuses and ranks.
+loading for every bundled map, zone fit checks, map triggers, the timer,
+splits, records, bonuses, ranks, the map vote lists and the portal bridge.
+`python3 tests/test_maps.py` runs the map installer against a fake Steam API.
 
 ## Layout
 
@@ -52,11 +63,12 @@ scripts/update.sh       git pull + SteamCMD update + deploy + restart (nightly a
 scripts/deploy.sh       copy gamemode/configs into the server
 scripts/backup.sh       sv.db + data backups (nightly at 04:30, keeps 14)
 scripts/maps.py         installs surf maps from the Workshop (maps/sources.txt)
-zones/                  ready-made zones for 81 surf maps + per-map maxvelocity
-tests/mock_gmod.py      runs the gamemode against a mock GMOD API
+scripts/dev/            developer tools (import_surftimer.py rebuilds zones/)
+zones/                  ready-made zones for 763 surf maps, tiers, mappers, maxvelocity
+tests/                  mock GMOD harness and map installer test
 scripts/start.sh        launch command used by systemd
 server/cfg/             server.cfg and mount.cfg templates
-gamemode/surfline/      the gamemode
+gamemode/surf/          the gamemode
 RUNBOOK.md              checklist for the two-week update sessions
 CHANGELOG.md            what changed in each session
 ```

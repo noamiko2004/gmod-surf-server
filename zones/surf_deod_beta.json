@@ -1,0 +1,1 @@
+[{"track":0,"type":"start","hook":"stage1","point_a":[0.0,0.0,0.0],"point_b":[0.0,0.0,0.0],"id":1},{"track":0,"type":"end","hook":"mapfinish","point_a":[0.0,0.0,0.0],"point_b":[0.0,0.0,0.0],"id":2},{"track":0,"type":"stage","data":2,"hook":"stage2","point_a":[0.0,0.0,0.0],"point_b":[0.0,0.0,0.0],"id":3}]

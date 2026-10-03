@@ -10,7 +10,7 @@ as_gmod mkdir -p "$WORK_DIR"
 log "Installing surf maps from the Workshop"
 set +e
 as_gmod python3 "$REPO_DIR/scripts/maps.py" --repo "$REPO_DIR" --garrysmod "$GM_DIR" \
-  --steamcmd "$STEAMCMD_DIR/steamcmd.sh" --workdir "$WORK_DIR" | tee "$GMOD_HOME/maps.log"
+  --steamcmd "$STEAMCMD_DIR/steamcmd.sh" --workdir "$WORK_DIR" --max-maps "${MAX_MAPS:-100}" | tee "$GMOD_HOME/maps.log"
 set -e
 COUNT="$(grep -o 'MAPS_INSTALLED=[0-9]*' "$GMOD_HOME/maps.log" | tail -n 1 | cut -d= -f2 || true)"
 COUNT="${COUNT:-0}"

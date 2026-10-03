@@ -136,3 +136,9 @@ surf_whoknows_ksf 10000
 surf_zeonine 10000
 surf_zoomathon 5000
 surf_zor 5000
+# from SurfTimer's map tier table
+surf_amplitude_encore_nsf_v4 5000
+surf_drift_go 5000
+surf_mudkip_fix 5000
+surf_sunday 5000
+surf_zoomboys_csgo 5000

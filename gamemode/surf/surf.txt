@@ -1,0 +1,8 @@
+"surf"
+{
+	"base"		"base"
+	"title"		"Surf"
+	"maps"		"^surf_"
+	"category"	"other"
+	"menusystem"	"0"
+}

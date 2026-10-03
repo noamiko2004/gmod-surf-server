@@ -2,7 +2,9 @@
 # One Steam Workshop ID per line: a single map item or a collection.
 # Everything is checked against the Steam API on the server: only Garry's Mod
 # items whose title names a wanted map are installed (wanted = every map in
-# zones/ plus maps/extra_maps.txt). The most-subscribed match wins.
+# zones/ plus maps/extra_maps.txt). Single items above [pools] win for their
+# map; otherwise the most-subscribed match wins. MAX_MAPS in config.env caps
+# how many get installed.
 
 # Single maps found on the Workshop (unchecked until the server verifies them)
 727029951   surf_kitsune
@@ -31,7 +33,8 @@
 583302535   surf_kitsune2
 3082548297  surf_rookie
 
-# Collections from GMOD surf servers (expanded and filtered on the server)
+[pools]
+# Collections and packs from GMOD surf servers (expanded and filtered on the server)
 2156453614  tier 1-6 surf maps
 2227347243  Tier 1-2 Surf
 676558292   Surf tier 1-3
@@ -43,3 +46,18 @@
 673991355   Surf maps
 2273582179  Surf maps
 2186879567  Surf
+485397248   FutureGN Surf Maps
+557310591   [RG] Surf
+2012623911  Extra MAPS for G-Surf
+2013182565  G-Surf
+3376051797  Surf Mix
+2857917000  Surf Maps
+2862113905  Surf City
+2428195681  Surf?
+131972360   SURF Maps
+360722533   Surf Maps
+1603265438  server maps collection
+3240891286  Surf Maps Pack
+726670684   Surf_Gmod_maps_v5
+182746532   Surf Map Pack
+3182722022  Surf map pack G-M

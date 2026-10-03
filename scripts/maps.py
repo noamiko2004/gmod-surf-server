@@ -2,10 +2,11 @@
 """Install surf maps from the Steam Workshop without a Workshop collection.
 
 Reads maps/sources.txt (item and collection IDs), asks the Steam API which of
-those are Garry's Mod items naming a wanted map, downloads the best match per
-map with SteamCMD, and unpacks the .bsp (plus models) into the server.
+those are Garry's Mod items naming a wanted map (one that has zones in zones/,
+or is listed in maps/extra_maps.txt), downloads the best match per map with
+SteamCMD, and unpacks the .bsp (plus models) into the server.
 Writes garrysmod/data/surfline/map_ws.txt so clients get each map from the
-Workshop. Only uses the Python standard library.
+Workshop, and maps_report.json for the web portal. Standard library only.
 """
 import argparse
 import json
@@ -24,6 +25,8 @@ API = "https://api.steampowered.com/ISteamRemoteStorage/{}/v1/"
 GMOD_APPID = 4000
 MAX_SIZE = 400 * 1024 * 1024
 KEEP_DIRS = ("maps/", "models/")
+MIN_FREE_GB = 6  # stop downloading maps when the disk gets this full
+EASY_SLOTS = 25  # always keep this many tier 1-2 maps for new players
 
 
 def log(msg):
@@ -143,6 +146,8 @@ def parse_gma(buf):
         pos += 8 + 4  # size, crc
         entries.append((name, size))
     for name, size in entries:
+        if pos + size > len(buf):
+            raise ValueError("archive is cut off (incomplete download)")
         yield name.replace("\\", "/").lower(), buf[pos:pos + size]
         pos += size
 
@@ -151,7 +156,10 @@ def load_gma(path):
     with open(path, "rb") as f:
         buf = f.read()
     if buf[:4] != b"GMAD":
-        buf = lzma.decompress(buf, format=lzma.FORMAT_ALONE)  # legacy *_legacy.bin
+        # Legacy *_legacy.bin items are LZMA-compressed GMAs. Some lack the
+        # end-of-stream marker, so take what decodes and let parse_gma check it.
+        dec = lzma.LZMADecompressor(format=lzma.FORMAT_ALONE)
+        buf = dec.decompress(buf)
     return buf
 
 
@@ -195,6 +203,11 @@ def find_download(content_dir, fid):
 
 
 def steamcmd_download(steamcmd, workdir, ids):
+    # Downloads are deleted after unpacking, so drop SteamCMD's record of them
+    # too; otherwise it may skip an item it thinks is still there.
+    manifest = os.path.join(workdir, "steamapps", "workshop", "appworkshop_%d.acf" % GMOD_APPID)
+    if os.path.exists(manifest):
+        os.remove(manifest)
     for part in chunks(ids, 25):
         cmd = [steamcmd, "+force_install_dir", workdir, "+login", "anonymous"]
         for fid in part:
@@ -223,74 +236,166 @@ def read_list(path):
     return out
 
 
+def read_sources(path):
+    """IDs from maps/sources.txt. Items above the [pools] line are preferred
+    picks for their map; IDs below it only add candidates."""
+    preferred, pools = [], []
+    section = preferred
+    if os.path.exists(path):
+        for line in open(path):
+            if line.strip().lower() == "[pools]":
+                section = pools
+                continue
+            word = line.split("#", 1)[0].strip().split()
+            if word and word[0].isdigit():
+                section.append(word[0])
+    return preferred, pools
+
+
+def read_tiers(path):
+    tiers = {}
+    if os.path.exists(path):
+        for line in open(path):
+            parts = line.split()
+            if len(parts) == 2 and parts[1].isdigit():
+                tiers[parts[0]] = int(parts[1])
+    return tiers
+
+
+def free_gb(path):
+    st = os.statvfs(path)
+    return st.f_bavail * st.f_frsize / 1024 ** 3
+
+
+def plan(picks, details, zoned, tiers, installed_maps, max_maps):
+    """Orders the wanted maps: already installed first, then a set of easy
+    maps for new players, then the most popular of the rest."""
+    def subs(name):
+        return int(details[picks[name]].get("subscriptions", 0) or 0)
+    names = sorted(picks, key=lambda n: (-subs(n), n))
+    order = [n for n in names if n in installed_maps]
+    zoned_new = [n for n in names if n in zoned and n not in installed_maps]
+    easy = [n for n in zoned_new if tiers.get(n, 3) <= 2][:EASY_SLOTS]
+    order += easy
+    order += [n for n in zoned_new if n not in easy]
+    order += [n for n in names if n not in zoned and n not in installed_maps]
+    return order[:max(max_maps, len([n for n in order if n in installed_maps]))]
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--repo", required=True)
     ap.add_argument("--garrysmod", required=True)
     ap.add_argument("--steamcmd", required=True)
     ap.add_argument("--workdir", required=True)
+    ap.add_argument("--max-maps", type=int, default=int(os.environ.get("MAX_MAPS") or 100))
     args = ap.parse_args()
 
-    wanted = {f[:-5] for f in os.listdir(os.path.join(args.repo, "zones")) if f.endswith(".json")}
-    wanted |= set(read_list(os.path.join(args.repo, "maps", "extra_maps.txt")))
-    sources = [s for s in read_list(os.path.join(args.repo, "maps", "sources.txt")) if s.isdigit()]
+    zones_dir = os.path.join(args.repo, "zones")
+    zoned = {f[:-5] for f in os.listdir(zones_dir) if f.endswith(".json")}
+    wanted = zoned | set(read_list(os.path.join(args.repo, "maps", "extra_maps.txt")))
+    tiers = read_tiers(os.path.join(zones_dir, "tiers.txt"))
+    preferred_ids, pool_ids = read_sources(os.path.join(args.repo, "maps", "sources.txt"))
+    sources = list(dict.fromkeys(preferred_ids + pool_ids))
 
     collections = expand_collections(sources)
-    preferred = {s for s in sources if s not in collections}
-    candidates = list(dict.fromkeys(list(preferred) + [c for kids in collections.values() for c in kids]))
+    preferred = {s for s in preferred_ids if s not in collections}
+    candidates = list(dict.fromkeys([s for s in sources if s not in collections] +
+                                    [c for kids in collections.values() for c in kids]))
     log(f"{len(sources)} sources, {len(collections)} collections, {len(candidates)} candidate items")
 
     details = file_details(candidates)
     picks = choose(details, wanted, preferred)
-    log(f"{len(picks)} wanted maps found on the Garry's Mod Workshop")
+    found_zoned = len(set(picks) & zoned)
+    log(f"{len(picks)} wanted maps found on the Garry's Mod Workshop ({found_zoned} with ready-made zones)")
 
     state_path = os.path.join(args.workdir, "installed.json")
     state = json.load(open(state_path)) if os.path.exists(state_path) else {}
     content_dir = os.path.join(args.workdir, "steamapps", "workshop", "content", str(GMOD_APPID))
+    installed_maps = {m for info in state.values() for m in info.get("maps", [])
+                      if os.path.exists(os.path.join(args.garrysmod, "maps", m + ".bsp"))}
 
-    todo = sorted({fid for fid in picks.values()
-                   if fid not in state or state[fid].get("updated") != details[fid].get("time_updated")})
-    if todo:
-        steamcmd_download(args.steamcmd, args.workdir, todo)
+    order = plan(picks, details, zoned, tiers, installed_maps, args.max_maps)
+    if len(order) < len(picks):
+        log(f"keeping {len(order)} maps (MAX_MAPS={args.max_maps}); {len(picks) - len(order)} more are available")
+    todo = []
+    for name in order:
+        fid = picks[name]
+        if fid in todo:
+            continue
+        if fid not in state or state[fid].get("updated") != details[fid].get("time_updated") or \
+                not all(os.path.exists(os.path.join(args.garrysmod, "maps", m + ".bsp")) for m in state[fid].get("maps", [])):
+            todo.append(fid)
 
-    for fid in todo:
-        d = details[fid]
-        path = find_download(content_dir, fid)
-        if not path and d.get("file_url"):
-            try:
-                path = url_download(d["file_url"], os.path.join(args.workdir, "direct", fid + ".bin"))
-            except Exception as e:
-                log(f"  direct download of {fid} failed: {e}")
-        if not path:
-            log(f"could not download {fid} ({d.get('title')})")
-            continue
-        try:
-            maps = extract(load_gma(path), args.garrysmod)
-        except Exception as e:
-            log(f"could not unpack {fid} ({d.get('title')}): {e}")
-            continue
-        state[fid] = {"updated": d.get("time_updated"), "maps": maps, "title": d.get("title")}
-        log(f"installed {', '.join(maps) or 'nothing'} from {fid} ({d.get('title')})")
-        json.dump(state, open(state_path, "w"), indent=1)
+    failed = {}
+    for part in chunks(todo, 10):
+        if free_gb(args.garrysmod) < MIN_FREE_GB:
+            log(f"stopping: less than {MIN_FREE_GB} GB of disk left")
+            break
+        steamcmd_download(args.steamcmd, args.workdir, part)
+        for fid in part:
+            d = details[fid]
+            path = find_download(content_dir, fid)
+            maps, error = None, None
+            for attempt in ("steamcmd", "direct"):
+                if attempt == "direct":
+                    if not d.get("file_url"):
+                        break
+                    try:
+                        path = url_download(d["file_url"], os.path.join(args.workdir, "direct", fid + ".bin"))
+                    except Exception as e:
+                        error = f"direct download failed: {e}"
+                        break
+                if not path:
+                    error = "download failed"
+                    continue
+                try:
+                    maps = extract(load_gma(path), args.garrysmod)
+                    break
+                except Exception as e:
+                    error = str(e)
+                    path = None
+            for leftover in (os.path.join(content_dir, fid), os.path.join(args.workdir, "direct", fid + ".bin")):
+                if os.path.isdir(leftover):
+                    shutil.rmtree(leftover, ignore_errors=True)
+                elif os.path.exists(leftover):
+                    os.remove(leftover)
+            if maps is None:
+                failed[fid] = error or "unknown error"
+                log(f"could not install {fid} ({d.get('title')}): {failed[fid]}")
+                continue
+            state[fid] = {"updated": d.get("time_updated"), "maps": maps, "title": d.get("title")}
+            log(f"installed {', '.join(maps) or 'nothing'} from {fid} ({d.get('title')})")
+            json.dump(state, open(state_path, "w"), indent=1)
 
     # map -> workshop id, so clients download the right item for each map
-    lines = []
+    lines, report = [], []
     installed = set()
     for fid, info in sorted(state.items()):
         for m in info.get("maps", []):
-            if os.path.exists(os.path.join(args.garrysmod, "maps", m + ".bsp")):
+            if m not in installed and os.path.exists(os.path.join(args.garrysmod, "maps", m + ".bsp")):
                 lines.append(f"{m} {fid}")
                 installed.add(m)
+                d = details.get(fid, {})
+                report.append({"map": m, "wsid": fid, "title": info.get("title") or d.get("title") or "",
+                               "zoned": m in zoned, "tier": tiers.get(m, 0), "preview": d.get("preview_url") or ""})
     data_dir = os.path.join(args.garrysmod, "data", "surfline")
     os.makedirs(data_dir, exist_ok=True)
     with open(os.path.join(data_dir, "map_ws.txt"), "w") as f:
         f.write("\n".join(sorted(lines)) + "\n")
+    with open(os.path.join(data_dir, "maps_report.json"), "w") as f:
+        json.dump({
+            "generated": int(time.time()),
+            "installed": sorted(report, key=lambda r: r["map"]),
+            "failed": [{"wsid": fid, "title": details.get(fid, {}).get("title", ""), "error": err} for fid, err in failed.items()],
+            "not_found": len(wanted - set(picks)),
+            "available": len(picks),
+        }, f, indent=1)
 
-    zoned = installed & {f[:-5] for f in os.listdir(os.path.join(args.repo, "zones")) if f.endswith(".json")}
-    log(f"done: {len(installed)} surf maps installed, {len(zoned)} with ready-made zones")
-    missing = sorted(wanted - installed)
-    if missing:
-        log(f"not found on the Workshop: {len(missing)} maps")
+    log(f"done: {len(installed)} surf maps installed, {len(installed & zoned)} with ready-made zones")
+    if failed:
+        log(f"{len(failed)} item(s) failed and will be retried next time")
+    log(f"not on the Garry's Mod Workshop (in our sources): {len(wanted - set(picks))} maps")
     print(f"MAPS_INSTALLED={len(installed)}")
     return 0 if installed else 1
 

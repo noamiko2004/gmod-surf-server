@@ -1,5 +1,30 @@
 # Changelog
 
+## 2026-10-03 (v3)
+- v2 live result: only 6 maps installed (7 of 91 wanted maps were on the GMOD
+  Workshop in our sources), 2 of them with zones.
+- Zones for 682 more maps from SurfTimer's zone dump (763 total), plus map
+  tiers and mapper names. Zones that are trigger brushes in the map ("hooked")
+  are found by name. Maps with built-in timer triggers (`mod_zone_start`,
+  `climb_startzone`, ...) get zones automatically.
+- Ready-made zones are checked against the installed copy of the map (start or
+  end inside a wall or outside the world = different version, zones ignored).
+  Maps that turn out to have no working start/end are hidden from votes and
+  `!maps`; admins can still visit them with `!map <name>` and place zones.
+- `!zone start`/`!zone end` now replace only that zone and keep the map's
+  stages and bonuses.
+- Map installer: up to MAX_MAPS (100) maps, at least 25 easy (tier 1-2) ones,
+  deletes downloads after unpacking, retries cut-off downloads from the direct
+  link, tolerates legacy LZMA items without an end marker, stops when the disk
+  is nearly full, writes maps_report.json. More Workshop pools in sources.txt.
+- Gamemode renamed `surf` ("Surf" in the server browser, so the server lists
+  with other surf servers). BRAND_NAME (HUD/chat), DISCORD_URL and STORE_URL
+  settings; the placeholder server name is replaced on update.
+- Tiers in the map vote, `!maps` and the HUD.
+- Groundwork for the web portal: server records log (surf_records), bans
+  (surf_bans, enforced on connect), status file and command queue in
+  data/surfline/portal/ (sv_portal.lua).
+
 ## 2026-10-02 (v2)
 - Maps: scripts/maps.py installs classic surf maps from the Workshop (no
   collection needed), validated through the Steam API. The old default
