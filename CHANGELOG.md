@@ -24,6 +24,9 @@
 - Groundwork for the web portal: server records log (surf_records), bans
   (surf_bans, enforced on connect), status file and command queue in
   data/surfline/portal/ (sv_portal.lua).
+- Web portal app in portal/ with tests (not installed on the server yet).
+- Times show as 1:23.456 (was 01:23.456), same as the portal; rank ties are
+  broken by date then SteamID, same as the portal.
 
 ## 2026-10-02 (v2)
 - Maps: scripts/maps.py installs classic surf maps from the Workshop (no

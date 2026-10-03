@@ -17,7 +17,7 @@ SURF.STATE_FINISHED = 3
 SURF.STATE_IDLE = 4
 
 function SURF.FormatTime(t)
-	if not t or t <= 0 then return "--:--.---" end
+	if not t or t <= 0 then return "-:--.---" end
 	t = math.floor(t * 1000 + 0.5) / 1000
 	local h = math.floor(t / 3600)
 	local m = math.floor((t % 3600) / 60)
@@ -25,7 +25,7 @@ function SURF.FormatTime(t)
 	if h > 0 then
 		return string.format("%d:%02d:%06.3f", h, m, s)
 	end
-	return string.format("%02d:%06.3f", m, s)
+	return string.format("%d:%06.3f", m, s)
 end
 
 function SURF.IsVIP(ply)

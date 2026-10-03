@@ -27,7 +27,7 @@ end
 Ranks.Apply = Apply
 
 function Ranks.Recalc()
-	local rows = SURF.DB.Query("SELECT map, steamid, name, time FROM surf_times ORDER BY map, time")
+	local rows = SURF.DB.Query("SELECT map, steamid, name, time FROM surf_times ORDER BY map, time, date, steamid")
 	local pts, names = {}, {}
 	local curMap, pos = nil, 0
 	for _, r in ipairs(rows or {}) do
@@ -38,7 +38,10 @@ function Ranks.Recalc()
 	end
 	local list = {}
 	for sid, p in pairs(pts) do list[#list + 1] = { sid = sid, name = names[sid], points = p } end
-	table.sort(list, function(a, b) return a.points > b.points end)
+	table.sort(list, function(a, b)
+		if a.points ~= b.points then return a.points > b.points end
+		return a.sid < b.sid -- same order as the web portal
+	end)
 	Ranks.list, Ranks.bySid = list, {}
 	for i, e in ipairs(list) do
 		e.pos = i

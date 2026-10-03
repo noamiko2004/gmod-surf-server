@@ -46,6 +46,18 @@ automatically. Log: /home/gmod/maps.log; summary for tools:
 `garrysmod/data/surfline/maps_report.json`. To add maps, add Workshop IDs
 (items or collections) to `maps/sources.txt` and names to `maps/extra_maps.txt`.
 
+## Web portal
+
+`portal/` is a website for the server (Python standard library only): live
+status and players, a Join button, leaderboard, map pages with records, player
+profiles, and an owner-only admin area behind Steam sign-in (kick, ban, VIP,
+change map, broadcast, delete times, logs, restart/update). It talks to the
+game through files in `garrysmod/data/surfline/portal/` (see
+`gamemode/surf/gamemode/sv_portal.lua` and `portal/README.md`). It is not
+installed on the server yet: that needs Caddy for HTTPS, a systemd service,
+ports 80/443 and a sudo rule for the restart/update buttons, which wait for
+the owner's go-ahead.
+
 ## Tests
 
 `python3 tests/mock_gmod.py` (needs `pip install lupa`) runs the server-side
@@ -53,6 +65,8 @@ gamemode in LuaJIT against a mock GMOD API and a real SQLite database: zone
 loading for every bundled map, zone fit checks, map triggers, the timer,
 splits, records, bonuses, ranks, the map vote lists and the portal bridge.
 `python3 tests/test_maps.py` runs the map installer against a fake Steam API.
+`python3 tests/test_portal.py` runs the web portal against fake game data, a
+fake Steam login and a fake control helper.
 
 ## Layout
 
@@ -65,7 +79,8 @@ scripts/backup.sh       sv.db + data backups (nightly at 04:30, keeps 14)
 scripts/maps.py         installs surf maps from the Workshop (maps/sources.txt)
 scripts/dev/            developer tools (import_surftimer.py rebuilds zones/)
 zones/                  ready-made zones for 763 surf maps, tiers, mappers, maxvelocity
-tests/                  mock GMOD harness and map installer test
+tests/                  mock GMOD harness, map installer and portal tests
+portal/                 web portal (portal/README.md)
 scripts/start.sh        launch command used by systemd
 server/cfg/             server.cfg and mount.cfg templates
 gamemode/surf/          the gamemode
