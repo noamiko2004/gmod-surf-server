@@ -23,7 +23,8 @@ It runs on the game server as the `surf-discord` service.
 - **Safety:** verification level Medium, Discord's AutoMod (slurs and NSFW, spam, mass mentions, other servers' invites, Steam and Nitro scam links), the explicit-media filter, and pings off by default.
 - **Community** is turned on so the forum, the announcement channel and the welcome screen work.
 - **Name and look:** the server is named `SURF EU 🌊 Surf Timer & Ranks` once (rename it yourself and it stays), with the icon from `assets/icon.png`. The bot calls itself `SURF` and uses `assets/bot.png`, a dark version of the website logo. These are set in `surfbot/layout.py`.
-- A permanent invite link, saved to `/home/gmod/discord/invite.txt`.
+- A permanent invite link, saved to `/home/gmod/discord/invite.txt` (for the website and `deploy.sh`) and to the game's `data/surfline/discord/invite.txt`, so `!discord` in game has it right away.
+- **Website address:** the welcome message, the status buttons and every link follow `/home/gmod/portal_url.txt`. When `scripts/set-domain.sh` moves the site, the bot edits the welcome message within a minute.
 
 Slash commands: `/status`, `/top`, `/map`, `/player`, `/recent`, `/connect`, `/vip`, `/link`, `/unlink`, and for staff `/announce` and `/setup` (repairs anything that was deleted or broken; it never removes your own channels).
 

@@ -620,6 +620,24 @@ asyncio.run(bot.busy_ping({**base, "count": 3}))
 asyncio.run(bot.busy_ping({**base, "count": 10}))
 check(len(busy.sent) == 1 and "9 people" in busy.sent[0], "busy ping once when the server fills up, not again within 6 hours")
 
+# ------------------------------------------------------------------ website moves, invite for the game
+guild.calls.clear()
+asyncio.run(bot.refresh_texts())
+check(not guild.calls, "the welcome message is left alone while nothing in it changed")
+with open(os.path.join(home, "portal_url.txt"), "w") as f:
+    f.write("https://eusurf.duckdns.org\n")
+asyncio.run(bot.refresh_texts())
+intro = json.dumps([e.to_dict() for e in welcome.sent[0].embeds])
+check(("message.edit", welcome.name) in guild.calls and "eusurf.duckdns.org" in intro and "128.140.7.178" not in intro,
+      "the welcome message follows the website to its new address")
+guild.calls.clear()
+asyncio.run(bot.refresh_texts())
+check(not guild.calls, "and is edited only once")
+with open(os.path.join(home, "portal_url.txt"), "w") as f:
+    f.write("https://128.140.7.178\n")
+for p in (os.path.join(bot.data_dir, "invite.txt"), os.path.join(br.root, "invite.txt")):
+    check(open(p).read() == "https://discord.gg/surfabc\n", f"the invite is saved for the game and the website ({p})")
+
 # ------------------------------------------------------------------ bot profile
 
 
