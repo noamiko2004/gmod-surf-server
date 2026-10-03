@@ -20,6 +20,22 @@ function C.Run(ply, name, args)
 	return true
 end
 
+-- Names and help of the commands a player may use, for the chat autocomplete
+function C.ClientList(isAdmin)
+	local out = {}
+	for _, e in ipairs(C.order) do
+		if isAdmin or not e.admin then out[#out + 1] = { n = e.names, h = e.help, a = e.admin or nil } end
+	end
+	return out
+end
+
+function C.SendList(ply)
+	net.Start("surf.Commands")
+	net.WriteTable(C.ClientList(ply:IsAdmin()))
+	net.Send(ply)
+end
+hook.Add("SurfPlayerReady", "surf_command_list", function(ply) C.SendList(ply) end)
+
 function C.HelpList(isAdmin)
 	local out = {}
 	for _, e in ipairs(C.order) do
@@ -168,6 +184,8 @@ end)
 
 Add({ "hide", "show" }, "Hide or show other players", function(ply) SURF.ClientAction(ply, "hide") end)
 
+Add({ "light", "maplight", "fullbright" }, "Light up the whole map for yourself (or press F)", function(ply) SURF.ClientAction(ply, "maplight") end)
+
 Add({ "graphics", "gfx" }, "Color presets and glowing zones (!graphics vivid|cinematic|off)", function(ply, args)
 	if args[1] then return SURF.ClientAction(ply, "graphics:" .. string.lower(args[1])) end
 	SURF.Menu.Open(ply, "graphics")
@@ -194,12 +212,14 @@ Add({ "vip", "store", "donate" }, "VIP perks and how to support the server", fun
 	SURF.Menu.Open(ply, "vip", { url = SURF.Config.StoreURL, vip = SURF.IsVIP(ply), expires = ply.SurfVIPExpires })
 end)
 
-Add({ "discord" }, "Join our Discord", function(ply)
-	if SURF.Config.DiscordURL ~= "" then
-		ply:SendLua("gui.OpenURL(" .. string.format("%q", SURF.Config.DiscordURL) .. ")")
-	else
-		SURF.Chat(ply, acc, "[Info] ", white, "Discord coming soon.")
+Add({ "discord", "dc" }, "Join our Discord (live status, records, chat with the server)", function(ply)
+	local url = SURF.DiscordURL()
+	if not url then
+		return SURF.Chat(ply, acc, "[Discord] ", white, "The Discord invite isn't set up yet.")
 	end
+	SURF.Chat(ply, Color(88, 101, 242), "[Discord] ", white, "Join us at ", acc, url, white,
+		" (opening it in the Steam overlay). Then type /link there and !link <code> here to get your rank as a Discord role.")
+	ply:SendLua("gui.OpenURL(" .. string.format("%q", url) .. ")")
 end)
 
 Add({ "link" }, "Link your Steam account to Discord (/link on Discord gives the code)", function(ply, args)

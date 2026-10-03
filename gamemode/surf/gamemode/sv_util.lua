@@ -6,6 +6,7 @@ util.AddNetworkString("surf.SetTrail")
 util.AddNetworkString("surf.Zones")
 util.AddNetworkString("surf.MapVote")
 util.AddNetworkString("surf.MapVoteCast")
+util.AddNetworkString("surf.Commands")
 
 -- SURF.Chat(target or nil for everyone, Color, "text", Color, "text", ...)
 function SURF.Chat(target, ...)
@@ -30,6 +31,14 @@ function SURF.Menu.Open(ply, kind, data)
 	net.WriteString(kind)
 	net.WriteTable(data or {})
 	net.Send(ply)
+end
+
+-- Discord invite: DISCORD_URL or the bot's invite (links.json, written by
+-- deploy.sh), else the invite the bot drops in data/surfline/discord/invite.txt
+function SURF.DiscordURL()
+	if SURF.Config.DiscordURL ~= "" then return SURF.Config.DiscordURL end
+	local url = string.Trim(file.Read("surfline/discord/invite.txt", "DATA") or "")
+	if string.match(url, "^https://discord%.gg/[%w%-]+$") or string.match(url, "^https://discord%.com/invite/[%w%-]+$") then return url end
 end
 
 -- Client-only toggles (hide players, etc.)
