@@ -1,5 +1,6 @@
 -- Small Derma menus opened by the server (!wr, !help, !shop, !maps, !style, !graphics, !vip)
 local Menus = {}
+SURF.Menus = Menus
 
 local function Frame(title, w, h)
 	local f = vgui.Create("DFrame")

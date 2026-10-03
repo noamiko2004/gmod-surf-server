@@ -217,7 +217,11 @@ for _, k in ipairs({ "Start", "WriteUInt", "WriteFloat", "WriteBool", "WriteStri
 end
 net.Send = function() end
 net.Broadcast = function() end
-net.Receive = function() end
+netHandlers, netQueue = {}, {}
+net.Receive = function(name, fn) netHandlers[name] = fn end
+for _, k in ipairs({ "ReadString", "ReadUInt", "ReadBool", "ReadTable", "ReadFloat" }) do
+	net[k] = function() return table.remove(netQueue, 1) end
+end
 util = { AddNetworkString = function() end, JSONToTable = function(s) local ok, t = pcall(py_json_to_table, s) if ok then return t end end,
          TableToJSON = py_table_to_json, SteamIDTo64 = function(s) return "7656" end, SpriteTrail = function() return nil end,
          IsInWorld = util_IsInWorld, PointContents = util_PointContents, TraceLine = util_TraceLine }
@@ -325,7 +329,7 @@ vfs["surfline/webhook.txt"] = "https://discord.com/api/webhooks/123456/abc_DEF-g
 vfs["surfline/portal_url.txt"] = "https://128.140.7.178\n"
 for f in ["sv_util.lua", "sv_db.lua", "sv_zones.lua", "sv_stats.lua", "sv_timer.lua", "sv_replay.lua", "sv_ranks.lua", "sv_mapvote.lua",
           "sv_afk.lua", "sv_social.lua", "sv_discord.lua", "sv_discord_bridge.lua", "sv_trails.lua", "sv_commands.lua", "sv_shop.lua",
-          "sv_portal.lua"]:
+          "sv_portal.lua", "sv_menus.lua", "sv_admin.lua"]:
     include(f)
 # SURF.Chat is real (net stubs); capture messages instead
 L.execute('''
@@ -1092,6 +1096,165 @@ for f in sorted(os.listdir(ZONES)):
         if not Z.HasTimer(0):
             bad.append(f[:-5])
 check(not bad and count > 700, f"all {count} zone files give a main start+end (missing: {bad[:20]})")
+
+# Main menu pages (sv_menus.lua)
+L.execute('''
+anyHook = false
+mapname = "surf_kitsune"
+SURF.Zones.Load()
+SURF.Ranks.Recalc()
+home = SURF.Menu.Pages.home(b)
+recs = SURF.Menu.Pages.records(b, "n|0")
+recsOdd = SURF.Menu.Pages.records(b, "zz|99")
+tops = SURF.Menu.Pages.players(b)
+mapsPage = SURF.Menu.Pages.maps(b)
+menus = {}
+SURF.Commands.Run(b, "menu", {})
+menuCmd = menus[1]
+menus = {}
+netQueue = { "records", "sw|0", 7 }
+netHandlers["surf.MenuReq"](0, b)
+netQueue = { "nosuchpage", "", 8 }
+netHandlers["surf.MenuReq"](0, b)
+answered = menus
+''')
+home = G.home
+check(home.points > 0 and home.rank >= 1 and home.finished >= 1 and home.records >= 1 and home.map.name == "surf_kitsune",
+      f"home page: points, rank, finished maps and records held ({home.points}, #{home.rank}, {home.finished}, {home.records})")
+check(home.map.wr is not None and home.map.pb is not None and home.map.zoned, "home page: the map's record and your best")
+rows = list(G.recs.rows.values())
+check(G.recs.style == "n" and G.recs.track == 0 and len(rows) >= 1 and rows[0].steamid, "records page lists times with SteamIDs")
+check(G.recsOdd.style == "n" and G.recsOdd.track == 0, "records page ignores a bad style or bonus")
+check(G.tops.total >= 1 and G.tops.mine is not None and list(G.tops.rows.values())[0].sid, "top players page has SteamIDs and your own rank")
+check(any(m.name == "surf_kitsune" and m.done for m in G.mapsPage.maps.values()), "maps page marks maps you finished")
+check(G.menuCmd.kind == "menu", "!menu opens the main menu")
+ans = list(G.answered.values())
+check(len(ans) == 1 and ans[0].kind == "records" and ans[0].data.req == 7 and ans[0].data.style == "sw", "a page request is answered with its number; unknown pages are ignored")
+
+# In-game admin (sv_admin.lua)
+L.execute(r"""
+SURF.Spec.Watch = function(p, t) specWatched = p.name .. ">" .. t.name end
+owner = MakePlayer("Noam", "76561190000000010")
+mod = MakePlayer("Mod", "76561190000000011")
+pleb = MakePlayer("Pleb", "76561190000000012")
+for _, p in ipairs({ owner, mod, pleb }) do
+	p.group = "user"
+	function p:SetUserGroup(g) self.group = g end
+	function p:IsAdmin() return self.group == "admin" or self.group == "superadmin" end
+	function p:IsSuperAdmin() return self.group == "superadmin" end
+	function p:Freeze(on) self.isFrozen = on end
+	function p:Kill() self.alive = false end
+	humans[#humans + 1] = p
+end
+owner.group = "superadmin"
+chats = {}
+
+okStaff = SURF.Admin.Do(owner, "setadmin", { sid = mod.sid, on = true })
+modGroup = mod.group
+plebTry, plebMsg = SURF.Admin.Do(pleb, "slay", { sid = mod.sid })
+upTry, upMsg = SURF.Admin.Do(mod, "slay", { sid = owner.sid })
+modVip, modVipMsg = SURF.Admin.Do(mod, "givevip", { sid = pleb.sid, days = 30 })
+consoleGoto, consoleGotoMsg = SURF.Admin.Do(nil, "goto", { sid = pleb.sid })
+
+okFreeze = SURF.Admin.Do(mod, "freeze", { sid = pleb.sid })
+plebFrozen = pleb.isFrozen
+SURF.Admin.Do(mod, "freeze", { sid = pleb.sid })
+okSlay = SURF.Admin.Do(mod, "slay", { sid = pleb.sid })
+plebAlive = pleb.alive
+pleb.alive = true
+okSpec = SURF.Admin.Do(mod, "spectate", { sid = pleb.sid })
+
+okMute = SURF.Admin.Do(mod, "mute", { sid = pleb.sid, minutes = 10 })
+mutedNW = pleb:GetNW2Bool("surf_muted", false)
+sayMuted = GM:PlayerSay(pleb, "hello", false)
+sayOther = GM:PlayerSay(mod, "hello", false)
+SURF.DB.Query("UPDATE surf_sanctions SET expires = %d WHERE steamid = %s", os.time() - 5, pleb.sid)
+pleb.SurfMute = os.time() - 5
+sayExpired = GM:PlayerSay(pleb, "hello again", false)
+muteRowsLeft = #(SURF.DB.Query("SELECT * FROM surf_sanctions WHERE steamid = %s", pleb.sid) or {})
+
+SURF.Admin.Do(mod, "gag", { sid = pleb.sid, minutes = 0 })
+voiceGagged = hooks.PlayerCanHearPlayersVoice.surf_gag(owner, pleb)
+voiceOther = hooks.PlayerCanHearPlayersVoice.surf_gag(pleb, owner)
+SURF.Admin.Do(mod, "ungag", { sid = pleb.sid })
+voiceUngagged = hooks.PlayerCanHearPlayersVoice.surf_gag(owner, pleb)
+
+okBan, msgBan = SURF.Admin.Do(mod, "ban", { sid = "76561190000000099", minutes = 60, reason = "cheating" })
+banRow = (SURF.DB.Query("SELECT reason, expires FROM surf_bans WHERE steamid = '76561190000000099'") or {})[1]
+okUnban = SURF.Admin.Do(mod, "unban", { sid = "76561190000000099" })
+banGone = SURF.DB.Query("SELECT * FROM surf_bans WHERE steamid = '76561190000000099'") == nil
+
+okCoins, msgCoins = SURF.Admin.Do(owner, "coins", { sid = pleb.sid, amount = 500 })
+bal = SURF.Shop.Balance(pleb.sid)
+okItem = SURF.Admin.Do(owner, "giveitem", { sid = pleb.sid, item = "trail:gold" })
+badItem = SURF.Admin.Do(owner, "giveitem", { sid = pleb.sid, item = "trail:nope" })
+okVip = SURF.Admin.Do(owner, "givevip", { sid = pleb.sid, days = 30 })
+okPts, msgPts = SURF.Admin.Do(owner, "points", { sid = pleb.sid, amount = 10 })
+okMap = SURF.Admin.Do(mod, "changelevel", { map = "surf_mesa" })
+mapConsole = lastConsole
+badMap = SURF.Admin.Do(mod, "changelevel", { map = "surf_nope" })
+
+SURF.Commands.Run(mod, "kick", { "ple", "spam" })
+plebKicked = pleb.kicked
+SURF.Commands.Run(pleb, "kick", { "Mod" })
+modKicked = mod.kicked
+
+player = player
+details = SURF.Admin.Actions and true
+detail = nil
+sent = {}
+netQueue = { { a = "data", what = "player", sid = pleb.sid } }
+netHandlers["surf.Admin"](0, owner)
+for _, e in pairs(sent) do if e[1] == "WriteTable" and e[2].sid == pleb.sid then detail = e[2] end end
+sent = {}
+netQueue = { { a = "data", what = "log" } }
+netHandlers["surf.Admin"](0, pleb)
+plebSent = #sent
+sent = {}
+netQueue = { { a = "slay", sid = pleb.sid } }
+netHandlers["surf.Admin"](0, mod)
+resultSent = nil
+for _, e in pairs(sent) do if e[1] == "WriteTable" and e[2].msg then resultSent = e[2] end end
+
+staff = {}
+for _, r in ipairs(SURF.DB.Query("SELECT steamid, rank FROM surf_staff") or {}) do staff[r.steamid] = r.rank end
+table.remove(humans)
+table.remove(humans)
+offlineLevel = SURF.Admin.Level(mod.sid)
+mod2 = MakePlayer("Mod", mod.sid)
+mod2.group = "user"
+function mod2:IsAdmin() return self.group == "admin" end
+function mod2:SetUserGroup(g) self.group = g end
+hooks.PlayerInitialSpawn.surf_staff(mod2)
+rejoinGroup = mod2.group
+log = SURF.DB.Query("SELECT action, admin_name, target_name, source FROM surf_admin_log ORDER BY id") or {}
+""")
+check(G.okStaff and G.modGroup == "admin" and G.staff[G.mod.sid] == "admin", "owners make admins (saved in surf_staff)")
+check(not G.plebTry and "only admins" in G.plebMsg, "players can't use admin actions")
+check(not G.upTry and "higher rank" in G.upMsg, "admins can't punish an owner")
+check(not G.modVip and "owners" in G.modVipMsg, "only owners give VIP")
+check(not G.consoleGoto, "teleports need an admin in game")
+check(G.okFreeze and G.plebFrozen and G.okSlay and G.plebAlive is False and G.okSpec and G.specWatched == "Mod>Pleb", "freeze, slay and spectate work")
+check(G.okMute and G.mutedNW and G.sayMuted == "" and G.sayOther == "hello", "a muted player's chat is blocked, others still talk")
+check(G.sayExpired == "hello again" and G.muteRowsLeft == 0, "a mute ends by itself when its time is up")
+check(G.voiceGagged is False and G.voiceOther is None and G.voiceUngagged is None, "a gag blocks voice until ungagged")
+check(G.okBan and G.banRow and G.banRow.reason == "cheating" and int(G.banRow.expires) > 0, "admins ban offline SteamIDs for a time")
+check(G.okUnban and G.banGone, "unban lifts the ban")
+check(G.okCoins and G.bal >= 500 and G.okItem and not G.badItem and G.okVip, f"owners give coins, items and VIP ({G.msgCoins})")
+check(G.okMap and G.mapConsole == "changelevel surf_mesa" and not G.badMap, "admins change to installed maps only")
+check(G.plebKicked == "spam" and not G.modKicked, f"!kick works for admins, not players ({G.plebKicked}, {G.modKicked})")
+d = G.detail
+check(d is not None and d.online and d.coins >= 500 and "trail:gold" in list(d.owned.values()) and d.level == 0 and d.features.shop,
+      "the panel gets a player's details (coins, items, rank)")
+check(G.plebSent == 0, "players get no admin data")
+check(G.resultSent is not None and G.resultSent.ok, "actions from the panel answer with a result")
+check(G.offlineLevel == 1 and G.rejoinGroup == "admin", "admins stay admins when offline and when they rejoin")
+log = [dict(r) for r in G.log.values()]
+check(any(r["action"] == "mute" and r["admin_name"] == "Mod" and r["target_name"] == "Pleb" and r["source"] == "game" for r in log),
+      "admin actions are logged with who did what to whom")
+check(not any(r["action"] == "spectate" for r in log) and not any(r["action"] == "slay" and r["admin_name"] == "Pleb" for r in log),
+      "spectating and refused actions aren't logged")
+check(any(r["action"] == "ban" and r["source"] == "web" for r in log), "website actions are in the same log")
 
 print("\n%d failure(s)" % len(failures))
 sys.exit(1 if failures else 0)

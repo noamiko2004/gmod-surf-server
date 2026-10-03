@@ -91,6 +91,7 @@ end
 -- The gamemode function, not a hook: it only runs when no hook took the
 -- message first (chat commands return "" from surf_commands)
 function GM:PlayerSay(ply, text, teamChat)
+	if SURF.Admin and not SURF.Admin.MayChat(ply) then return "" end
 	B.Chat(ply, text, teamChat)
 	return text
 end

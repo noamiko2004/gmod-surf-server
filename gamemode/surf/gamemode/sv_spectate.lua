@@ -39,6 +39,14 @@ function Spec.Toggle(ply)
 	end
 end
 
+-- Spectate one player (from !spec <name>, the scoreboard or the admin panel)
+function Spec.Watch(ply, target)
+	if ply:Team() ~= TEAM_SPECTATOR then Spec.Toggle(ply) end
+	if (ply.SurfSpecMode or 1) == 3 then ply.SurfSpecMode = 1 end
+	ply:Spectate(MODES[ply.SurfSpecMode or 1])
+	ply:SpectateEntity(target)
+end
+
 local function Cycle(ply, dir)
 	local list = Targets(ply)
 	if #list == 0 then
