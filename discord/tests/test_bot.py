@@ -620,6 +620,36 @@ asyncio.run(bot.busy_ping({**base, "count": 3}))
 asyncio.run(bot.busy_ping({**base, "count": 10}))
 check(len(busy.sent) == 1 and "9 people" in busy.sent[0], "busy ping once when the server fills up, not again within 6 hours")
 
+# ------------------------------------------------------------------ bot profile
+
+
+class FUser:
+    def __init__(self, name, avatar):
+        self.name, self.avatar, self.edits = name, avatar, []
+
+    async def edit(self, **kw):
+        self.edits.append(sorted(kw))
+        if "avatar" in kw:
+            self.avatar = "ours"
+        if "username" in kw:
+            self.name = kw["username"]
+
+
+pb = B.SurfBot(os.path.join(tmp, "profdata"), game=game)
+os.makedirs(pb.data_dir, exist_ok=True)
+pb._connection.user = FUser("Surf", None)
+asyncio.run(pb.profile())
+check(pb.user.edits == [["avatar", "username"]] and pb.state["profile"] == L.PROFILE_VERSION, "first start sets name and avatar")
+asyncio.run(pb.profile())
+check(len(pb.user.edits) == 1, "nothing to do when both are set")
+pb.user.avatar = None  # someone saved an old Developer Portal tab
+pb.profile_tried = 0
+asyncio.run(pb.profile())
+check(pb.user.edits[-1] == ["avatar"] and pb.user.avatar == "ours", "a reset avatar is put back, the name is left alone")
+pb.user.avatar = None
+asyncio.run(pb.profile())
+check(len(pb.user.edits) == 2, "retries wait 30 minutes")
+
 # ------------------------------------------------------------------ bot helpers
 sp = os.path.join(tmp, "state.json")
 B.save_state(sp, {"a": 1})

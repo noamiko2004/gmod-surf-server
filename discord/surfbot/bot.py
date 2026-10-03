@@ -68,6 +68,7 @@ class SurfBot(discord.Client):
         self.stamp = code_stamp()
         self.last_status = None
         self.last_rename = 0.0
+        self.profile_tried = 0.0
         self.building = asyncio.Lock()
         self.synced = False
         self.bridge = BR.Bridge(self.game.store.data_dir)
@@ -147,28 +148,39 @@ class SurfBot(discord.Client):
             await self.on_ready()
 
     async def profile(self):
-        """The bot's own name and avatar, set once per layout version (Discord rate-limits these)."""
-        if self.state.get("profile") == layout.PROFILE_VERSION:
+        """The bot's own name and avatar.
+
+        The name is set once per PROFILE_VERSION. The avatar is also put back
+        whenever it is the default one, for example after someone presses Save
+        on an old Developer Portal tab, which resets it. Retries wait 30 minutes
+        because Discord rate-limits profile changes."""
+        set_name = self.state.get("profile") != layout.PROFILE_VERSION and self.user.name != layout.BOT_NAME
+        set_avatar = self.state.get("profile") != layout.PROFILE_VERSION or self.user.avatar is None
+        if not (set_name or set_avatar) or time.time() - self.profile_tried < 1800:
             return
+        self.profile_tried = time.time()
         kw = {}
-        if self.user.name != layout.BOT_NAME:
+        if set_name:
             kw["username"] = layout.BOT_NAME
         try:
             with open(os.path.join(HERE, "..", "assets", "bot.png"), "rb") as f:
                 kw["avatar"] = f.read()
         except OSError:
             pass
+        if not kw:
+            return
         try:
             await self.user.edit(**kw)
-            log.info("Set the bot's name and avatar")
+            log.info("Set the bot's %s", " and ".join(k for k in ("username", "avatar") if k in kw))
         except discord.HTTPException as ex:
             log.warning("Could not set the bot's name/avatar: %s", ex)
-            if "username" in kw:  # name taken or changed too often; the avatar still matters
-                kw.pop("username")
-                try:
-                    await self.user.edit(**kw)
-                except discord.HTTPException:
-                    return
+            if "username" not in kw or "avatar" not in kw:
+                return
+            kw.pop("username")  # name taken or changed too often; the avatar still matters
+            try:
+                await self.user.edit(**kw)
+            except discord.HTTPException:
+                return
         self.state["profile"] = layout.PROFILE_VERSION
         self.save()
 
@@ -532,6 +544,8 @@ class SurfBot(discord.Client):
         if code_stamp() != self.stamp:
             log.info("Code changed on disk, restarting to load it")
             await self.close()
+            return
+        await self.guarded(self.profile)
 
 
 
