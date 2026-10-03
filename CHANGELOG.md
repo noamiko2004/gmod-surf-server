@@ -1,5 +1,33 @@
 # Changelog
 
+## 2026-10-03 (v4.1)
+Fixes and polish from Noam's feedback after v4.
+- The server no longer shows offline with nobody on: `sv_hibernate_think 1`
+  keeps the game (and the status file the portal and the Discord bot read)
+  running while it is empty.
+- No more gm_construct after a restart: `START_MAP="auto"` (the new default,
+  also used when the setting is empty or gm_construct) starts on a random
+  easy surf map with zones.
+- Players spawn and `!r` facing the way the map goes: the direction most of
+  the map's spawn points near the start face, unless that looks into a wall,
+  else the most open way out. Admins can set it per map with `!zone angle`
+  (new table surf_start_angles; `!zone reset` clears it).
+- surf_legends and its variants are blocked (`maps/blocked_maps.txt`). Admins
+  can take any map out of the rotation in game with `!hidemap [map]` and put it
+  back with `!unhidemap <map>` (garrysmod/data/surfline/hidden_maps.txt).
+  Blocked and hidden maps are left out of votes, `!maps`, `!nominate` and the
+  start map, and the next update deletes their files.
+- Loading screen: the portal serves `/loading` (map, tier, record, your rank
+  and best time, download progress) and deploy.sh sets `sv_loadingurl` to it.
+  It is plain HTTP on purpose because the game's built-in browser can't do
+  modern HTTPS; Caddy forwards only `/loading` over HTTP and redirects the rest.
+- Graphics: `!graphics` menu with color presets (Vivid by default, Cinematic,
+  Off) and glowing START/END zones with floating labels (`!zonefx` for plain
+  outlines). Client-side only; it never changes movement.
+- `!discord` falls back to the invite the Discord bot made when `DISCORD_URL`
+  is empty. Leave `DISCORD_WEBHOOK` empty while the bot runs; it posts the
+  records itself.
+
 ## 2026-10-03 (v4)
 - Styles with their own leaderboards: Sideways, Half-Sideways, W-Only and Low
   Gravity (`!style`, `!sw`, `!hsw`, `!wonly`, `!lg`, `!normal`). Times are

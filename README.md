@@ -26,7 +26,14 @@ in chat is `BRAND_NAME`.
 - Points, titles (Newbie to Legend) and a server leaderboard (`!rank`, `!top`);
   rank-ups and joins are announced in chat, and a tip shows every few minutes
 - `!mapinfo`: tier, mapper, stages, bonuses, record and your best
-- New server records posted to Discord when `DISCORD_WEBHOOK` is set
+- New server records posted to Discord, by the Discord bot or, when
+  `DISCORD_WEBHOOK` is set, by the game itself. Without `DISCORD_URL`, `!discord`
+  uses the invite the bot made
+- A loading screen with the map, its tier and record, your rank and best time,
+  and download progress (served by the portal at `/loading`)
+- You spawn and restart (`!r`) facing the way the map goes
+- `!graphics`: color presets (Vivid by default, Cinematic or Off) and glowing
+  START/END zones with labels (`!zonefx` turns the glow off)
 - Players away for 5 minutes move to the spectators and don't block `!rtv`
 - Practice: `!saveloc` / `!tele`, `!stage <n>` (timer turns off)
 - HUD with timer, speed that turns green/red when gaining/losing, CP progress,
@@ -37,8 +44,10 @@ in chat is `BRAND_NAME`.
 - Cosmetic VIP (trails, gold tag and name). No pay to win.
 
 Admin: `!zone start` / `!zone end` (two corners each; replaces only that zone),
-`!zone delete start`, `!zone reset` (back to ready-made zones), `!zone info`,
+`!zone angle` (players face the way you look in the start), `!zone delete start`,
+`!zone reset` (back to ready-made zones and angles), `!zone info`,
 `!map <name>` (any installed map, also ones without zones), `!deltime <steamid64> [style]`,
+`!hidemap [map]` / `!unhidemap <map>` (take a map out of the rotation),
 `!forcevote`. Console: `surf_givevip <id> <days>`, `surf_removevip <id>`.
 
 ## Maps
@@ -53,6 +62,12 @@ link, and stops if the disk gets full. Clients get each map from the Workshop
 automatically. Log: /home/gmod/maps.log; summary for tools:
 `garrysmod/data/surfline/maps_report.json`. To add maps, add Workshop IDs
 (items or collections) to `maps/sources.txt` and names to `maps/extra_maps.txt`.
+
+Maps listed in `maps/blocked_maps.txt`, and maps an admin hid in game with
+`!hidemap`, are never offered in votes or `!maps`, and the next update deletes
+them from the server. After a restart the server starts on a random easy map
+with zones (`START_MAP="auto"`), and it keeps running with nobody on
+(`sv_hibernate_think 1`), so the browser and the portal always show it online.
 
 ## Web portal
 

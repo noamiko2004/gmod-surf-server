@@ -78,6 +78,7 @@ SURF.Config = {
 		"!mapinfo shows the map's tier, stages, record and your best.",
 		"!stage <number> takes you to a stage to practice it.",
 		"Hide other players with !hide. Turn the key display on or off with !keys.",
+		"Type !graphics for color presets (Vivid, Cinematic or Off) and glowing zones.",
 		"Leaderboards and player profiles: {portal}",
 		"Finish maps to earn points and climb the titles. Type !rank to see yours.",
 		"Want a different map? Type !rtv, or !nominate <map> before the vote.",

@@ -6,6 +6,7 @@ import time
 
 _LINE = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$")
 _SID = re.compile(r"7656\d{13}")
+_INVITE = re.compile(r"https://(?:discord\.gg|discord\.com/invite)/[A-Za-z0-9-]{2,64}")
 
 
 def _parse_value(raw):
@@ -69,6 +70,7 @@ class Config:
         self._lock = threading.Lock()
         self._data = parse_env(path)
         self._read_at = time.time()
+        self._invite = (0.0, "")
 
     def _fresh(self):
         with self._lock:
@@ -98,6 +100,18 @@ class Config:
         return v if v.startswith("https://") and len(v) < 500 and not any(c in v for c in "<>\"' ") else ""
 
     @property
+    def discord_url(self):
+        """DISCORD_URL, else the invite the Discord bot made (<GMOD_HOME>/discord/invite.txt)."""
+        url = self.https_url("DISCORD_URL")
+        if url:
+            return url
+        path = os.path.join(self.gmod_home, "discord", "invite.txt")  # before the lock: get() takes it too
+        with self._lock:
+            if time.time() - self._invite[0] >= self.interval:
+                self._invite = (time.time(), read_invite(path))
+            return self._invite[1]
+
+    @property
     def gmod_home(self):
         return self.get("GMOD_HOME", "/home/gmod")
 
@@ -112,3 +126,13 @@ def file_exists(path):
         return os.path.isfile(path)
     except OSError:
         return False
+
+
+def read_invite(path):
+    """The first line of the bot's invite file if it is a Discord invite link, else ''."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            line = f.readline(200).strip()
+    except OSError:
+        return ""
+    return line if _INVITE.fullmatch(line) else ""

@@ -53,24 +53,56 @@ function MV.HasZones(map, known, bad)
 	return file.Exists("surfline/zones/" .. map .. ".json", "DATA")
 end
 
--- Maps players can vote for and nominate: only ones with a start and end,
--- unless the server has hardly any of those yet.
-function MV.Playable()
-	local known, bad = SURF.Zones.KnownZoned(), SURF.Zones.KnownBad()
-	local zoned = {}
-	for _, m in ipairs(MV.MapList()) do
-		if MV.HasZones(m, known, bad) then zoned[#zoned + 1] = m end
+-- Maps kept out of votes, !maps and the map installer: maps/blocked_maps.txt
+-- (deploy.sh copies it) and maps an admin hid in game with !hidemap
+local HIDDEN_FILE = "surfline/hidden_maps.txt"
+local function ReadNames(path)
+	local out = {}
+	for line in string.gmatch(file.Read(path, "DATA") or "", "[^\n]+") do
+		local name = string.match(line, "^%s*(surf_[%w_]+)")
+		if name then out[name] = true end
 	end
-	if #zoned >= 3 then return zoned end
-	return MV.MapList()
+	return out
 end
 
--- Map list with tiers, for menus
+function MV.Hidden()
+	local out = ReadNames("surfline/blocked_maps.txt")
+	for m in pairs(ReadNames(HIDDEN_FILE)) do out[m] = true end
+	return out
+end
+
+function MV.HiddenByAdmin() return ReadNames(HIDDEN_FILE) end
+
+function MV.SetHidden(map, hide)
+	local list = ReadNames(HIDDEN_FILE)
+	list[map] = hide and true or nil
+	local names = {}
+	for m in pairs(list) do names[#names + 1] = m end
+	table.sort(names)
+	file.Write(HIDDEN_FILE, #names > 0 and (table.concat(names, "\n") .. "\n") or "")
+end
+
+-- Maps players can vote for and nominate: only ones with a start and end,
+-- unless the server has hardly any of those yet. Never hidden ones.
+function MV.Playable()
+	local known, bad, hidden = SURF.Zones.KnownZoned(), SURF.Zones.KnownBad(), MV.Hidden()
+	local zoned, all = {}, {}
+	for _, m in ipairs(MV.MapList()) do
+		if not hidden[m] then
+			all[#all + 1] = m
+			if MV.HasZones(m, known, bad) then zoned[#zoned + 1] = m end
+		end
+	end
+	if #zoned >= 3 then return zoned end
+	return all
+end
+
+-- Map list with tiers, for menus and the portal
 function MV.Info(list)
-	local known, bad = SURF.Zones.KnownZoned(), SURF.Zones.KnownBad()
+	local known, bad, hidden = SURF.Zones.KnownZoned(), SURF.Zones.KnownBad(), MV.Hidden()
 	local out = {}
 	for i, m in ipairs(list) do
-		out[i] = { name = m, tier = MV.Tier(m), zoned = MV.HasZones(m, known, bad) }
+		out[i] = { name = m, tier = MV.Tier(m), zoned = MV.HasZones(m, known, bad), hidden = hidden[m] or nil }
 	end
 	return out
 end

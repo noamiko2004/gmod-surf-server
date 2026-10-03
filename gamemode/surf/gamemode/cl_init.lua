@@ -3,6 +3,7 @@ include("cl_hud.lua")
 include("cl_scoreboard.lua")
 include("cl_menus.lua")
 include("cl_mapvote.lua")
+include("cl_visuals.lua")
 
 local function Font(name, size, weight)
 	surface.CreateFont(name, { font = "Roboto", size = size, weight = weight or 500, antialias = true, extended = true })
@@ -58,6 +59,13 @@ net.Receive("surf.Action", function()
 		local on = not showKeys:GetBool()
 		RunConsoleCommand("surf_showkeys", on and "1" or "0")
 		chat.AddText(SURF.Config.Accent, "[Settings] ", color_white, "Key display " .. (on and "on" or "off") .. ".")
+	elseif action == "zonefx" then
+		SURF.Visuals.ToggleZones()
+	elseif string.StartWith(action, "graphics:") then
+		local id = string.sub(action, 10)
+		if not SURF.Visuals.SetPreset(id) then
+			chat.AddText(SURF.Config.Accent, "[Graphics] ", color_white, "Presets: off, vivid, cinematic. !graphics opens the menu.")
+		end
 	end
 end)
 
@@ -79,7 +87,7 @@ timer.Create("surf_hide_trails", 0.5, 0, function()
 	end
 end)
 
--- Zones: drawn as floor outlines (start green, end red, bonuses blue/purple)
+-- Zones (drawn in cl_visuals.lua: start green, end red, bonuses blue/purple)
 SURF.ClientZones = {}
 net.Receive("surf.Zones", function()
 	local list = {}
@@ -96,20 +104,6 @@ function SURF.ClientCPCount(track)
 	end
 	return n
 end
-
-local ZONE_COLORS = {
-	start = Color(0, 255, 120), ["end"] = Color(255, 60, 60),
-	bstart = Color(60, 160, 255), bend = Color(200, 90, 255),
-}
-hook.Add("PostDrawTranslucentRenderables", "surf_zones", function(depth, skybox)
-	if skybox then return end
-	for _, z in ipairs(SURF.ClientZones) do
-		if z.ztype ~= "cp" then
-			local key = (z.track > 0 and "b" or "") .. z.ztype
-			render.DrawWireframeBox(vector_origin, angle_zero, z.min, Vector(z.max.x, z.max.y, z.min.z + 2), ZONE_COLORS[key] or color_white, true)
-		end
-	end
-end)
 
 hook.Add("InitPostEntity", "surf_ready", function()
 	net.Start("surf.Ready")

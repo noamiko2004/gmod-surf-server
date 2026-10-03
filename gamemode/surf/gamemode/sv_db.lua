@@ -43,6 +43,9 @@ local function Setup()
 	q([[CREATE TABLE IF NOT EXISTS surf_zones (
 		map TEXT NOT NULL, ztype TEXT NOT NULL,
 		x1 REAL, y1 REAL, z1 REAL, x2 REAL, y2 REAL, z2 REAL, PRIMARY KEY (map, ztype))]])
+	-- Which way you face in a start zone, set by an admin with !zone angle
+	q([[CREATE TABLE IF NOT EXISTS surf_start_angles (
+		map TEXT NOT NULL, track INTEGER NOT NULL, yaw REAL NOT NULL, PRIMARY KEY (map, track))]])
 	q([[CREATE TABLE IF NOT EXISTS surf_vip (steamid TEXT PRIMARY KEY, expires INTEGER NOT NULL)]])
 	-- Every new server record, for the portal's "recent records"
 	q([[CREATE TABLE IF NOT EXISTS surf_records (

@@ -108,6 +108,17 @@ check([f["wsid"] for f in rep["failed"]] == ["105"], f"report lists the failed i
 rc = M.main()
 check(calls[-1] == ["105"], f"second run only retries the failed item ({calls[-1]})")
 
+# Blocked maps (maps/blocked_maps.txt) and maps hidden in game are removed and not installed again
+open(os.path.join(repo, "maps", "blocked_maps.txt"), "w").write("surf_old   # weird\n")
+open(os.path.join(gm, "data", "surfline", "hidden_maps.txt"), "w").write("surf_mesa\n")
+calls.clear()
+M.main()
+check(not os.path.exists(os.path.join(gm, "maps", "surf_old.bsp")) and not os.path.exists(os.path.join(gm, "maps", "surf_mesa.bsp")), "blocked and hidden maps are deleted")
+ws = open(os.path.join(gm, "data", "surfline", "map_ws.txt")).read().split()
+check("surf_old" not in ws and "surf_mesa" not in ws and "surf_kitsune" in ws, f"and left out of map_ws.txt ({ws})")
+check(not any(f in ("108", "109") for f in sum(calls, [])), f"and not downloaded again ({calls})")
+os.remove(os.path.join(repo, "maps", "blocked_maps.txt"))
+
 # MAX_MAPS: a fresh server with room for one map gets an easy (tier 1-2) one
 gm2, work2 = os.path.join(tmp, "gm2"), os.path.join(tmp, "work2")
 os.makedirs(gm2); os.makedirs(work2)

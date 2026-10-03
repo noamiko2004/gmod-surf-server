@@ -167,6 +167,13 @@ end)
 
 Add({ "hide", "show" }, "Hide or show other players", function(ply) SURF.ClientAction(ply, "hide") end)
 
+Add({ "graphics", "gfx" }, "Color presets and glowing zones (!graphics vivid|cinematic|off)", function(ply, args)
+	if args[1] then return SURF.ClientAction(ply, "graphics:" .. string.lower(args[1])) end
+	SURF.Menu.Open(ply, "graphics")
+end)
+
+Add({ "zonefx" }, "Glowing zones on or off", function(ply) SURF.ClientAction(ply, "zonefx") end)
+
 Add({ "trail", "trails" }, "Pick a trail", function(ply) SURF.Menu.Open(ply, "trails") end)
 
 Add({ "rtv", "rockthevote" }, "Vote to change the map", function(ply) SURF.MapVote.RTV(ply) end)
@@ -205,6 +212,31 @@ Add({ "deltime" }, "!deltime <steamid64> [style] removes a main-track time on th
 	local style = SURF.StyleByID[string.lower(args[2] or "n")] and string.lower(args[2] or "n") or "n"
 	SURF.DB.DeleteTime(SURF.MapKey(0, style), args[1])
 	SURF.Chat(ply, acc, "[Admin] ", white, "Deleted the time for " .. args[1] .. SURF.Timer.StyleSuffix(style) .. ".")
+end, true)
+
+Add({ "hidemap" }, "!hidemap [map] takes a map out of votes and !maps (the next update also deletes it)", function(ply, args)
+	local map = args[1] and SURF.MapVote.ResolveMap(args[1], SURF.MapVote.MapList()) or game.GetMap()
+	if not map then return SURF.Chat(ply, acc, "[Admin] ", white, "No installed map matches \"" .. tostring(args[1]) .. "\".") end
+	SURF.MapVote.SetHidden(map, true)
+	SURF.Chat(ply, acc, "[Admin] ", white, map .. " is hidden from votes and !maps. !unhidemap " .. map .. " brings it back."
+		.. (map == game.GetMap() and " !forcevote leaves it now." or ""))
+end, true)
+
+Add({ "unhidemap" }, "!unhidemap <map> puts a hidden map back", function(ply, args)
+	local query = string.lower(args[1] or "")
+	local hidden = SURF.MapVote.HiddenByAdmin()
+	local map = hidden[query] and query or nil
+	if not map then
+		for m in pairs(hidden) do if string.find(m, query, 1, true) then map = m break end end
+	end
+	if not map or query == "" then
+		local names = {}
+		for m in pairs(hidden) do names[#names + 1] = m end
+		table.sort(names)
+		return SURF.Chat(ply, acc, "[Admin] ", white, #names > 0 and ("Hidden maps: " .. table.concat(names, ", ")) or "No maps are hidden.")
+	end
+	SURF.MapVote.SetHidden(map, false)
+	SURF.Chat(ply, acc, "[Admin] ", white, map .. " is back in the rotation (the next update installs it again if it was deleted).")
 end, true)
 
 Add({ "forcevote" }, "Start a map vote now", function() if not SURF.MapVote.active then SURF.MapVote.Start(true) end end, true)

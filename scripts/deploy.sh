@@ -17,7 +17,7 @@ add_setting BRAND_NAME "SURF" "Short server name shown on the HUD and in chat"
 add_setting MAX_MAPS "100" "Most surf maps to install from the Workshop (each is 20-100 MB)"
 add_setting DISCORD_URL "" "Discord invite link (https://...), shown by !discord"
 add_setting STORE_URL "" "Store link for VIP (https://...), shown by !vip"
-add_setting DISCORD_WEBHOOK "" "Discord webhook URL (https://discord.com/api/webhooks/...): new server records are posted there"
+add_setting DISCORD_WEBHOOK "" "Discord webhook URL (https://discord.com/api/webhooks/...): new server records are posted there. Leave empty when the Discord bot runs; it posts them itself"
 add_setting PORTAL_ENABLED "1" "Web portal with Steam login and admin page (1 on, 0 off), see portal/README.md"
 # The first install used a placeholder name; give it the current default
 OLD_NAME="Surfline | Surf Timer | !rtv !wr !trail"
@@ -29,14 +29,32 @@ fi
 # shellcheck disable=SC1090
 source "$CONFIG_FILE"
 
+# Web portal (needs root, so only when run by update.sh or install.sh). First,
+# because the configs below use its address (portal_url.txt)
+if [[ $EUID -eq 0 ]]; then
+  if [[ "${PORTAL_ENABLED:-1}" == "1" ]]; then
+    bash "$REPO_DIR/scripts/portal.sh" || log "Portal setup had problems, see the lines above"
+  elif systemctl is-enabled --quiet surf-portal 2>/dev/null; then
+    log "Turning the web portal off (PORTAL_ENABLED=0)"
+    systemctl disable --now surf-portal || true
+  fi
+fi
+
 log "Deploying gamemode"
 mkdir -p "$GM_DIR/gamemodes"
 rm -rf "$GM_DIR/gamemodes/surf" "$GM_DIR/gamemodes/surfline"  # surfline was the old name
 cp -r "$REPO_DIR/gamemode/surf" "$GM_DIR/gamemodes/surf"
 
 log "Rendering configs"
+# Loading screen: plain HTTP on purpose (old GMOD browsers fail on modern TLS);
+# Caddy forwards only /loading over HTTP (scripts/portal.sh)
+LOADING_URL=""
+if [[ "${PORTAL_ENABLED:-1}" == "1" && -f "$GMOD_HOME/portal_url.txt" ]]; then
+  LOADING_URL="$(sed -n 's|^https://\([A-Za-z0-9.:-]*\)$|http://\1/loading?steamid=%s\&map=%m|p' "$GMOD_HOME/portal_url.txt" | head -n 1)"
+fi
 render() {
   sed -e "s|@SERVER_NAME@|${SERVER_NAME//|/\\|}|g" \
+      -e "s|@LOADING_URL@|${LOADING_URL//&/\\&}|g" \
       -e "s|@RCON_PASSWORD@|$RCON_PASSWORD|g" \
       -e "s|@SV_PASSWORD@|$SV_PASSWORD|g" \
       -e "s|@SV_LOCATION@|$SV_LOCATION|g" \
@@ -52,9 +70,15 @@ chmod 600 "$GM_DIR/cfg/server.cfg"
 mkdir -p "$GM_DIR/data/surfline"
 echo "${OWNER_STEAMIDS:-}" > "$GM_DIR/data/surfline/owners.txt"
 
-# Brand name and links for the gamemode
+# Brand name and links for the gamemode. Without DISCORD_URL, !discord uses the
+# invite the Discord bot made (discord/README.md)
+DISCORD_LINK="${DISCORD_URL:-}"
+if [[ -z "$DISCORD_LINK" && -f "$GMOD_HOME/discord/invite.txt" ]]; then
+  DISCORD_LINK="$(head -n 1 "$GMOD_HOME/discord/invite.txt" | tr -d '[:space:]')"
+  [[ "$DISCORD_LINK" =~ ^https://(discord\.gg|discord\.com/invite)/[A-Za-z0-9-]+$ ]] || DISCORD_LINK=""
+fi
 printf '%s\n' "${BRAND_NAME:-SURF}" > "$GM_DIR/data/surfline/brand.txt"
-printf '{"discord":"%s","store":"%s"}\n' "${DISCORD_URL:-}" "${STORE_URL:-}" > "$GM_DIR/data/surfline/links.json"
+printf '{"discord":"%s","store":"%s"}\n' "$DISCORD_LINK" "${STORE_URL:-}" > "$GM_DIR/data/surfline/links.json"
 # Webhook for the Discord record feed (a secret, so only the gmod user may read it)
 ( umask 077; printf '%s\n' "${DISCORD_WEBHOOK:-}" > "$GM_DIR/data/surfline/webhook.txt" )
 chmod 600 "$GM_DIR/data/surfline/webhook.txt"
@@ -72,6 +96,8 @@ cp "$REPO_DIR"/zones/*.json "$GM_DIR/data/surfline/zones/"
 for f in maxvel tiers mappers; do
   grep -v '^#' "$REPO_DIR/zones/$f.txt" > "$GM_DIR/data/surfline/$f.txt" || true
 done
+# Maps never played (the in-game !hidemap list is data/surfline/hidden_maps.txt)
+grep -v '^#' "$REPO_DIR/maps/blocked_maps.txt" > "$GM_DIR/data/surfline/blocked_maps.txt" || true
 chown -R "$GMOD_USER:$GMOD_USER" "$GM_DIR/data/surfline" 2>/dev/null || true
 
 # Maps (skip with SKIP_MAPS=1 for a quick gamemode-only deploy)
@@ -81,13 +107,4 @@ fi
 
 chown -R "$GMOD_USER:$GMOD_USER" "$GM_DIR/gamemodes/surf" "$GM_DIR/cfg" 2>/dev/null || true
 
-# Web portal (needs root, so only when run by update.sh or install.sh)
-if [[ $EUID -eq 0 ]]; then
-  if [[ "${PORTAL_ENABLED:-1}" == "1" ]]; then
-    bash "$REPO_DIR/scripts/portal.sh" || log "Portal setup had problems, see the lines above"
-  elif systemctl is-enabled --quiet surf-portal 2>/dev/null; then
-    log "Turning the web portal off (PORTAL_ENABLED=0)"
-    systemctl disable --now surf-portal || true
-  fi
-fi
 log "Deploy complete"

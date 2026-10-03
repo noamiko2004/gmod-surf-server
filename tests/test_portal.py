@@ -100,6 +100,20 @@ cfg = C.Config(envf, interval=0)
 with open(envf, "a") as f:
     f.write('OWNER_STEAMIDS="76561198000000009"\n')
 check(cfg.owners == {"76561198000000009"}, "config re-read picks up owner changes")
+home_dir = os.path.join(tmp, "home")
+os.makedirs(os.path.join(home_dir, "discord"))
+with open(envf, "a") as f:
+    f.write(f'GMOD_HOME="{home_dir}"\n')
+check(cfg.discord_url == "", "no Discord link without DISCORD_URL or a bot invite")
+with open(os.path.join(home_dir, "discord", "invite.txt"), "w") as f:
+    f.write("https://discord.gg/AbC-123\n")
+check(cfg.discord_url == "https://discord.gg/AbC-123", f"Discord link falls back to the bot's invite ({cfg.discord_url})")
+with open(os.path.join(home_dir, "discord", "invite.txt"), "w") as f:
+    f.write('https://discord.gg/x"><script>\n')
+check(cfg.discord_url == "", "a bot invite that isn't a plain invite link is ignored")
+with open(envf, "a") as f:
+    f.write('DISCORD_URL="https://discord.gg/configured"\n')
+check(cfg.discord_url == "https://discord.gg/configured", "DISCORD_URL wins over the bot's invite")
 
 # ------------------------------------------------------------------ fake server tree
 repo = os.path.join(tmp, "repo")
@@ -514,11 +528,104 @@ check("203.0.113.7" not in api.body and '"ip"' not in api.body and '"admin"' not
 check(j["players"][2]["state"] == "idle" and j["players"][2]["steamid"] == "" and j["wr"]["name"] == XSS2, "api: odd values normalized")
 check([p.get("style") for p in j["players"]] == ["hsw", "n", "n"], "api: style republished, missing or unknown is Normal")
 
+# ------------------------------------------------------------------ in-game loading screen (sv_loadingurl, plain HTTP)
+FIVE = ["GameDetails", "SetFilesTotal", "SetFilesNeeded", "DownloadingFile", "SetStatusChanged"]
+
+
+def loading_ok(r, label):
+    """Checks every /loading response must pass: cookieless, no HSTS, no redirect, own CSP, escaped, no inline code."""
+    csp = r.headers.get("content-security-policy", "")
+    inline = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>", r.body)
+    check(not r.cookies and "strict-transport-security" not in r.headers and not r.location,
+          f"{label}: no Set-Cookie, HSTS or redirect ({r.cookies}, {r.location})")
+    check("default-src 'none'" in csp and "script-src 'self'" in csp and "style-src 'self'" in csp
+          and "img-src 'self' data: https://*.steamstatic.com" in csp and "images.steamusercontent.com" in csp
+          and "unsafe" not in csp and "frame-ancestors 'none'" in csp, f"{label}: loading CSP" + ("" if "'none'" in csp else f" ({csp})"))
+    text = r.body.replace("onerror=alert(1)&gt;", "")  # the escaped test name is text, not a handler
+    check(no_raw(r.body) == [] and not inline and 'style="' not in r.body and " onerror=" not in text
+          and " onload=" not in text, f"{label}: escaped, no inline scripts, handlers or style attributes ({no_raw(r.body)})")
+    check("203.0.113.7" not in r.body and "ping" not in r.body.lower() and "admin" not in r.body.lower(),
+          f"{label}: no IPs, ping or admin flags")
+    check('href="/loading/loading.css?v=' in r.body and 'src="/loading/loading.js?v=' in r.body and BASE not in r.body
+          and "/static/" not in r.body and "https://portal" not in r.body,
+          f"{label}: own files under /loading with root-relative URLs (keeps plain HTTP)")
+
+
+ld = get("/loading")
+check(ld.status == 200 and "TestSurf" in ld.body and "Test Surf | &lt;b&gt;bold&lt;/b&gt;" in ld.body, "loading: 200, brand and escaped server name")
+loading_ok(ld, "loading")
+check('<span class="ld-pre">surf_</span>alpha</h1>' in ld.body and "Loading surf_alpha" in ld.body, "loading: no map param uses the status map")
+check('<span class="tier tier-1"' in ld.body and "by Alpha Mapper &lt;i&gt;x&lt;/i&gt;" in ld.body and "1 bonus<" in ld.body,
+      "loading: tier badge, escaped mapper, bonuses")
+check("Server record" in ld.body and "0:10.000" in ld.body and "by Alice" in ld.body, "loading: Normal main-track record and holder")
+check('<b>3</b><span class="ld-of"> / 24</span> online' in ld.body, "loading: players online and max from a fresh status")
+check('id="ld-img" src="https://images.steamusercontent.com/ugc/1/alpha.jpg"' in ld.body and "has-img" in ld.body,
+      "loading: Workshop preview as the background")
+check("Welcome!" in ld.body and "First time here?" in ld.body and "Welcome back" not in ld.body, "loading: no steamid is a first-time welcome")
+check(all(c in ld.body for c in ("!r<", "!style<", "!replay<", "!wr<", "!mapinfo<", "!saveloc<", "!tele<", "!spec<", "!rtv<", "!help<"))
+      and ld.body.count('<li class="ld-tip') == 9 and ld.body.count('<li class="ld-tip on"') == 1, "loading: tips, one shown without JS")
+check('id="ld-status"' in ld.body and 'id="ld-bar"' in ld.body and 'id="ld-file"' in ld.body and 'id="ld-count"' in ld.body
+      and "is-indet" in ld.body and "Connecting to the server" in ld.body, "loading: progress area rendered server side")
+
+lda = get(f"/loading?steamid={A}&map=surf_alpha")
+loading_ok(lda, "loading known player")
+check(lda.status == 200 and "Welcome back," in lda.body and ">Alice<" in lda.body and "First time" not in lda.body,
+      "loading: known steamid shows the welcome back line")
+check('<span class="ttl t2">Surfer</span>' in lda.body and "<b>137</b><span>points</span>" in lda.body
+      and "<b>#2</b><span>of 7 ranked</span>" in lda.body and '<span class="ld-vip">VIP</span>' in lda.body,
+      "loading: title, points, rank and VIP of the player")
+check("Your best here" in lda.body and "0:10.000</b><span>#1 of 3</span>" in lda.body, "loading: the player's best on this map")
+check('src="https://avatars.steamstatic.com/abc_medium.jpg"' in lda.body, "loading: cached Steam avatar")
+ldb = get(f"/loading?steamid={B}&map=surf_beta")
+loading_ok(ldb, "loading escaped names")
+check(ldb.status == 200 and F.e(XSS1) in ldb.body and F.e(XSS2) in ldb.body and "tier-3" in ldb.body
+      and "evil.example.com" not in ldb.body and "has-img" not in ldb.body and "You have not finished this map yet." in ldb.body,
+      "loading: malicious player and record names escaped, preview from a foreign host ignored")
+check('<span class="ld-pre">surf_</span>beta' in ldb.body and "Loading surf_beta" in ldb.body, "loading: map param wins over the status map")
+for q in ["steamid=%s&map=%m", "steamid=123&map=%3Cscript%3E", f"steamid={A}%27%20OR%201=1&map=..%2F..%2Fetc%2Fpasswd",
+          "steamid=86561198000000011&map=surf_alpha%22%3E%3Cimg", "steamid=&map=", "steamid=%E2%80%AE&map=surf%20alpha"]:
+    r = get("/loading?" + q)
+    loading_ok(r, f"loading ?{q}")
+    check(r.status == 200 and "First time here?" in r.body and "Welcome back" not in r.body and "Loading surf_alpha" in r.body
+          and "passwd" not in r.body and "%m" not in r.body, f"loading: invalid params ignored ({q})")
+r = get("/loading?steamid=76561198999999999&map=surf_unknown")
+check(r.status == 200 and "First time here?" in r.body and "unknown</h1>" in r.body and "tier-" not in r.body
+      and "Server record" not in r.body and "has-img" not in r.body, "loading: unknown player and unknown map")
+r = get("/loading?map=surf_alpha", cookies={"surf_flash": "x", "surf_session": "y"})
+check(r.status == 200 and not r.cookies and get("/", cookies={"surf_flash": "x"}).cookies, "loading: never clears or sets cookies (other pages do)")
+r = req("HEAD", "/loading")
+check(r.status == 200 and r.body == "" and not r.cookies, "loading: HEAD")
+
+js = get("/loading/loading.js")
+check(js.status == 200 and "javascript" in js.headers.get("content-type", "") and not js.cookies
+      and all(f"window.{f} = function" in js.body for f in FIVE), "loading.js served under /loading/ with the five GMOD functions")
+check(not [t for t in ("=>", "let ", "const ", "`", "fetch(", "Promise", "classList", "innerHTML") if t in js.body],
+      f"loading.js is ES5 for old GMOD browsers ({[t for t in ('=>', 'let ', 'const ', '`', 'fetch(', 'Promise', 'classList', 'innerHTML') if t in js.body]})")
+check("textContent" in js.body and get("/loading/loading.js?v=1").headers.get("cache-control", "").endswith("immutable"),
+      "loading.js sets text with textContent; versioned URL is cached")
+css = get("/loading/loading.css")
+check(css.status == 200 and css.headers.get("content-type", "").startswith("text/css")
+      and not [t for t in ("var(--", "display: grid", "gap:", "@import", "url(") if t in css.body], "loading.css: no custom properties, grid, gap or external files")
+check(get("/loading/logo.svg").status == 200 and get("/loading/logo.svg").headers.get("content-type") == "image/svg+xml", "loading: logo served under /loading/")
+check([get(p).status for p in ("/loading/style.css", "/loading/server.py", "/loading/..%2Fserver.py", "/loading/x/loading.js")] == [404] * 4
+      and not get("/loading/nope.js").cookies, "loading: only its own files under /loading/")
+codes = [get("/loading", ip="10.77.77.77").status for _ in range(125)]
+lim = get("/loading?steamid=" + A, ip="10.77.77.77")
+check(codes[0] == 200 and codes.count(429) >= 5 and lim.status == 429 and "loading.js" in lim.body and "Alice" not in lim.body
+      and not lim.cookies, f"loading: rate limited per IP, still a usable page ({codes.count(429)} x 429)")
+check(get("/loading", ip="10.77.77.78").status == 200, "loading: other IPs are not affected")
+
 # ------------------------------------------------------------------ offline detection
 write_status(status(updated=time.time() - 60))
 r = get("/")
 check("pill-off" in r.body and "Offline" in r.body and "Alice" not in r.body.split("Live players")[1].split("</section>")[0],
       "stale status.json means offline")
+r = get("/loading")
+check(r.status == 200 and "Joining TestSurf" in r.body and 'data-known="0"' in r.body and "ld-online" not in r.body,
+      "loading: stale status shows no map or player count")
+r = get("/loading?map=surf_alpha")
+check(r.status == 200 and "Loading surf_alpha" in r.body and "0:10.000" in r.body and "ld-online" not in r.body,
+      "loading: map from the URL while the status is stale")
 check(json.loads(get("/api/status").body)["online"] is False, "api: offline when stale")
 os.remove(STATUS)
 check(get("/").status == 200 and json.loads(get("/api/status").body)["players"] == [], "missing status.json means offline")
@@ -773,6 +880,8 @@ if port2:
         r = get(path, port=port2)
         check(r.status in (200, 404) and r.status != 500 and (path != "/" or "Offline" in r.body), f"no data: {path} -> {r.status}")
     check("Surf" in get("/", port=port2).body, "BRAND_NAME defaults to Surf")
+    r = get(f"/loading?steamid={A}&map=surf_alpha", port=port2)
+    check(r.status == 200 and "First time here?" in r.body and "Loading surf_alpha" in r.body, "no data: loading screen still renders")
     proc2.terminate()
 
 proc3, port3 = start_portal(["--repo", os.path.join(old_root, "repo"), "--gmod-dir", old_gm, "--logs-dir", old_root,
