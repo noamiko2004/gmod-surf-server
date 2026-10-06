@@ -1,5 +1,33 @@
 # Changelog
 ## 2026-10-06 (v5.6): movable HUD
+## 2026-10-06 (v5.7): challenges, achievements and races
+- Daily and weekly challenges (`!challenges`, also `!daily`, `!quests`, or
+  F1 > Challenges). Every day three new ones for everyone (finish runs,
+  different maps, personal bests, a tier 3+ map, a bonus, a style, minutes
+  surfing, top speed or sync), paying 60 to 120 coins, plus 100 for doing all
+  three. Two bigger weekly ones (400 to 600 coins) start every Monday. Days are
+  UTC. Progress shows as toasts and is saved in surf_challenges.
+- Map of the day (`!motd`): one playable map a day (tiers 1 to 4 first),
+  saved in data/surfline/motd.txt, worth 150 coins to finish and always one
+  of the map vote's choices.
+- Visit streaks (`!streak`): from the second day in a row, 10 coins per day of
+  the streak (up to 100) on top of the daily visit coins. Table surf_streak.
+- 26 achievements (`!achievements`): maps finished, tiers, bonuses, every
+  style, records set and held, runs, top speed, sync, streaks, hours played,
+  challenges and races, each paying 50 to 1,500 coins once and announced in
+  chat. They count what is already saved, so players get the ones they've
+  earned on their next join (summed up in one line instead of announced).
+  Tables surf_achievements and surf_counters.
+- 1v1 races (`!race <name>`, `!accept`, `!decline`, `!forfeit`): both go to
+  the start, a 3 second countdown holds them, first to finish the map wins
+  30 coins (5 paid wins a day). Leaving or spectating gives up; 15 minutes
+  without a finish is a draw.
+  While racing, a "Race" HUD part (movable with `!hud`) shows who you race
+  and for how long.
+- The Challenges window has the map of the day (click to nominate), your
+  streak, today's and this week's challenges with progress bars, and every
+  achievement with how close you are.
+
 - The HUD is made of parts each player can move, resize and hide: `!hud`
   (also `!layout`, or F1 > Settings > Edit HUD layout) opens an editor over
   the game. Drag a part to move it (it snaps to the edges, the middle and
@@ -28,33 +56,15 @@
   in-game `!discord` invite works, and a map change no longer posts everyone
   joining again.
 
-## 2026-10-06 (v5.5): challenges, achievements and races
-- Daily and weekly challenges (`!challenges`, also `!daily`, `!quests`, or
-  F1 > Challenges). Every day three new ones for everyone (finish runs,
-  different maps, personal bests, a tier 3+ map, a bonus, a style, minutes
-  surfing, top speed or sync), paying 60 to 120 coins, plus 100 for doing all
-  three. Two bigger weekly ones (400 to 600 coins) start every Monday. Days are
-  UTC. Progress shows as toasts and is saved in surf_challenges.
-- Map of the day (`!motd`): one playable map a day (tiers 1 to 4 first),
-  saved in data/surfline/motd.txt, worth 150 coins to finish and always one
-  of the map vote's choices.
-- Visit streaks (`!streak`): from the second day in a row, 10 coins per day of
-  the streak (up to 100) on top of the daily visit coins. Table surf_streak.
-- 26 achievements (`!achievements`): maps finished, tiers, bonuses, every
-  style, records set and held, runs, top speed, sync, streaks, hours played,
-  challenges and races, each paying 50 to 1,500 coins once and announced in
-  chat. They count what is already saved, so players get the ones they've
-  earned on their next join (summed up in one line instead of announced).
-  Tables surf_achievements and surf_counters.
-- 1v1 races (`!race <name>`, `!accept`, `!decline`, `!forfeit`): both go to
-  the start, a 3 second countdown holds them, first to finish the map wins
-  30 coins (5 paid wins a day). Leaving or spectating gives up; 15 minutes
-  without a finish is a draw.
-  While racing, a "Race" HUD part (movable with `!hud`) shows who you race
-  and for how long.
-- The Challenges window has the map of the day (click to nominate), your
-  streak, today's and this week's challenges with progress bars, and every
-  achievement with how close you are.
+## 2026-10-06 (v5.5)
+- Tebex from the website: Admin > Shop has a "Selling VIP with Tebex" card to
+  paste the store's secret key (and optionally the store address). It is saved
+  in `data/surfline/portal/settings.json` (owner-only file) and wins over
+  config.env. The portal checks the key with Tebex (`/information`) and the
+  card shows the store and game server it belongs to, the last purchase check,
+  or why it fails. The key itself is never shown again.
+- The store address falls back to the one Tebex reports, and the game picks it
+  up for `!vip` and the shop (`portal/store_url.txt`, re-read every 30 s).
 
 ## 2026-10-03 (v5.4)
 - The website footer shows the version it runs (commit and date), and

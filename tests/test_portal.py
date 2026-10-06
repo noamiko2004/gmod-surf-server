@@ -973,6 +973,37 @@ check("1,234" in sa.body and "Gold Plasma" in sa.body and "badge-live" in sa.bod
       "admin shop: economy numbers, recent purchases, changed items, escaped")
 check(get("/admin/shop").status in (302, 303, 403) and "Secret Hat" not in get("/admin/shop").body, "admin shop: owners only")
 
+# Tebex key and store address saved on the website
+PDIR = os.path.join(data, "portal")
+check("Selling VIP with Tebex" in sa.body and "Not connected" in sa.body and 'action="/admin/store"' in sa.body, "admin shop: Tebex card, not connected")
+def store_post(form, cookies=OWN, ip="10.0.8.1"):
+    return req("POST", "/admin/store", cookies=cookies, form=dict(form, csrf=CSRF), ip=ip)
+r = store_post({"tebex_secret": "bad key!", "store_url": ""})
+check(r.status == 303 and not os.path.exists(os.path.join(PDIR, "settings.json")), "store: a malformed key is refused")
+r = store_post({"tebex_secret": "", "store_url": "javascript:alert(1)"})
+check(r.status == 303 and not os.path.exists(os.path.join(PDIR, "settings.json")), "store: a bad address is refused")
+check(req("POST", "/admin/store", form={"tebex_secret": "a" * 40, "csrf": CSRF}, ip="10.0.8.2").status == 403, "store: owners only")
+KEY = "0123456789abcdef0123456789abcdefTAIL"
+r = store_post({"tebex_secret": KEY, "store_url": "https://surf-eu.tebex.io/"})
+saved = json.load(open(os.path.join(PDIR, "settings.json")))
+check(r.status == 303 and saved == {"TEBEX_SECRET": KEY, "STORE_URL": "https://surf-eu.tebex.io"}
+      and oct(os.stat(os.path.join(PDIR, "settings.json")).st_mode & 0o777) == "0o600", f"store: key and address saved privately ({saved})")
+check(open(os.path.join(PDIR, "store_url.txt")).read().strip() == "https://surf-eu.tebex.io", "store: the game gets the address")
+sa2 = get("/admin/shop", cookies=OWN).body
+check(KEY not in sa2 and "ends in TAIL" in sa2 and "Checking the key" in sa2 and 'value="https://surf-eu.tebex.io"' in sa2,
+      "store: the key is never shown, only its last 4 characters")
+check(KEY not in "".join(open(os.path.join(PDIR, "audit.log")).read()), "store: the key stays out of the audit log")
+check('href="https://surf-eu.tebex.io"' in get("/shop").body, "store: the public shop links the new store address")
+json.dump({"key_end": "TAIL", "ok": True, "checked": NOW, "polled": NOW, "account": "SURF EU", "server": "Main <b>"},
+          open(os.path.join(PDIR, "tebex_status.json"), "w"))
+sa3 = get("/admin/shop", cookies=OWN).body
+check("Connected to Tebex" in sa3 and "SURF EU" in sa3 and "Main &lt;b&gt;" in sa3, "store: connected state from the poller, escaped")
+json.dump({"key_end": "TAIL", "ok": False, "checked": NOW, "error": "Tebex refused this secret key."}, open(os.path.join(PDIR, "tebex_status.json"), "w"))
+check("refused this secret key" in get("/admin/shop", cookies=OWN).body, "store: a refused key is shown")
+r = store_post({"disconnect": "1"})
+check(r.status == 303 and json.load(open(os.path.join(PDIR, "settings.json"))) == {} and "Not connected" in get("/admin/shop", cookies=OWN).body,
+      "store: disconnect clears the key")
+
 # ------------------------------------------------------------------ logout, rate limit
 other_csrf = re.search(r'name="csrf" value="([0-9a-f]{64})"', get("/", cookies=OWN).body).group(1)
 r = req("POST", "/logout", cookies=OWN, form={"csrf": other_csrf}, ip="10.0.6.1")

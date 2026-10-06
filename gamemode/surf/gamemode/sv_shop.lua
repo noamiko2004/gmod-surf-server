@@ -370,6 +370,21 @@ end
 
 hook.Add("SurfPlayerReady", "surf_shop_overrides", function(ply) SendOverrides(ply) end)
 
+-- Store address set on the website (Admin > Shop) or reported by Tebex; the
+-- portal writes it to data/surfline/portal/store_url.txt. Empty keeps the one
+-- from config.env (links.json).
+function S.LoadStoreURL()
+	if S.baseStoreURL == nil then S.baseStoreURL = SURF.Config.StoreURL or "" end
+	local url = string.Trim(file.Read("surfline/portal/store_url.txt", "DATA") or "")
+	if string.match(url, "^https://[%w%.%-]+[%w%._~/%-]*$") and #url < 200 then
+		SURF.Config.StoreURL = url
+	else
+		SURF.Config.StoreURL = S.baseStoreURL
+	end
+end
+hook.Add("InitPostEntity", "surf_shop_store", S.LoadStoreURL)
+timer.Create("surf_shop_store", 30, 0, S.LoadStoreURL)
+
 -- Menu ----------------------------------------------------------------------
 
 function S.MenuData(ply, tab, refresh)

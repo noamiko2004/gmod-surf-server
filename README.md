@@ -226,8 +226,10 @@ game server:
 
 1. Make a store at https://tebex.io for Garry's Mod and add a game server
    (Integrations > Game servers). Copy its secret key.
-2. Put it in config.env as `TEBEX_SECRET="..."`, and the store's address as
-   `STORE_URL="https://yourstore.tebex.io"`, then run the update.
+2. Paste it on the website under Admin > Shop > "Selling VIP with Tebex" (the
+   store address is optional; Tebex reports it). The card shows whether Tebex
+   accepts the key. Setting `TEBEX_SECRET` and `STORE_URL` in config.env works
+   too; values saved on the website win.
 3. Add packages whose command is one of these (`{id}` is the buyer's Steam ID;
    don't tick "player must be online", the game hands them out either way):
    - `surf_givevip {id} 30` VIP for 30 days (`0` for lifetime; buying again adds days)
