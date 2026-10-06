@@ -180,7 +180,7 @@ SURF.Config = {
 		"!saveloc saves your spot and !tele takes you back, for practice.",
 		"!mapinfo shows the map's tier, stages, record and your best.",
 		"!stage <number> takes you to a stage to practice it.",
-		"Hide other players with !hide. Turn the key display on or off with !keys.",
+		"Type !hud to move, resize or hide the timer, key display and the rest of your HUD.",
 		"Type !graphics for color presets (Vivid, Cinematic or Off) and glowing zones.",
 		"Map too dark? Press F (or type !light) to light it up just for you.",
 		"Join our Discord: {discord} (or type !discord), then !link your account to show your rank there.",

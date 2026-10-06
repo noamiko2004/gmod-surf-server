@@ -1,10 +1,12 @@
--- Looks: color presets (!graphics) and glowing start/end zones with labels.
--- All of it is client-side drawing; none of it changes movement or times.
+-- Looks: color presets (!graphics) and glowing start/end zones with labels
+-- (off by default, !zonefx turns them on). All of it is client-side drawing;
+-- none of it changes movement or times.
 SURF.Visuals = {}
 local V = SURF.Visuals
 
 local graphics = CreateClientConVar("surf_graphics", "1", true, false, "Color preset: 0 off, 1 vivid, 2 cinematic")
-local zoneFx = CreateClientConVar("surf_zonefx", "1", true, false, "Glowing zones with labels (0 draws plain outlines)")
+-- A new name for the zone setting, so the old saved "on" doesn't carry over
+local zoneGlow = CreateClientConVar("surf_zoneglow", "0", true, false, "Glowing zones with labels (0 draws plain outlines)")
 
 surface.CreateFont("SurfZoneLabel", { font = "Roboto", size = 72, weight = 800, antialias = true })
 
@@ -45,11 +47,11 @@ function V.SetPreset(id)
 	return true
 end
 
-function V.ZonesOn() return zoneFx:GetBool() end
+function V.ZonesOn() return zoneGlow:GetBool() end
 
 function V.ToggleZones()
-	local on = not zoneFx:GetBool()
-	RunConsoleCommand("surf_zonefx", on and "1" or "0")
+	local on = not zoneGlow:GetBool()
+	RunConsoleCommand("surf_zoneglow", on and "1" or "0")
 	chat.AddText(SURF.Config.Accent, "[Graphics] ", color_white, "Glowing zones " .. (on and "on" or "off") .. ".")
 end
 
@@ -152,7 +154,7 @@ end
 
 hook.Add("PostDrawTranslucentRenderables", "surf_zones", function(depth, skybox)
 	if depth or skybox then return end
-	local fancy = zoneFx:GetBool()
+	local fancy = zoneGlow:GetBool()
 	local pulse = 0.8 + 0.2 * math.sin(CurTime() * 2.5)
 	local eye = EyePos()
 	for _, z in ipairs(SURF.ClientZones or {}) do

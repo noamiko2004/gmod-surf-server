@@ -79,12 +79,28 @@ hook.Add("KeyPress", "surf_spec_keys", function(ply, key)
 	end
 end)
 
--- Move spectators off a target that left or started spectating
+-- Move spectators off a target that left or started spectating, and keep who
+-- is watching on each player for the HUD's spectator list: the count, then up
+-- to 8 names, one per line (short enough for an NW2String)
+local MAX_NAMES = 8
 timer.Create("surf_spec_fix", 1, 0, function()
+	local watching = {}
 	for _, p in ipairs(player.GetAll()) do
 		if p:Team() == TEAM_SPECTATOR and p:GetObserverMode() ~= OBS_MODE_ROAMING then
 			local t = p:GetObserverTarget()
-			if not IsValid(t) or not t:IsPlayer() or t:Team() == TEAM_SPECTATOR then Cycle(p, 1) end
+			if not IsValid(t) or not t:IsPlayer() or t:Team() == TEAM_SPECTATOR then
+				Cycle(p, 1)
+				t = p:GetObserverTarget()
+			end
+			if IsValid(t) and t:IsPlayer() then
+				watching[t] = watching[t] or {}
+				table.insert(watching[t], string.sub(p:Nick(), 1, 24))
+			end
 		end
+	end
+	for _, p in ipairs(player.GetAll()) do
+		local list, value = watching[p], ""
+		if list then value = #list .. "\n" .. table.concat(list, "\n", 1, math.min(#list, MAX_NAMES)) end
+		if p:GetNW2String("surf_watchers", "") ~= value then p:SetNW2String("surf_watchers", value) end
 	end
 end)
