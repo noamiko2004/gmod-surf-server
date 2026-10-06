@@ -9,6 +9,21 @@ import time
 from .fmt import MAPKEY_RE, clean_text, valid_steamid
 
 INT_RE = re.compile(r"^\d{1,9}$")
+SIGNED_RE = re.compile(r"^-?\d{1,7}$")
+ITEM_RE = re.compile(r"^[a-z0-9_]{1,16}:[a-z0-9_]{1,32}$")
+RATE_RE = re.compile(r"^\d{1,6}(\.\d{1,3})?$")
+# Coin rates the shop admin page can change (SURF.Config.Coins in sh_config.lua)
+COIN_RATES = {
+    "FirstFinish": "First finish on a map",
+    "PerTier": "Extra per map tier (first finish)",
+    "Improved": "New personal best",
+    "Record": "New server record",
+    "Repeat": "Finishing again",
+    "RepeatPerDay": "Repeat finishes paid per day",
+    "Daily": "Daily visit",
+    "Playtime": "Every 5 minutes surfing",
+    "VIPBonus": "VIP bonus (0.5 = 50% more)",
+}
 
 # action -> (label for messages)
 ACTIONS = {
@@ -22,6 +37,13 @@ ACTIONS = {
     "givevip": "Give VIP",
     "removevip": "Remove VIP",
     "deltime": "Delete time",
+    "givecoins": "Give coins",
+    "giveitem": "Give item",
+    "removeitem": "Remove item",
+    "adjustpoints": "Adjust points",
+    "shopitem": "Shop item",
+    "coinrate": "Coin rate",
+    "vipprice": "VIP price",
 }
 
 
@@ -87,6 +109,46 @@ def validate(form, known_maps):
     elif action == "givevip":
         cmd["steamid"] = _sid(form)
         cmd["days"] = _int(form, "days", 0, 3650, "Days")
+    elif action == "givecoins":
+        cmd["steamid"] = _sid(form)
+        v = str(form.get("amount", "")).strip()
+        if not SIGNED_RE.match(v) or int(v) == 0 or abs(int(v)) > 1000000:
+            raise Invalid("Coins must be a whole number from -1000000 to 1000000, not 0.")
+        cmd["amount"] = int(v)
+    elif action in ("giveitem", "removeitem"):
+        cmd["steamid"] = _sid(form)
+        item = str(form.get("item", "")).strip().lower()
+        if not ITEM_RE.match(item):
+            raise Invalid("Items look like trail:gold or tag:wave.")
+        cmd["item"] = item
+    elif action == "adjustpoints":
+        cmd["steamid"] = _sid(form)
+        v = str(form.get("points", "")).strip()
+        if not SIGNED_RE.match(v) or int(v) == 0 or abs(int(v)) > 1000000:
+            raise Invalid("Points must be a whole number from -1000000 to 1000000, not 0.")
+        cmd["points"] = int(v)
+        cmd["reason"] = _reason(form)
+    elif action == "shopitem":
+        item = str(form.get("item", "")).strip().lower()
+        if not ITEM_RE.match(item):
+            raise Invalid("Items look like trail:gold or tag:wave.")
+        cmd["item"] = item
+        cmd["price"] = _int(form, "price", 0, 10000000, "Price") if str(form.get("price", "")).strip() else 0
+        # unticked checkboxes are not sent at all
+        cmd["vip"] = form.get("vip") in ("1", "on", "true")
+        cmd["hidden"] = form.get("hidden") in ("1", "on", "true")
+    elif action == "coinrate":
+        name = str(form.get("name", ""))
+        if name not in COIN_RATES:
+            raise Invalid("Unknown coin rate.")
+        v = str(form.get("value", "")).strip()
+        if not RATE_RE.match(v) or float(v) > 100000:
+            raise Invalid("A coin rate is a number from 0 to 100000.")
+        cmd["name"] = name
+        cmd["value"] = int(v) if v.isdigit() else float(v)
+    elif action == "vipprice":
+        cmd["days"] = _int(form, "days", 1, 3650, "Days")
+        cmd["price"] = _int(form, "price", 0, 10000000, "Price")
     elif action == "deltime":
         key = str(form.get("key", "")).strip()
         if not MAPKEY_RE.match(key):
@@ -124,8 +186,21 @@ def describe(cmd):
     if a == "givevip":
         days = cmd.get("days")
         return f"{label} to {cmd.get('steamid')} " + ("(permanent)" if days == 0 else f"for {days} days")
+    if a == "givecoins":
+        return f"{label}: {cmd.get('amount'):+d} to {cmd.get('steamid')}"
+    if a in ("giveitem", "removeitem"):
+        return f"{label} {cmd.get('item')} " + ("to " if a == "giveitem" else "from ") + str(cmd.get("steamid"))
     if a == "deltime":
         return f"{label} of {cmd.get('steamid')} on {cmd.get('key')}"
+    if a == "adjustpoints":
+        return f"{label}: {cmd.get('points'):+d} for {cmd.get('steamid')}"
+    if a == "shopitem":
+        return (f"{label} {cmd.get('item')}: " + (f"{cmd.get('price')} coins" if cmd.get("price") else "no coin price")
+                + (", VIP" if cmd.get("vip") else "") + (", hidden" if cmd.get("hidden") else ""))
+    if a == "coinrate":
+        return f"{label} {cmd.get('name')} = {cmd.get('value')}"
+    if a == "vipprice":
+        return f"{label}: {cmd.get('days')} days " + (f"for {cmd.get('price')} coins" if cmd.get("price") else "removed")
     if "steamid" in cmd:
         return f"{label} {cmd.get('steamid')}"
     return label

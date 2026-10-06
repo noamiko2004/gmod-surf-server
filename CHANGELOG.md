@@ -1,5 +1,109 @@
 # Changelog
 
+## 2026-10-03 (v5.4)
+- The website footer shows the version it runs (commit and date), and
+  `update.sh` ends with the version it installed and the website address, so
+  a stale site is easy to spot.
+- `update.sh` no longer stops halfway: a failed SteamCMD or deploy step is
+  logged and the game server always starts again. Files edited on the server
+  that block `git pull` are set aside with `git stash` instead of silently
+  keeping the old version.
+- The old single menus are gone from `cl_menus.lua` (the main menu replaced
+  them); it now only routes the menus the server opens.
+
+## 2026-10-03 (v5.3)
+- Main menu on F1 or `!menu` (`cl_hub.lua`, data from `sv_menus.lua`):
+  Home (rank, title progress, points, coins, playtime, finished maps, records
+  held, and this map's tier, record and your best with Restart, Watch the
+  record and Vote buttons), Records (styles and bonuses as tabs), Top players,
+  Maps (search, tier filter, click to nominate), Styles, Settings (graphics
+  presets; switches for zones, map light, autohop, hiding players and the key
+  display) and Commands (searchable). Shop, VIP and Discord open from its side
+  menu. `!wr`, `!top`, `!maps`, `!style`, `!graphics` and `!help` open it on
+  their page.
+- One look for every menu (`cl_ui.lua`): windows, buttons, rows, tabs, lists,
+  dialogs, right-click menus and toasts. Escape closes the newest window.
+- Admin panel (`!admin`, F1 > Admin, or click a player on the scoreboard;
+  `sv_admin.lua`, `cl_admin.lua`):
+  - Players: everyone online plus a search over everyone who ever joined. A
+    player page shows rank, coins, playtime, VIP, bans, mutes and gags, with
+    go to, bring, send to start, spectate, freeze, slay, mute chat, gag voice,
+    kick, ban or unban, and deleting their time on this map.
+  - Owners also give or take VIP, coins, items and points (points need the
+    shop update that adds `Ranks.AdjustPoints`) and make or remove admins.
+  - Server: time left, start a vote, extend, restart, change map, hide or
+    unhide maps, and announcements shown on everyone's screen.
+  - Bans (unban, ban a SteamID), Staff, and a Log of every admin action in
+    game and on the website.
+- Admins made in game are saved in surf_staff and get the admin group when
+  they join; owners stay in `OWNER_STEAMIDS`. Nobody can punish someone of the
+  same or a higher rank. New tables surf_admin_log, surf_staff and
+  surf_sanctions (mutes and gags, with an end time or until lifted).
+- Admin chat commands: `!kick`, `!ban <player> <minutes> [reason]`, `!mute` /
+  `!unmute` (chat), `!gag` / `!ungag` (voice), `!goto`, `!bring`, `!slay`,
+  `!freeze`, `!announce`, `!extend [minutes]`. For everyone: `!spec <name>`
+  watches that player.
+- Scoreboard and map vote in the new look. Click a player on the scoreboard
+  for their Steam profile, to watch them, to mute their voice for yourself,
+  and (admins) the admin actions.
+
+## 2026-10-03 (v5.2)
+- Hats and skins: 10 hats (cone, melon, bucket, pot, hula doll, headcrab,
+  skull, balloon; Halo and Golden Cone for VIPs) drawn on the head for
+  everyone, and 20 player models (Kleiner to G-Man; Arctic Mossman and Corpse
+  for VIPs). Citizen models stay free in the model picker; paid models from
+  the picker fall back to a citizen. `!hats`, `!skins`.
+- New shop menu (`cl_shop.lua`, in the shared `cl_ui.lua` theme): categories
+  on the left with how many you own, item tiles, and a live preview on the
+  right (turning 3D model for hats and skins, moving trail, chat line for tags
+  and name colors, sound player) with one Buy / Put on / Take off button.
+- VIP for coins: 7 days for 4,000 or 30 days for 12,000 (`VIPPackages`), in
+  the shop's VIP tab (`!vip` opens it). Permanent VIPs aren't charged.
+- Shop admin, saved in `data/surfline/shop_overrides.json`: change any item's
+  price, VIP flag or hide it, coin rates and VIP coin prices, from the new
+  website page Admin > Shop (with coins in circulation, top balances, recent
+  purchases and owners per item). Hidden items stay with their owners.
+- Points from admins: Admin > Players > a player > Add points (negative takes
+  away). Stored in surf_points_adjust and added to the ranking by the game and
+  the website alike.
+- Functions for an in-game admin menu: `SURF.Shop.Balance`, `GiveCoins`,
+  `Grant`, `Revoke`, `Inventory`, `SetItem`, `SetRate`, `SetVIPPrice`,
+  `Items`, and `SURF.Ranks.AdjustPoints` (see the top of `sv_shop.lua`).
+- `tests/client_smoke.py` opens every shop tab against stubbed Derma.
+
+## 2026-10-03 (v5.1)
+- Maps without a working start and end are never offered in map votes,
+  accepted as nominations, or picked automatically. The vote pool no longer
+  falls back to every installed map when few have zones.
+- A map that loads without a working main start and end (ready-made zones that
+  don't fit, trigger names the map doesn't have, or none at all) goes on
+  `bad_zones.txt` right away. That keeps it out of votes, the start map pick
+  and the map installer, which installs a working map in its place. Placing
+  `!zone start` and `!zone end` takes it off the list.
+- If such a map loads anyway, a vote for another map starts once someone is
+  playing (no extend option). Not when an admin loaded it with `!map` or from
+  the website, so zones can be placed.
+
+## 2026-10-03 (v5)
+- Coins and a cosmetic shop (`sv_shop.lua`, `!shop`, `!coins`, F3). Coins come
+  from a first finish on a map (50 + 25 per tier), personal bests (15), server
+  records (100), repeat finishes (5, 30 a day), a daily visit (25) and every 5
+  minutes of active surfing (2); bonuses and styles pay half like points, VIPs
+  earn 50% more. They are separate from rank points.
+- 38 items: trails (red, green, pink, orange, plasma, beam, tube; red, green,
+  gold and purple stay free for VIPs), chat tags shown after the title, name
+  colors in chat and on the scoreboard (Rainbow too), and finish sounds. A
+  price click asks once more before buying. VIP-only items: Electric, Love and
+  Smoke trails, the Supporter tag and Royal Gold name.
+- New tables surf_coins, surf_items, surf_equipped and surf_coin_log. Console
+  `surf_givecoins`, `surf_giveitem`, `surf_removeitem`; portal commands
+  givecoins, giveitem, removeitem (admin player page).
+- Website: a Shop page with the catalog (from `data/surfline/portal/shop.json`,
+  written by the game), how to earn coins, VIP, and your own coins, items and
+  recent coin changes when signed in.
+- Tebex: set `TEBEX_SECRET` and the portal hands out VIP, coin packs and items
+  bought in the store (README, "Selling VIP with Tebex").
+
 ## 2026-10-03 (v4.4)
 - Chat hints (cl_chat.lua): typing `!` or `/` shows the matching commands with
   their help above the chat box; Tab completes and cycles. The server sends

@@ -207,7 +207,9 @@ function string.StripExtension(s) return (s:gsub("%.%w+$", "")) end
 hooks = {}
 hook = { Add = function(ev, name, fn) hooks[ev] = hooks[ev] or {} hooks[ev][name] = fn end,
          Run = function(ev, ...) for _, fn in pairs(hooks[ev] or {}) do local r = fn(...) if r ~= nil then return r end end end }
-timer = { Simple = function(_, fn) fn() end, Create = function() end }
+timers = {}      -- repeating timers by name, run by hand in the tests
+timer = { Simple = function(_, fn) fn() end, Create = function(name, _, _, fn) timers[name] = fn end,
+          Remove = function(name) timers[name] = nil end }
 sent = {}
 net = {}
 for _, k in ipairs({ "Start", "WriteUInt", "WriteFloat", "WriteBool", "WriteString", "WriteTable", "WriteColor" }) do
@@ -215,7 +217,11 @@ for _, k in ipairs({ "Start", "WriteUInt", "WriteFloat", "WriteBool", "WriteStri
 end
 net.Send = function() end
 net.Broadcast = function() end
-net.Receive = function() end
+netHandlers, netQueue = {}, {}
+net.Receive = function(name, fn) netHandlers[name] = fn end
+for _, k in ipairs({ "ReadString", "ReadUInt", "ReadBool", "ReadTable", "ReadFloat" }) do
+	net[k] = function() return table.remove(netQueue, 1) end
+end
 util = { AddNetworkString = function() end, JSONToTable = function(s) local ok, t = pcall(py_json_to_table, s) if ok then return t end end,
          TableToJSON = py_table_to_json, SteamIDTo64 = function(s) return "7656" end, SpriteTrail = function() return nil end,
          IsInWorld = util_IsInWorld, PointContents = util_PointContents, TraceLine = util_TraceLine }
@@ -240,6 +246,8 @@ humans = {}
 player = { GetHumans = function() return humans end, GetAll = function() return humans end,
            GetBySteamID64 = function(id) for _, p in ipairs(humans) do if p.sid == id then return p end end end }
 concommand = { Add = function() end }
+player_manager = { TranslatePlayerModel = function(n) return n == "kleiner" and "models/player/kleiner.mdl" or "models/player/group01/male_02.mdl" end }
+util.PrecacheModel = function() end
 chats = {}
 function DeriveGamemode() end
 GM = {}
@@ -296,11 +304,18 @@ function MakePlayer(name, sid)
 	function p:SendLua() end
 	function p:GetObserverTarget() return nil end
 	function p:IsAdmin() return false end
+	function p:IsSuperAdmin() return false end
 	function p:IsUserGroup() return false end
+	function p:EmitSound(snd) self.sound = snd end
 	function p:Spawn() end
 	function p:Ping() return 42 end
 	function p:TimeConnected() return 120.5 end
 	function p:Kick(reason) self.kicked = reason end
+	p.model, p.playermodel = "models/player/group01/male_02.mdl", "male02"
+	function p:GetInfo(k) if k == "cl_playermodel" then return self.playermodel end return "" end
+	function p:GetModel() return self.model end
+	function p:SetModel(m) self.model = m end
+	function p:SetupHands() end
 	p.gravity, p.ground = 1, false
 	function p:SetGravity(g) self.gravity = g end
 	function p:OnGround() return self.ground end
@@ -320,7 +335,8 @@ include("shared.lua")
 vfs["surfline/webhook.txt"] = "https://discord.com/api/webhooks/123456/abc_DEF-ghi\n"
 vfs["surfline/portal_url.txt"] = "https://128.140.7.178\n"
 for f in ["sv_util.lua", "sv_db.lua", "sv_zones.lua", "sv_stats.lua", "sv_timer.lua", "sv_replay.lua", "sv_ranks.lua", "sv_mapvote.lua",
-          "sv_afk.lua", "sv_social.lua", "sv_discord.lua", "sv_discord_bridge.lua", "sv_commands.lua", "sv_portal.lua"]:
+          "sv_afk.lua", "sv_social.lua", "sv_discord.lua", "sv_discord_bridge.lua", "sv_trails.lua", "sv_commands.lua", "sv_shop.lua",
+          "sv_portal.lua", "sv_menus.lua", "sv_admin.lua"]:
     include(f)
 # SURF.Chat is real (net stubs); capture messages instead
 L.execute('''
@@ -649,6 +665,8 @@ SURF.Zones.Load()
 check(Z.HasTimer(0), f"hooked zones resolve to the map's trigger brushes ({Z.source})")
 L.execute('mapEnts = {} SURF.Zones.Load()')
 check(not Z.HasTimer(0), "hooked zones are skipped when the triggers are missing")
+check("surf_25_lighters" in G.SURF.Zones.KnownBad() and not G.SURF.MapVote.HasZones("surf_25_lighters"),
+      "a map that loaded without a working start and end counts as having no zones")
 
 # Maps without zone files but with timer triggers built in
 L.execute('''
@@ -705,6 +723,44 @@ a.IsAdmin = userIsAdmin
 ''')
 check("surf_mesa" in list(G.playable3.values()) and vfs.get("surfline/hidden_maps.txt") == "", "!unhidemap puts it back")
 del vfs["surfline/blocked_maps.txt"]
+
+# Never a map without zones in votes or picked automatically, however few have zones
+L.execute('''
+installed_maps = { "surf_unknown_map", "surf_25_lighters" }
+playable4 = SURF.MapVote.Playable()
+installed_maps = { "surf_kitsune", "surf_lessons", "surf_mesa", "surf_25_lighters", "surf_unknown_map" }
+''')
+check(len(list(G.playable4.values())) == 0, "no zoned maps means an empty vote pool, not every map")
+
+# A map that turns out to have no working zones starts a vote for another one
+L.execute('''
+savedNow = CurTime()
+SURF.MapVote.nominations = { x = "surf_unknown_map", y = "surf_mesa" }
+mapname = "surf_25_lighters"
+SURF.Zones.Load()
+hooks.InitPostEntity.surf_nozones_leave()
+hasLeaveTimer = timers.surf_nozones_leave ~= nil
+SetCurTime(savedNow + 60)
+timers.surf_nozones_leave()
+leaveChoices = SURF.MapVote.choices
+leaveActive = SURF.MapVote.active
+leaveTimerGone = timers.surf_nozones_leave == nil
+SURF.MapVote.active = false
+SURF.MapVote.nominations = {}
+''')
+choices = list(G.leaveChoices.values())
+check(G.hasLeaveTimer and G.leaveActive and G.leaveTimerGone, "a map without working zones starts a map vote once people play")
+check("surf_25_lighters" not in choices and "surf_unknown_map" not in choices and "__extend" not in choices and "surf_mesa" in choices,
+      f"that vote offers only maps with zones and no extend ({choices})")
+vfs["surfline/admin_map.txt"] = "surf_25_lighters"
+L.execute('''
+hooks.InitPostEntity.surf_nozones_leave()
+adminLeaveTimer = timers.surf_nozones_leave ~= nil
+SetCurTime(savedNow)
+mapname = "surf_kitsune"
+SURF.Zones.Load()
+''')
+check(not G.adminLeaveTimer and "surfline/admin_map.txt" not in vfs, "a map an admin loaded with !map stays, to place zones")
 
 # Server records are logged for the portal
 recs = db.execute("select map, name, time, prev_time from surf_records order by id").fetchall()
@@ -899,6 +955,258 @@ check(sum(1 for k in vfs if k.startswith(OUTBOX)) == 500 and any("isn't answerin
       "nothing more is queued while the bot isn't reading")
 bridge_events()
 
+# Coins and the shop
+L.execute(r"""
+chats = {} menus = {}
+eve = MakePlayer("Eve", "76561190000000005")
+humans[#humans + 1] = eve
+SURF.DB.LoadPlayer(eve) SURF.Shop.Load(eve)
+SURF.Timer.SetTrack(eve, 0, true)
+hook.Run("SurfPlayerReady", eve)
+hook.Run("SurfPlayerReady", eve)
+""")
+S = G.SURF.Shop
+check(S.Balance("76561190000000005") == 25 and G.eve.nw["surf_coins"] == 25, f"daily visit gives 25 coins once a day ({S.Balance('76561190000000005')})")
+check(any(c.startswith("[Coins] +25 coins (daily visit") for c in G.chats.values()), "the daily coins are announced")
+L.execute(r"""
+chats = {}
+mapname = "surf_kitsune" SURF.Zones.Load()
+startz, endz = SURF.Zones.Find("start", 0), SURF.Zones.Find("end", 0)
+Run(eve, 7000, {}, 90)       -- first finish, tier 1: 50 + 25
+bal1 = SURF.Shop.Balance(eve.sid)
+Run(eve, 7200, {}, 95)       -- slower: repeat finish
+bal2 = SURF.Shop.Balance(eve.sid)
+Run(eve, 7400, {}, 85)       -- new personal best
+bal3 = SURF.Shop.Balance(eve.sid)
+SURF.Config.Coins.RepeatPerDay = 2
+Run(eve, 7600, {}, 99) Run(eve, 7800, {}, 99)
+bal4 = SURF.Shop.Balance(eve.sid)
+SURF.Config.Coins.RepeatPerDay = 30
+""")
+check(G.bal1 == 100 and G.bal2 == 105 and G.bal3 == 120, f"first finish +75, repeat +5, personal best +15 ({G.bal1}, {G.bal2}, {G.bal3})")
+check(G.bal4 == 125, f"repeat finishes stop paying at the daily limit ({G.bal4})")
+check(any("first finish on surf_kitsune" in c for c in G.chats.values()), "the finish coins say why")
+L.execute(r"""
+eve.nw.surf_vip = true
+SURF.Shop.Earn(eve, 10, "test")
+vipBal = SURF.Shop.Balance(eve.sid)
+eve.nw.surf_vip = nil
+""")
+check(G.vipBal == 140, f"VIPs earn 50% more ({G.vipBal})")
+L.execute(r"""
+lessons = MakePlayer("Lee", "76561190000000006") humans[#humans + 1] = lessons
+SURF.DB.LoadPlayer(lessons) SURF.Shop.Load(lessons) SURF.Timer.SetTrack(lessons, 0, true)
+SURF.Timer.ChangeStyle(lessons, "sw")
+Run(lessons, 8000, {}, 300)  -- first Sideways finish and first Sideways record: (75 + 100) / 2
+""")
+check(S.Balance("76561190000000006") == 88, f"styles earn half, records add to the first finish ({S.Balance('76561190000000006')})")
+
+# Buying
+L.execute(r"""
+chats = {}
+ok1, msg1 = SURF.Shop.Buy(eve, "trail:gold")   -- 800, Eve has 140
+ok2, msg2 = SURF.Shop.Buy(eve, "trail:red")    -- 300
+ok3, msg3 = SURF.Shop.Buy(eve, "trail:electric")
+ok4, msg4 = SURF.Shop.Buy(eve, "trail:white")
+ok5, msg5 = SURF.Shop.Buy(eve, "nope:nope")
+""")
+check(not G.ok1 and "costs 800 coins and you have 140" in G.msg1, f"can't buy without enough coins ({G.msg1})")
+check(not G.ok2 and not G.ok3 and "VIP item" in G.msg3 and not G.ok4 and "already have" in G.msg4 and not G.ok5,
+      f"VIP-only, free and unknown items can't be bought ({G.msg3} / {G.msg4} / {G.msg5})")
+cmd("s1_coins", {"action": "givecoins", "steamid": "76561190000000005", "amount": 1500, "by": "76561190000000009"})
+cmd("s2_take", {"action": "givecoins", "steamid": "76561190000000006", "amount": -5000})
+cmd("s3_item", {"action": "giveitem", "steamid": "76561190000000006", "item": "color:rainbow"})
+cmd("s4_bad", {"action": "giveitem", "steamid": "76561190000000006", "item": "color:nope"})
+L.execute('chats = {} SURF.Portal.RunCommands()')
+res = {r["id"]: r for r in map(json.loads, vfs["surfline/portal/results.txt"].strip().split("\n"))}
+check(res["s1_coins"]["ok"] and S.Balance("76561190000000005") == 1640, f"the portal gives coins ({res['s1_coins']['msg']})")
+check(any("You received 1500 coins" in c for c in G.chats.values()), "the player hears about the gift")
+check(res["s2_take"]["ok"] and S.Balance("76561190000000006") == 0, "taking coins stops at 0")
+check(res["s3_item"]["ok"] and G.lessons.SurfOwned["color:rainbow"] and not res["s4_bad"]["ok"], "the portal gives items and refuses unknown ones")
+L.execute(r"""
+ok6, msg6 = SURF.Shop.Buy(eve, "trail:gold")
+ok7, msg7 = SURF.Shop.Buy(eve, "trail:gold")
+eqTag = SURF.Shop.Equip(eve, "tag", "gg")
+SURF.Shop.Buy(eve, "tag:gg")
+SURF.Shop.Buy(eve, "sound:pop")
+""")
+check(G.ok6 and S.Balance("76561190000000005") == 240 and G.eve.SurfTrail == "gold", f"buying takes the coins and puts the trail on ({G.msg6})")
+check(not G.ok7 and "already have" in G.msg7, "can't buy the same item twice")
+check(not G.eqTag and G.eve.nw["surf_tag"] == "gg", "items you don't own can't be put on; bought ones go on")
+check(db.execute("select count(*) from surf_items where steamid='76561190000000005'").fetchone()[0] == 3, "purchases are stored")
+check(db.execute("select amount, reason from surf_coin_log where steamid='76561190000000005' order by id desc limit 1").fetchone() == (-300, "bought sound:pop"),
+      "coin changes are logged")
+L.execute(r"""
+eve.sound = nil
+Run(eve, 9000, {}, 99)
+SURF.Shop.Equip(eve, "tag", "none")
+tagOff = eve.nw.surf_tag
+SURF.Shop.Equip(eve, "tag", "gg")
+-- VIP items work while VIP and go away with it
+vipEq1 = SURF.Shop.Equip(eve, "color", "royal")
+eve.nw.surf_vip = true
+vipEq2 = SURF.Shop.Equip(eve, "color", "royal")
+colorOn = eve.nw.surf_color
+eve.nw.surf_vip = nil
+SURF.Shop.ApplyLooks(eve)
+colorOff = eve.nw.surf_color
+SURF.DB.SavePlayer(eve)
+-- everything comes back on the next visit
+eve2 = MakePlayer("Eve", "76561190000000005")
+SURF.DB.LoadPlayer(eve2) SURF.Shop.Load(eve2)
+""")
+check(G.eve.sound == "garrysmod/balloon_pop_cute.wav", "the finish sound plays on a finish")
+check(G.tagOff == "", "an item can be taken off")
+check(not G.vipEq1 and G.vipEq2 and G.colorOn == "royal" and G.colorOff == "", "VIP items only work while VIP")
+check(G.eve2.SurfOwned["trail:gold"] and G.eve2.nw["surf_tag"] == "gg" and G.eve2.SurfTrail == "gold" and G.eve2.nw["surf_coins"] == 245,
+      f"owned and equipped items and coins are loaded on join ({G.eve2.nw['surf_coins']})")
+L.execute(r"""
+eve.SurfActiveAt = nil
+SetCurTime(20000)
+SURF.AFK.Touch(eve)
+lessons.SurfActiveAt = 20000 - 400
+SURF.Shop.PayPlaytime()
+""")
+check(S.Balance("76561190000000005") == 247 and S.Balance("76561190000000006") == 0, "playtime pays active players only")
+L.execute(r"""
+chats = {} menus = {}
+SURF.Commands.Run(eve, "shop", {})
+SURF.Commands.Run(eve, "shop", { "tags" })
+SURF.Commands.Run(eve, "trail", {})
+SURF.Commands.Run(eve, "coins", {})
+""")
+check(G.menus[1].kind == "shop" and G.menus[1].data.tab == "trail" and G.menus[1].data.coins == 247, "!shop opens the shop with the balance")
+check(G.menus[2].data.tab == "tag" and G.menus[3].data.tab == "trail", "!shop tags and !trail open the right tab")
+owned = set(G.menus[1].data.owned.values())
+check(owned == {"trail:gold", "tag:gg", "sound:pop"} and G.menus[1].data.equipped.trail == "gold" and G.menus[1].data.equipped.tag == "gg",
+      f"the menu knows what you own and wear ({owned})")
+check(any("You have 247 coins" in c for c in G.chats.values()), "!coins shows the balance")
+check(any("!shop" in c["cmd"] for c in G.SURF.Commands.HelpList(False).values()), "!shop is listed in !help")
+hint_names = json.dumps(G.py_table_to_json(G.SURF.Commands.ClientList(False)))
+check("shop" in hint_names and "coins" in hint_names, "!shop and !coins are in the chat hints")
+L.execute('hooks.InitPostEntity.surf_shop()')
+cat = json.loads(vfs["surfline/portal/shop.json"])
+items = {i["key"]: i for c in cat["categories"] for i in c["items"]}
+check([c["id"] for c in cat["categories"]] == ["trail", "hat", "skin", "tag", "color", "sound"] and "trail:none" not in items, "the catalog for the website has every category")
+check(items["skin:kleiner"]["model"] == "models/player/kleiner.mdl" and items["hat:halo"]["vip"] and cat["vip"][0] == {"days": 7, "price": 4000},
+      "the catalog has models and the VIP packages")
+check(items["trail:gold"]["price"] == 800 and items["trail:gold"]["color"] == "#ffc828" and items["trail:smoke"]["vip"] and items["color:rainbow"]["rainbow"],
+      "catalog items carry price, color and VIP")
+
+# Hats and skins
+L.execute(r"""
+SURF.Shop.GiveCoins(eve.sid, 20000, "test")
+okHat = SURF.Shop.Buy(eve, "hat:cone")
+okSkin = SURF.Shop.Buy(eve, "skin:kleiner")
+modelSkin = eve.model
+SURF.Shop.Equip(eve, "skin", "none")
+modelOff = eve.model
+eve.playermodel = "kleiner"
+modelPicked = SURF.Shop.ModelFor(eve)
+okHalo = SURF.Shop.Equip(eve, "hat", "halo")
+""")
+check(G.okHat and G.eve.nw["surf_hat"] == "cone", "a bought hat goes on")
+check(G.okSkin and G.modelSkin == "models/player/kleiner.mdl", "a bought skin changes the player model")
+check(G.modelOff == "models/player/group01/male_02.mdl", f"taking the skin off gives back the free model ({G.modelOff})")
+check(G.modelPicked == "models/player/group01/male_07.mdl", "a paid model from the model picker isn't free")
+check(not G.okHalo and G.eve.nw["surf_hat"] == "cone", "VIP hats need VIP")
+
+# Admin: items, rates and VIP prices
+L.execute(r"""
+setHidden = SURF.Shop.SetItem("hat:melon", { hidden = true })
+okMelon, msgMelon = SURF.Shop.Buy(eve, "hat:melon")
+setNone = SURF.Shop.SetItem("trail:none", { price = 5 })
+setFree = SURF.Shop.SetItem("hat:bucket", { price = 0 })
+bucketFree = SURF.ItemFree(SURF.ItemByKey["hat:bucket"])
+SURF.Shop.SetItem("hat:melon", { price = 700, hidden = false })
+SURF.Shop.SetItem("hat:bucket", { price = 900, vip = true })
+rateOk = SURF.Shop.SetRate("Daily", 40)
+rateBad = SURF.Shop.SetRate("Nope", 4)
+rateNeg = SURF.Shop.SetRate("Daily", -1)
+SURF.Shop.SetVIPPrice(7, 5000) SURF.Shop.SetVIPPrice(90, 30000) SURF.Shop.SetVIPPrice(30, 0)
+vipBad = SURF.Shop.SetVIPPrice(0, 100)
+-- forget everything in memory, then load the saved file again
+SURF.ItemByKey["hat:melon"].price = 1 SURF.Config.Coins.Daily = 1
+SURF.Shop.LoadOverrides()
+""")
+check(G.setHidden and not G.okMelon and "isn't for sale" in G.msgMelon, "hidden items can't be bought")
+check(not G.setNone and G.setFree and G.bucketFree, "price 0 makes an item free; the empty trail can't be changed")
+melon, bucket = G.SURF.ItemByKey["hat:melon"], G.SURF.ItemByKey["hat:bucket"]
+check(melon.price == 700 and not melon.hidden and bucket.price == 900 and bucket.vip, "item changes are saved and load again")
+check(G.rateOk and not G.rateBad and not G.rateNeg and G.SURF.Config.Coins.Daily == 40, "coin rates change and are checked")
+packs = [(p.days, p.price) for p in G.SURF.Config.VIPPackages.values()]
+check(packs == [(7, 5000), (90, 30000)] and not G.vipBad, f"VIP prices change, add and remove ({packs})")
+ov = json.loads(vfs["surfline/shop_overrides.json"])
+check(ov["items"]["hat:melon"]["price"] == 700 and ov["coins"]["Daily"] == 40, "overrides are written to data/surfline")
+cat = json.loads(vfs["surfline/portal/shop.json"])
+items = {i["key"]: i for c in cat["categories"] for i in c["items"]}
+check(items["hat:melon"]["price"] == 700 and items["hat:melon"]["changed"] and not items["hat:cone"]["changed"]
+      and cat["vip"] == [{"days": 7, "price": 5000}, {"days": 90, "price": 30000}], "the website catalog follows the changes")
+listed = {i.key: i for i in G.SURF.Shop.Items().values()}
+check(listed["hat:bucket"].price == 900 and listed["hat:bucket"].vip and "trail:none" not in listed, "Items() lists current prices")
+
+# VIP for coins
+L.execute(r"""
+vipCalls = {}
+before = SURF.Shop.Balance(eve.sid)
+okV, msgV = SURF.Shop.BuyVIP(eve, 7)
+after = SURF.Shop.Balance(eve.sid)
+okV2, msgV2 = SURF.Shop.BuyVIP(eve, 30)
+SURF.DB.Query("REPLACE INTO surf_vip (steamid, expires) VALUES (%s, 0)", eve.sid)
+okV3, msgV3 = SURF.Shop.BuyVIP(eve, 7)
+SURF.DB.Query("DELETE FROM surf_vip WHERE steamid = %s", eve.sid)
+eve.nw.surf_vip = true
+okV4, msgV4 = SURF.Shop.BuyVIP(eve, 7)
+eve.nw.surf_vip = nil
+poorV, poorMsg = SURF.Shop.BuyVIP(lessons, 7)
+""")
+check(G.okV and G.before - G.after == 5000 and G.vipCalls[1] == "give 76561190000000005 7", f"VIP can be bought with coins ({G.msgV})")
+check(not G.okV2 and "doesn't exist" in G.msgV2, "only the listed VIP packages are sold")
+check(not G.okV3 and not G.okV4 and "for good" in G.msgV3, "permanent VIPs (and VIP from a group) aren't charged")
+check(not G.poorV and "you have 0" in G.poorMsg, "VIP costs coins you have")
+
+# Points from admins
+L.execute(r"""
+SURF.Ranks.Recalc()
+basePts = eve.nw.surf_points
+adj1 = SURF.Ranks.AdjustPoints(eve.sid, 500, "event prize")
+pts1 = eve.nw.surf_points
+SURF.Ranks.AdjustPoints(eve.sid, -100000, "oops")
+pts2 = eve.nw.surf_points
+adj3 = SURF.Ranks.AdjustPoints(eve.sid, 99500, "undo")
+pts3 = eve.nw.surf_points
+nobody = SURF.Ranks.AdjustPoints("76561190000000077", 40, "new")
+""")
+check(G.adj1 == 500 and G.pts1 == G.basePts + 500, f"admins can add points ({G.basePts} -> {G.pts1})")
+check(G.pts2 == 0 and G.adj3 == 0 and G.pts3 == G.basePts, "points never go below 0, and an adjustment of 0 is removed")
+check(G.SURF.Ranks.bySid["76561190000000077"].points == 40, "points can rank someone without times")
+check(db.execute("select count(*) from surf_points_adjust where steamid='76561190000000005'").fetchone()[0] == 0, "a zero adjustment leaves no row")
+cmd("p1_adj", {"action": "adjustpoints", "steamid": "76561190000000005", "points": 25, "reason": "bug\x07 report", "by": "76561190000000009"})
+cmd("p2_adj0", {"action": "adjustpoints", "steamid": "76561190000000005", "points": 0})
+cmd("p3_item", {"action": "shopitem", "item": "hat:pot", "price": 1234, "vip": True, "hidden": False})
+cmd("p4_item", {"action": "shopitem", "item": "hat:nope", "price": 1})
+cmd("p5_rate", {"action": "coinrate", "name": "Record", "value": 150})
+cmd("p6_rate", {"action": "coinrate", "name": "os.exit", "value": 1})
+cmd("p7_vip", {"action": "vipprice", "days": 30, "price": 9000})
+cmd("p8_vip", {"action": "vipprice", "days": -3, "price": 9000})
+L.execute('SURF.Portal.RunCommands()')
+res = {r["id"]: r for r in map(json.loads, vfs["surfline/portal/results.txt"].strip().split("\n"))}
+check(res["p1_adj"]["ok"] and G.eve.nw["surf_points"] == G.basePts + 25 and not res["p2_adj0"]["ok"], f"the portal adjusts points ({res['p1_adj']['msg']})")
+check(db.execute("select reason from surf_points_adjust where steamid='76561190000000005'").fetchone() == ("bug  report",), "the reason is cleaned")
+check(res["p3_item"]["ok"] and G.SURF.ItemByKey["hat:pot"].price == 1234 and G.SURF.ItemByKey["hat:pot"].vip and not res["p4_item"]["ok"],
+      f"the portal changes items ({res['p3_item']['msg']})")
+check(res["p5_rate"]["ok"] and G.SURF.Config.Coins.Record == 150 and not res["p6_rate"]["ok"], "the portal changes coin rates")
+check(res["p7_vip"]["ok"] and not res["p8_vip"]["ok"] and [(p.days, p.price) for p in G.SURF.Config.VIPPackages.values()] == [(7, 5000), (30, 9000), (90, 30000)],
+      "the portal changes VIP prices")
+L.execute(r"""
+menus = {}
+SURF.Commands.Run(eve, "vip", {})
+SURF.Commands.Run(eve, "hats", {})
+SURF.Commands.Run(eve, "skins", {})
+""")
+check(G.menus[1].kind == "shop" and G.menus[1].data.tab == "vip" and G.menus[1].data.vipPackages[1].price == 5000, "!vip opens the shop's VIP tab with the packages")
+check(G.menus[2].data.tab == "hat" and G.menus[3].data.tab == "skin", "!hats and !skins open their tabs")
+
 # Every bundled zone file parses and has a main start+end
 bad = []
 G.anyHook = True
@@ -911,6 +1219,165 @@ for f in sorted(os.listdir(ZONES)):
         if not Z.HasTimer(0):
             bad.append(f[:-5])
 check(not bad and count > 700, f"all {count} zone files give a main start+end (missing: {bad[:20]})")
+
+# Main menu pages (sv_menus.lua)
+L.execute('''
+anyHook = false
+mapname = "surf_kitsune"
+SURF.Zones.Load()
+SURF.Ranks.Recalc()
+home = SURF.Menu.Pages.home(b)
+recs = SURF.Menu.Pages.records(b, "n|0")
+recsOdd = SURF.Menu.Pages.records(b, "zz|99")
+tops = SURF.Menu.Pages.players(b)
+mapsPage = SURF.Menu.Pages.maps(b)
+menus = {}
+SURF.Commands.Run(b, "menu", {})
+menuCmd = menus[1]
+menus = {}
+netQueue = { "records", "sw|0", 7 }
+netHandlers["surf.MenuReq"](0, b)
+netQueue = { "nosuchpage", "", 8 }
+netHandlers["surf.MenuReq"](0, b)
+answered = menus
+''')
+home = G.home
+check(home.points > 0 and home.rank >= 1 and home.finished >= 1 and home.records >= 1 and home.map.name == "surf_kitsune",
+      f"home page: points, rank, finished maps and records held ({home.points}, #{home.rank}, {home.finished}, {home.records})")
+check(home.map.wr is not None and home.map.pb is not None and home.map.zoned, "home page: the map's record and your best")
+rows = list(G.recs.rows.values())
+check(G.recs.style == "n" and G.recs.track == 0 and len(rows) >= 1 and rows[0].steamid, "records page lists times with SteamIDs")
+check(G.recsOdd.style == "n" and G.recsOdd.track == 0, "records page ignores a bad style or bonus")
+check(G.tops.total >= 1 and G.tops.mine is not None and list(G.tops.rows.values())[0].sid, "top players page has SteamIDs and your own rank")
+check(any(m.name == "surf_kitsune" and m.done for m in G.mapsPage.maps.values()), "maps page marks maps you finished")
+check(G.menuCmd.kind == "menu", "!menu opens the main menu")
+ans = list(G.answered.values())
+check(len(ans) == 1 and ans[0].kind == "records" and ans[0].data.req == 7 and ans[0].data.style == "sw", "a page request is answered with its number; unknown pages are ignored")
+
+# In-game admin (sv_admin.lua)
+L.execute(r"""
+SURF.Spec.Watch = function(p, t) specWatched = p.name .. ">" .. t.name end
+owner = MakePlayer("Noam", "76561190000000010")
+mod = MakePlayer("Mod", "76561190000000011")
+pleb = MakePlayer("Pleb", "76561190000000012")
+for _, p in ipairs({ owner, mod, pleb }) do
+	p.group = "user"
+	function p:SetUserGroup(g) self.group = g end
+	function p:IsAdmin() return self.group == "admin" or self.group == "superadmin" end
+	function p:IsSuperAdmin() return self.group == "superadmin" end
+	function p:Freeze(on) self.isFrozen = on end
+	function p:Kill() self.alive = false end
+	humans[#humans + 1] = p
+end
+owner.group = "superadmin"
+chats = {}
+
+okStaff = SURF.Admin.Do(owner, "setadmin", { sid = mod.sid, on = true })
+modGroup = mod.group
+plebTry, plebMsg = SURF.Admin.Do(pleb, "slay", { sid = mod.sid })
+upTry, upMsg = SURF.Admin.Do(mod, "slay", { sid = owner.sid })
+modVip, modVipMsg = SURF.Admin.Do(mod, "givevip", { sid = pleb.sid, days = 30 })
+consoleGoto, consoleGotoMsg = SURF.Admin.Do(nil, "goto", { sid = pleb.sid })
+
+okFreeze = SURF.Admin.Do(mod, "freeze", { sid = pleb.sid })
+plebFrozen = pleb.isFrozen
+SURF.Admin.Do(mod, "freeze", { sid = pleb.sid })
+okSlay = SURF.Admin.Do(mod, "slay", { sid = pleb.sid })
+plebAlive = pleb.alive
+pleb.alive = true
+okSpec = SURF.Admin.Do(mod, "spectate", { sid = pleb.sid })
+
+okMute = SURF.Admin.Do(mod, "mute", { sid = pleb.sid, minutes = 10 })
+mutedNW = pleb:GetNW2Bool("surf_muted", false)
+sayMuted = GM:PlayerSay(pleb, "hello", false)
+sayOther = GM:PlayerSay(mod, "hello", false)
+SURF.DB.Query("UPDATE surf_sanctions SET expires = %d WHERE steamid = %s", os.time() - 5, pleb.sid)
+pleb.SurfMute = os.time() - 5
+sayExpired = GM:PlayerSay(pleb, "hello again", false)
+muteRowsLeft = #(SURF.DB.Query("SELECT * FROM surf_sanctions WHERE steamid = %s", pleb.sid) or {})
+
+SURF.Admin.Do(mod, "gag", { sid = pleb.sid, minutes = 0 })
+voiceGagged = hooks.PlayerCanHearPlayersVoice.surf_gag(owner, pleb)
+voiceOther = hooks.PlayerCanHearPlayersVoice.surf_gag(pleb, owner)
+SURF.Admin.Do(mod, "ungag", { sid = pleb.sid })
+voiceUngagged = hooks.PlayerCanHearPlayersVoice.surf_gag(owner, pleb)
+
+okBan, msgBan = SURF.Admin.Do(mod, "ban", { sid = "76561190000000099", minutes = 60, reason = "cheating" })
+banRow = (SURF.DB.Query("SELECT reason, expires FROM surf_bans WHERE steamid = '76561190000000099'") or {})[1]
+okUnban = SURF.Admin.Do(mod, "unban", { sid = "76561190000000099" })
+banGone = SURF.DB.Query("SELECT * FROM surf_bans WHERE steamid = '76561190000000099'") == nil
+
+okCoins, msgCoins = SURF.Admin.Do(owner, "coins", { sid = pleb.sid, amount = 500 })
+bal = SURF.Shop.Balance(pleb.sid)
+okItem = SURF.Admin.Do(owner, "giveitem", { sid = pleb.sid, item = "trail:gold" })
+badItem = SURF.Admin.Do(owner, "giveitem", { sid = pleb.sid, item = "trail:nope" })
+okVip = SURF.Admin.Do(owner, "givevip", { sid = pleb.sid, days = 30 })
+okPts, msgPts = SURF.Admin.Do(owner, "points", { sid = pleb.sid, amount = 10 })
+okMap = SURF.Admin.Do(mod, "changelevel", { map = "surf_mesa" })
+mapConsole = lastConsole
+badMap = SURF.Admin.Do(mod, "changelevel", { map = "surf_nope" })
+
+SURF.Commands.Run(mod, "kick", { "ple", "spam" })
+plebKicked = pleb.kicked
+SURF.Commands.Run(pleb, "kick", { "Mod" })
+modKicked = mod.kicked
+
+player = player
+details = SURF.Admin.Actions and true
+detail = nil
+sent = {}
+netQueue = { { a = "data", what = "player", sid = pleb.sid } }
+netHandlers["surf.Admin"](0, owner)
+for _, e in pairs(sent) do if e[1] == "WriteTable" and e[2].sid == pleb.sid then detail = e[2] end end
+sent = {}
+netQueue = { { a = "data", what = "log" } }
+netHandlers["surf.Admin"](0, pleb)
+plebSent = #sent
+sent = {}
+netQueue = { { a = "slay", sid = pleb.sid } }
+netHandlers["surf.Admin"](0, mod)
+resultSent = nil
+for _, e in pairs(sent) do if e[1] == "WriteTable" and e[2].msg then resultSent = e[2] end end
+
+staff = {}
+for _, r in ipairs(SURF.DB.Query("SELECT steamid, rank FROM surf_staff") or {}) do staff[r.steamid] = r.rank end
+table.remove(humans)
+table.remove(humans)
+offlineLevel = SURF.Admin.Level(mod.sid)
+mod2 = MakePlayer("Mod", mod.sid)
+mod2.group = "user"
+function mod2:IsAdmin() return self.group == "admin" end
+function mod2:SetUserGroup(g) self.group = g end
+hooks.PlayerInitialSpawn.surf_staff(mod2)
+rejoinGroup = mod2.group
+log = SURF.DB.Query("SELECT action, admin_name, target_name, source FROM surf_admin_log ORDER BY id") or {}
+""")
+check(G.okStaff and G.modGroup == "admin" and G.staff[G.mod.sid] == "admin", "owners make admins (saved in surf_staff)")
+check(not G.plebTry and "only admins" in G.plebMsg, "players can't use admin actions")
+check(not G.upTry and "higher rank" in G.upMsg, "admins can't punish an owner")
+check(not G.modVip and "owners" in G.modVipMsg, "only owners give VIP")
+check(not G.consoleGoto, "teleports need an admin in game")
+check(G.okFreeze and G.plebFrozen and G.okSlay and G.plebAlive is False and G.okSpec and G.specWatched == "Mod>Pleb", "freeze, slay and spectate work")
+check(G.okMute and G.mutedNW and G.sayMuted == "" and G.sayOther == "hello", "a muted player's chat is blocked, others still talk")
+check(G.sayExpired == "hello again" and G.muteRowsLeft == 0, "a mute ends by itself when its time is up")
+check(G.voiceGagged is False and G.voiceOther is None and G.voiceUngagged is None, "a gag blocks voice until ungagged")
+check(G.okBan and G.banRow and G.banRow.reason == "cheating" and int(G.banRow.expires) > 0, "admins ban offline SteamIDs for a time")
+check(G.okUnban and G.banGone, "unban lifts the ban")
+check(G.okCoins and G.bal >= 500 and G.okItem and not G.badItem and G.okVip, f"owners give coins, items and VIP ({G.msgCoins})")
+check(G.okMap and G.mapConsole == "changelevel surf_mesa" and not G.badMap, "admins change to installed maps only")
+check(G.plebKicked == "spam" and not G.modKicked, f"!kick works for admins, not players ({G.plebKicked}, {G.modKicked})")
+d = G.detail
+check(d is not None and d.online and d.coins >= 500 and "trail:gold" in list(d.owned.values()) and d.level == 0 and d.features.shop,
+      "the panel gets a player's details (coins, items, rank)")
+check(G.plebSent == 0, "players get no admin data")
+check(G.resultSent is not None and G.resultSent.ok, "actions from the panel answer with a result")
+check(G.offlineLevel == 1 and G.rejoinGroup == "admin", "admins stay admins when offline and when they rejoin")
+log = [dict(r) for r in G.log.values()]
+check(any(r["action"] == "mute" and r["admin_name"] == "Mod" and r["target_name"] == "Pleb" and r["source"] == "game" for r in log),
+      "admin actions are logged with who did what to whom")
+check(not any(r["action"] == "spectate" for r in log) and not any(r["action"] == "slay" and r["admin_name"] == "Pleb" for r in log),
+      "spectating and refused actions aren't logged")
+check(any(r["action"] == "ban" and r["source"] == "web" for r in log), "website actions are in the same log")
 
 print("\n%d failure(s)" % len(failures))
 sys.exit(1 if failures else 0)

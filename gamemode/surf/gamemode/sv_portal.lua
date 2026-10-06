@@ -77,6 +77,7 @@ end
 
 local acc = SURF.Config.Accent
 local ACTIONS = {}
+P.Actions = ACTIONS -- the in-game admin panel (sv_admin.lua) runs these too
 
 ACTIONS.say = function(c)
 	local text = Clean(c.text)
@@ -91,6 +92,7 @@ ACTIONS.changelevel = function(c)
 	SURF.Chat(nil, acc, "[Admin] ", color_white, "Changing the map to ", acc, map, color_white, " in 5 seconds.")
 	timer.Simple(5, function()
 		for _, p in ipairs(player.GetHumans()) do SURF.DB.SavePlayer(p) end
+		SURF.MapVote.MarkAdminMap(map)
 		RunConsoleCommand("changelevel", map)
 	end)
 	return true, "changing to " .. map
@@ -150,6 +152,65 @@ ACTIONS.removevip = function(c)
 	return true, "removed VIP from " .. KnownName(c.steamid)
 end
 
+ACTIONS.givecoins = function(c)
+	if not ValidID(c.steamid) then return false, "bad steamid" end
+	local amount = math.Clamp(math.floor(tonumber(c.amount) or 0), -1000000, 1000000)
+	if amount == 0 then return false, "amount is 0" end
+	local bal = SURF.Shop.GiveCoins(c.steamid, amount, c.by == "tebex" and "store purchase" or "given on the website")
+	return true, string.format("%s%d coins for %s (now %d)", amount > 0 and "+" or "", amount, KnownName(c.steamid), bal)
+end
+
+ACTIONS.giveitem = function(c)
+	if not ValidID(c.steamid) then return false, "bad steamid" end
+	local key = tostring(c.item or "")
+	if not SURF.Shop.Grant(c.steamid, key, c.by == "tebex" and "store" or "website") then return false, "unknown item" end
+	return true, "gave " .. SURF.ItemByKey[key].name .. " to " .. KnownName(c.steamid)
+end
+
+ACTIONS.removeitem = function(c)
+	if not ValidID(c.steamid) then return false, "bad steamid" end
+	local key = tostring(c.item or "")
+	if not SURF.ItemByKey[key] then return false, "unknown item" end
+	SURF.Shop.Revoke(c.steamid, key)
+	return true, "removed " .. SURF.ItemByKey[key].name .. " from " .. KnownName(c.steamid)
+end
+
+ACTIONS.adjustpoints = function(c)
+	if not ValidID(c.steamid) then return false, "bad steamid" end
+	local delta = math.Clamp(math.floor(tonumber(c.points) or 0), -1000000, 1000000)
+	if delta == 0 then return false, "points is 0" end
+	local total = SURF.Ranks.AdjustPoints(c.steamid, delta, Clean(c.reason))
+	local r = SURF.Ranks.bySid[c.steamid]
+	return true, string.format("%s%d points for %s (adjustment now %d, total %d)", delta > 0 and "+" or "", delta,
+		KnownName(c.steamid), total, r and r.points or 0)
+end
+
+-- Shop settings from the portal's shop admin page
+ACTIONS.shopitem = function(c)
+	local key = tostring(c.item or "")
+	local it = SURF.ItemByKey[key]
+	if not it then return false, "unknown item" end
+	local fields = {}
+	if c.price ~= nil then fields.price = tonumber(c.price) or 0 end
+	if c.vip ~= nil then fields.vip = c.vip == true end
+	if c.hidden ~= nil then fields.hidden = c.hidden == true end
+	if not SURF.Shop.SetItem(key, fields) then return false, "can't change " .. key end
+	return true, string.format("%s: %s%s%s", it.name, it.price and (it.price .. " coins") or "no coin price",
+		it.vip and ", VIP" or "", it.hidden and ", hidden" or "")
+end
+
+ACTIONS.coinrate = function(c)
+	local name = tostring(c.name or "")
+	if not SURF.Shop.SetRate(name, c.value) then return false, "bad rate" end
+	return true, "coin rate " .. name .. " is now " .. tostring(SURF.Config.Coins[name])
+end
+
+ACTIONS.vipprice = function(c)
+	local days, price = tonumber(c.days), tonumber(c.price)
+	if not SURF.Shop.SetVIPPrice(days, price) then return false, "bad VIP package" end
+	return true, price == 0 and ("removed the " .. days .. " day VIP package") or string.format("%d days of VIP cost %d coins", days, price)
+end
+
 -- Record keys: surf_x, surf_x#b2, surf_x@sw, surf_x#b2@sw
 local function ValidKey(key)
 	local base, style = string.match(key, "^(.-)@(%w+)$")
@@ -194,6 +255,12 @@ function P.RunCommands()
 			ok, msg = false, "unknown action"
 		end
 		print(string.format("[Surf] Portal: %s by %s: %s", tostring(cmd.action), tostring(cmd.by), tostring(msg)))
+		if ok and SURF.Admin then
+			local by = tostring(cmd.by or "")
+			local target = ValidID(cmd.steamid) and cmd.steamid or nil
+			SURF.Admin.Log(by, ValidID(by) and KnownName(by) or by, tostring(cmd.action), target, target and KnownName(target) or nil,
+				tostring(msg), by == "tebex" and "store" or "web")
+		end
 		Result(id, ok, msg)
 	end
 end

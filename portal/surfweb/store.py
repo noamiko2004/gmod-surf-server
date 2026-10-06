@@ -10,12 +10,16 @@ import sqlite3
 import sys
 import threading
 import time
+import re
 import urllib.parse
 
 from .fmt import (MAPNAME_RE, STYLE_NAMES, as_dict, as_list, clean_text, key_points, make_key, opt_num,
                   parse_key, style_order, title_index, title_index_by_name, to_bool, to_float, to_int, to_str,
                   valid_steamid)
 
+SHOP_ID_RE = re.compile(r"^[a-z0-9_]{1,32}$")
+MODEL_RE = re.compile(r"^models/[a-z0-9_/]{1,110}\.mdl$")
+HEX_RE = re.compile(r"^#[0-9a-f]{6}$")
 STALE_AFTER = 30
 RANK_TTL = 30
 MAPS_TTL = 10
@@ -225,6 +229,15 @@ class Store:
         return {r["steamid"]: r["name"] for r in self.query("SELECT steamid, name FROM surf_players")
                 if r["steamid"]}
 
+    def point_adjustments(self):
+        """Points admins gave (or took, negative) per SteamID64, on top of the points from times."""
+        out = {}
+        for r in self.query("SELECT steamid, points FROM surf_points_adjust"):
+            sid = to_str(r["steamid"], "", 24)
+            if sid and to_int(r["points"]):
+                out[sid] = to_int(r["points"])
+        return out
+
     # ------------------------------------------------------------ ranking
     def ranking(self):
         with self._rank_lock:
@@ -296,12 +309,17 @@ class Store:
                 times.setdefault(sid, []).append({"key": key, "map": base, "track": track, "style": style,
                                                   "pos": pos, "total": total, "time": row["time"], "date": row["date"],
                                                   "gap": row["time"] - lst[0]["time"]})
+        # admin adjustments, added the same way as the game's sv_ranks.lua
+        adjust = self.point_adjustments()
+        for sid, adj in adjust.items():
+            if sid in points or adj > 0:
+                points[sid] = max(0, points.get(sid, 0) + adj)
         order = sorted(points, key=lambda s: (-points[s], s))
         players, by_sid = [], {}
         for i, sid in enumerate(order, 1):
             ent = {"sid": sid, "name": name_of(sid), "points": points[sid], "pos": i,
                    "finished": len(finished.get(sid, ())), "bonuses": len(bonuses.get(sid, ())),
-                   "records": records.get(sid, 0), "title_idx": title_index(points[sid])}
+                   "records": records.get(sid, 0), "title_idx": title_index(points[sid]), "adjust": adjust.get(sid, 0)}
             players.append(ent)
             by_sid[sid] = ent
         return {"keys": keys, "variants": variants, "players": players, "by_sid": by_sid, "times": times,
@@ -509,6 +527,78 @@ class Store:
         out = [{"steamid": sid, "expires": exp, "name": names.get(sid, "")} for sid, exp in self.vip_map().items()]
         out.sort(key=lambda d: (d["expires"] != 0, d["expires"]))
         return out
+
+    # ------------------------------------------------------------ shop
+    def shop_catalog(self):
+        """The item catalog the game writes (portal/shop.json), cleaned; None before the game wrote it."""
+        raw = as_dict(read_json(os.path.join(self.portal_dir, "shop.json")))
+        if not raw:
+            return None
+        cats = []
+        for c in as_list(raw.get("categories")):
+            c = as_dict(c)
+            cid = to_str(c.get("id"), "", 16)
+            if not SHOP_ID_RE.match(cid):
+                continue
+            items = []
+            for it in as_list(c.get("items")):
+                it = as_dict(it)
+                iid = to_str(it.get("id"), "", 32)
+                if not SHOP_ID_RE.match(iid):
+                    continue
+                color = to_str(it.get("color"), "", 7).lower()
+                model = to_str(it.get("model"), "", 128)
+                items.append({"key": f"{cid}:{iid}", "id": iid, "cat": cid, "name": to_str(it.get("name"), iid, 48),
+                              "price": max(0, to_int(it.get("price"))), "vip": to_bool(it.get("vip")),
+                              "color": color if HEX_RE.match(color) else "", "rainbow": to_bool(it.get("rainbow")),
+                              "hidden": to_bool(it.get("hidden")), "changed": to_bool(it.get("changed")),
+                              "model": model if MODEL_RE.match(model) else ""})
+            cats.append({"id": cid, "name": to_str(c.get("name"), cid, 32), "items": items})
+        coins = {k: to_float(v) for k, v in as_dict(raw.get("coins")).items() if isinstance(k, str) and k.isalnum()}
+        vip = []
+        for p in as_list(raw.get("vip")):
+            p = as_dict(p)
+            days, price = to_int(p.get("days")), to_int(p.get("price"))
+            if 0 < days <= 3650 and price > 0:
+                vip.append({"days": days, "price": price})
+        vip.sort(key=lambda p: p["days"])
+        return {"categories": cats, "coins": coins, "vip": vip, "updated": to_int(raw.get("updated"))}
+
+    def shop_stats(self):
+        """Economy numbers for the admin shop page."""
+        week = int(time.time()) - 7 * 86400
+        top = [{"sid": to_str(r["steamid"], "", 24), "coins": to_int(r["coins"]), "earned": to_int(r["earned"])}
+               for r in self.query("SELECT steamid, coins, earned FROM surf_coins ORDER BY coins DESC LIMIT 10")]
+        popular = {to_str(r["item"], "", 64): to_int(r["n"])
+                   for r in self.query("SELECT item, COUNT(*) AS n FROM surf_items GROUP BY item")}
+        recent = [{"sid": to_str(r["steamid"], "", 24), "amount": to_int(r["amount"]), "reason": to_str(r["reason"], "", 120),
+                   "date": to_int(r["date"])}
+                  for r in self.query("SELECT steamid, amount, reason, date FROM surf_coin_log WHERE reason LIKE 'bought %' "
+                                      "ORDER BY id DESC LIMIT 15")]
+        return {
+            "circulating": to_int(self.scalar("SELECT SUM(coins) FROM surf_coins")),
+            "earned": to_int(self.scalar("SELECT SUM(earned) FROM surf_coins")),
+            "holders": to_int(self.scalar("SELECT COUNT(*) FROM surf_coins WHERE coins > 0")),
+            "spent": -to_int(self.scalar("SELECT SUM(amount) FROM surf_coin_log WHERE amount < 0 AND reason LIKE 'bought %'")),
+            "earned_week": to_int(self.scalar("SELECT SUM(amount) FROM surf_coin_log WHERE amount > 0 AND date >= ?", (week,))),
+            "spent_week": -to_int(self.scalar("SELECT SUM(amount) FROM surf_coin_log WHERE amount < 0 AND reason LIKE 'bought %' AND date >= ?", (week,))),
+            "top": top, "popular": popular, "recent": recent,
+        }
+
+    def wallet(self, sid):
+        """Coins, owned and equipped items and recent coin changes of one player (empty when unknown)."""
+        rows = self.query("SELECT coins, earned FROM surf_coins WHERE steamid = ?", (sid,))
+        coins = max(0, to_int(rows[0]["coins"])) if rows else 0
+        earned = max(0, to_int(rows[0]["earned"])) if rows else 0
+        owned = {to_str(r["item"], "", 64) for r in self.query("SELECT item FROM surf_items WHERE steamid = ?", (sid,))}
+        equipped = {to_str(r["slot"], "", 16): to_str(r["item"], "", 32)
+                    for r in self.query("SELECT slot, item FROM surf_equipped WHERE steamid = ?", (sid,))}
+        trail = self.query("SELECT trail FROM surf_players WHERE steamid = ?", (sid,))
+        if trail and trail[0]["trail"]:
+            equipped["trail"] = to_str(trail[0]["trail"], "", 32)
+        log_rows = self.query("SELECT amount, reason, date FROM surf_coin_log WHERE steamid = ? ORDER BY id DESC LIMIT 10", (sid,))
+        log = [{"amount": to_int(r["amount"]), "reason": to_str(r["reason"], "", 120), "date": to_int(r["date"])} for r in log_rows]
+        return {"coins": coins, "earned": earned, "owned": owned, "equipped": equipped, "log": log}
 
     # ------------------------------------------------------------ portal files
     def read_results(self):

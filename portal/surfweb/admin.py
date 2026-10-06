@@ -2,7 +2,7 @@
 import os
 import time
 
-from .actions import describe, parse_ctl_status, run_ctl
+from .actions import COIN_RATES, describe, parse_ctl_status, run_ctl
 from .fmt import (MAPKEY_RE, e, fmt_clock, fmt_date, fmt_duration, fmt_int, fmt_time, to_int, to_str, track_label,
                   valid_steamid)
 from .store import tail_lines
@@ -13,7 +13,8 @@ from .pages import state_html
 VIP_BADGE = ' <span class="badge badge-vip">VIP</span>'
 NOW_BADGE = ' <span class="badge badge-live">Now</span>'
 SUBNAV = [("/admin", "Dashboard", "bolt"), ("/admin/players", "Players", "users"), ("/admin/bans", "Bans", "shield"),
-          ("/admin/vip", "VIP", "star"), ("/admin/maps", "Maps", "map"), ("/admin/logs", "Logs", "refresh")]
+          ("/admin/vip", "VIP", "star"), ("/admin/shop", "Shop", "cart"), ("/admin/maps", "Maps", "map"),
+          ("/admin/logs", "Logs", "refresh")]
 
 
 def admin_layout(ctx, title, body, sub=""):
@@ -65,6 +66,16 @@ def player_action_forms(ctx, sid, name, back, online=True, vip=False, banned=Fal
     out.append(form(ctx, "givevip", sid_field(sid) +
                     '<label class="field w-sm"><span>VIP days</span><input name="days" type="number" min="0" max="3650" value="30" required></label>'
                     '<button class="btn btn-gold btn-sm" type="submit">Give VIP</button>', back, "row-form"))
+    out.append(form(ctx, "givecoins", sid_field(sid) +
+                    '<label class="field w-sm"><span>Coins</span><input name="amount" type="number" min="-1000000" max="1000000" value="500" required></label>'
+                    '<button class="btn btn-ghost btn-sm" type="submit">Give coins</button>', back, "row-form"))
+    out.append(form(ctx, "giveitem", sid_field(sid) +
+                    '<label class="field grow"><span>Shop item</span><input name="item" maxlength="49" pattern="[a-z0-9_]+:[a-z0-9_]+" placeholder="trail:gold" required></label>'
+                    '<button class="btn btn-ghost btn-sm" type="submit">Give item</button>', back, "row-form"))
+    out.append(form(ctx, "adjustpoints", sid_field(sid) +
+                    '<label class="field w-sm"><span>Points</span><input name="points" type="number" min="-1000000" max="1000000" value="100" required></label>'
+                    '<label class="field grow"><span>Why</span><input name="reason" maxlength="200" placeholder="Optional, e.g. event prize"></label>'
+                    '<button class="btn btn-ghost btn-sm" type="submit">Add points</button>', back, "row-form"))
     if vip:
         out.append(form(ctx, "removevip", sid_field(sid) + '<button class="btn btn-ghost btn-sm" type="submit">Remove VIP</button>',
                         back, "row-form", f"Remove VIP from {name}?"))
@@ -235,7 +246,12 @@ def player_detail(ctx, sid):
             f'<div class="kv"><span>VIP</span><b>{e(vip_txt)}</b></div>'
             f'<div class="kv"><span>Ban</span><b class="{"bad" if ban else ""}">{e(ban_txt)}</b></div>')
     if p:
-        info += (f'<div class="kv"><span>Points</span><b>{fmt_int(p["points"])} {title_chip(p["title_idx"])}</b></div>'
+        w = app.store.wallet(sid)
+        info += (f'<div class="kv"><span>Coins</span><b class="gold">{fmt_int(w["coins"])}</b></div>'
+                 f'<div class="kv"><span>Shop items</span><b>{e(", ".join(sorted(w["owned"])) or "None")}</b></div>')
+        adj = app.store.point_adjustments().get(sid, 0)
+        adj_txt = f' <span class="muted small">({adj:+,} from admins)</span>' if adj else ""
+        info += (f'<div class="kv"><span>Points</span><b>{fmt_int(p["points"])}{adj_txt} {title_chip(p["title_idx"])}</b></div>'
                  f'<div class="kv"><span>Playtime</span><b>{e(fmt_duration(p["playtime"]))}</b></div>'
                  f'<div class="kv"><span>Last seen</span><b>{"Online now" if online else when(p["lastseen"])}</b></div>')
     head = (f'<section class="card admin-player"><div class="pcell big">{avatar(ctx, sid, name, "lg")}<div>'
@@ -320,6 +336,77 @@ def vip(ctx):
     body = (f'<section class="card flush"><header class="card-h pad"><h2>{icon("star")}VIP players</h2><span class="muted small">{len(rows)}</span></header>{table}</section>'
             f'<section class="card"><header class="card-h"><h2>Give VIP by SteamID64</h2><span class="muted small">0 days = permanent</span></header>{add}</section>')
     return admin_layout(ctx, "VIP", f'<div class="stack">{body}</div>')
+
+
+def shop_item_form(ctx, it, owners, back):
+    price = it["price"] or ""
+    chk = lambda on: " checked" if on else ""  # noqa: E731
+    flags = []
+    if it["hidden"]:
+        flags.append('<span class="badge">Hidden</span>')
+    if it["changed"]:
+        flags.append('<span class="badge badge-live">Changed</span>')
+    label = f'[{e(it["name"])}]' if it["cat"] == "tag" else e(it["name"])
+    inner = (hidden("item", it["key"]) +
+             f'<div class="si-name"><b>{label} {"".join(flags)}</b><span class="muted small mono">{e(it["key"])} · {owners} owner{"s" if owners != 1 else ""}</span></div>'
+             f'<label class="field w-sm"><span>Coins</span><input name="price" type="number" min="0" max="10000000" value="{e(price)}" placeholder="0"></label>'
+             f'<label class="check"><input type="checkbox" name="vip" value="1"{chk(it["vip"])}><span>VIP</span></label>'
+             f'<label class="check"><input type="checkbox" name="hidden" value="1"{chk(it["hidden"])}><span>Hidden</span></label>'
+             + button("Save"))
+    return form(ctx, "shopitem", inner, back, "row-form shop-item")
+
+
+def shop_admin(ctx):
+    app = ctx.app
+    back = "/admin/shop"
+    cat = app.store.shop_catalog()
+    if cat is None:
+        body = f'<section class="card">{empty("The game server has not written the shop yet.", "It does once it runs this update.", "cart")}</section>'
+        return admin_layout(ctx, "Shop", body)
+    stats = app.store.shop_stats()
+    names = app.store.player_names()
+    item_names = {it["key"]: it["name"] for c in cat["categories"] for it in c["items"]}
+    tiles = [("Coins held", fmt_int(stats["circulating"]), f'{fmt_int(stats["holders"])} players'),
+             ("Coins earned", fmt_int(stats["earned"]), f'{fmt_int(stats["earned_week"])} this week'),
+             ("Coins spent", fmt_int(stats["spent"]), f'{fmt_int(stats["spent_week"])} this week'),
+             ("Items sold", fmt_int(sum(stats["popular"].values())), f'{len(stats["popular"])} different')]
+    grid = "".join(f'<div><dt>{e(a)}</dt><dd>{b}</dd><dd class="sub">{e(c)}</dd></div>' for a, b, c in tiles)
+    sections = []
+    for c in cat["categories"]:
+        rows = "".join(shop_item_form(ctx, it, stats["popular"].get(it["key"], 0), back) for it in c["items"])
+        sections.append(f'<section class="card"><header class="card-h"><h2>{e(c["name"])}</h2><span class="muted small">{len(c["items"])} items</span></header>'
+                        f'<div class="shop-items">{rows}</div></section>')
+    rate_forms = "".join(form(ctx, "coinrate", hidden("name", k) +
+                              f'<label class="field grow"><span>{e(label)}</span><input name="value" inputmode="decimal" pattern="[0-9]{{1,6}}([.][0-9]{{1,3}})?" '
+                              f'value="{e(("%g" % cat["coins"][k]) if k in cat["coins"] else "")}" required></label>' + button("Save"), back, "row-form")
+                         for k, label in COIN_RATES.items())
+    vip_forms = "".join(form(ctx, "vipprice", hidden("days", p["days"]) +
+                             f'<label class="field grow"><span>{p["days"]} days</span><input name="price" type="number" min="0" max="10000000" value="{p["price"]}" required></label>'
+                             + button("Save"), back, "row-form") for p in cat["vip"])
+    vip_forms += form(ctx, "vipprice", '<label class="field w-sm"><span>New: days</span><input name="days" type="number" min="1" max="3650" required></label>'
+                      '<label class="field grow"><span>Coins</span><input name="price" type="number" min="1" max="10000000" required></label>'
+                      + button("Add"), back, "row-form")
+    top = "".join(f'<li><a href="/admin/players?sid={e(q(t["sid"]))}">{e(names.get(t["sid"]) or t["sid"])}</a>'
+                  f'<b class="mono gold">{fmt_int(t["coins"])}</b></li>' for t in stats["top"] if valid_steamid(t["sid"]))
+    recent = "".join(f'<li><a href="/admin/players?sid={e(q(r["sid"]))}">{e(names.get(r["sid"]) or r["sid"])}</a>'
+                     f'<span>{e(item_names.get(r["reason"][7:], r["reason"][7:]))}</span>'
+                     f'<span class="mono gold">{fmt_int(-r["amount"])}</span><span class="muted small">{when(r["date"])}</span></li>'
+                     for r in stats["recent"] if valid_steamid(r["sid"]))
+    body = (f'<dl class="stat-grid stat-4">{grid}</dl>'
+            f'<p class="muted small">Changes reach the game within a few seconds and are saved on the server. Coins 0 means no coin price: '
+            f'the item is then free, or VIP only when VIP is ticked. VIP ticked with a price means it is bought with coins and free for VIPs. '
+            f'Hidden items leave the shop, but players who own them keep them.</p>'
+            f'<div class="admin-grid">'
+            f'<section class="card"><header class="card-h"><h2>{icon("trophy")}Coin rates</h2></header><div class="form-stack">{rate_forms}</div></section>'
+            f'<section class="card"><header class="card-h"><h2>{icon("star")}VIP for coins</h2><span class="muted small">0 removes a package</span></header>'
+            f'<div class="form-stack">{vip_forms}</div></section>'
+            f'<section class="card"><header class="card-h"><h2>{icon("users")}Most coins</h2></header>'
+            f'{f"<ul class=rank-list>{top}</ul>" if top else empty("Nobody has coins yet.", "", "users")}</section>'
+            f'<section class="card"><header class="card-h"><h2>{icon("cart")}Recent purchases</h2></header>'
+            f'{f"<ul class=buy-list>{recent}</ul>" if recent else empty("Nothing bought yet.", "", "cart")}</section></div>'
+            f'{"".join(sections)}')
+    return admin_layout(ctx, "Shop", f'<div class="stack">{body}</div>',
+                        "Prices, coin rates and VIP for coins. Give coins, items or points to one player from their page under Players.")
 
 
 def pre_box(lines, empty_msg):

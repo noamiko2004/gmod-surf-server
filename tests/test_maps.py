@@ -127,5 +127,14 @@ sys.argv = ["maps.py", "--repo", repo, "--garrysmod", gm2, "--steamcmd", "x", "-
 M.main()
 got = sorted(f[:-4] for f in os.listdir(os.path.join(gm2, "maps")))
 check(sorted(sum(calls, [])) == ["101", "105"], f"MAX_MAPS=2 picks the easy maps first ({sum(calls, [])})")
+
+# A map that loaded in game without a working start and end (bad_zones.txt) gives its slot to one that works
+gm3, work3 = os.path.join(tmp, "gm3"), os.path.join(tmp, "work3")
+os.makedirs(os.path.join(gm3, "data", "surfline")); os.makedirs(work3)
+open(os.path.join(gm3, "data", "surfline", "bad_zones.txt"), "w").write("surf_kitsune\n")
+calls.clear()
+sys.argv = ["maps.py", "--repo", repo, "--garrysmod", gm3, "--steamcmd", "x", "--workdir", work3, "--max-maps", "2"]
+M.main()
+check("101" not in sum(calls, []) and "105" in sum(calls, []), f"maps with broken zones aren't installed ({sum(calls, [])})")
 print(f"\n{len(fails)} failure(s)")
 sys.exit(1 if fails else 0)

@@ -1,4 +1,5 @@
 """Page shell and shared HTML components. Every dynamic value goes through e()."""
+import time
 import urllib.parse
 
 from .fmt import (TITLES, e, fmt_ago, fmt_date, fmt_datetime, fmt_time, hash_index, initial, iso,
@@ -148,11 +149,11 @@ def logo_img(app):
     return f'<img class="logo-mark" src="{app.static_url("favicon.svg")}" alt="" width="32" height="32">'
 
 
-def layout(ctx, title, body, page="", description=""):
+def layout(ctx, title, body, page="", description="", head=""):
     app = ctx.app
     brand = app.conf.brand
     path = ctx.path
-    nav = [("/", "Home"), ("/leaderboard", "Leaderboard"), ("/maps", "Maps")]
+    nav = [("/", "Home"), ("/leaderboard", "Leaderboard"), ("/maps", "Maps"), ("/shop", "Shop")]
     if ctx.is_admin:
         nav.append(("/admin", "Admin"))
 
@@ -187,6 +188,9 @@ def layout(ctx, title, body, page="", description=""):
         footer_links.append(f'<a class="btn btn-ghost btn-sm" href="{e(app.conf.https_url("STORE_URL"))}" rel="noopener noreferrer">'
                             f'{icon("cart")}<span>Store</span></a>')
     server_name = app.conf.server_name or brand
+    ver, ver_time = getattr(app, "version", ("", 0))
+    version = (f'<span class="footer-ver">Version {e(ver)}, {e(time.strftime("%Y-%m-%d %H:%M", time.gmtime(ver_time)))} UTC</span>'
+               if ver else "")
     desc = description or f"{server_name}: live server status, leaderboards and map records."
     full_title = f"{title} · {brand}" if title else f"{brand} · Garry's Mod surf server"
     return f'''<!doctype html>
@@ -204,6 +208,7 @@ def layout(ctx, title, body, page="", description=""):
 <link rel="icon" href="{app.static_url("favicon.svg")}" type="image/svg+xml">
 <link rel="stylesheet" href="{app.static_url("style.css")}">
 <script src="{app.static_url("app.js")}" defer></script>
+{head}
 </head>
 <body class="pg-{e(page)}">
 <a class="skip" href="#main">Skip to content</a>
@@ -223,7 +228,7 @@ def layout(ctx, title, body, page="", description=""):
 <div class="footer-brand"><a class="logo" href="/">{logo_img(app)}<span>{e(brand)}</span></a>
 <p class="muted">{e(server_name)}</p></div>
 <div class="footer-links">{"".join(footer_links)}</div>
-<p class="footer-note muted">Garry's Mod surf server. Not affiliated with Valve or Facepunch. Steam sign-in only shares your public SteamID.</p>
+<p class="footer-note muted">Garry's Mod surf server. Not affiliated with Valve or Facepunch. Steam sign-in only shares your public SteamID. {version}</p>
 </div>
 </footer>
 </body>

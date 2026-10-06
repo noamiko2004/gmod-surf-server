@@ -41,11 +41,12 @@ hook.Add("InitPostEntity", "surf_mapinfo", function()
 	SetGlobal2String("surf_mapper", MV.Mapper(game.GetMap()))
 end)
 
--- A map has zones if an admin placed them, or it loaded with a working start
--- and end before, or it has ready-made zones that weren't found broken.
+-- A map has zones if an admin placed a start and an end, or it loaded with a
+-- working start and end before, or it has ready-made zones and hasn't loaded
+-- without a working start and end (bad_zones.txt, see sv_zones.lua).
 function MV.HasZones(map, known, bad)
-	local row = SURF.DB.Query("SELECT 1 FROM surf_zones WHERE map = %s LIMIT 1", map)
-	if row then return true end
+	local row = SURF.DB.Query("SELECT COUNT(DISTINCT ztype) AS n FROM surf_zones WHERE map = %s AND ztype IN ('start', 'end')", map)
+	if row and tonumber(row[1].n) == 2 then return true end
 	known = known or SURF.Zones.KnownZoned()
 	if known[map] then return true end
 	bad = bad or SURF.Zones.KnownBad()
@@ -82,19 +83,16 @@ function MV.SetHidden(map, hide)
 	file.Write(HIDDEN_FILE, #names > 0 and (table.concat(names, "\n") .. "\n") or "")
 end
 
--- Maps players can vote for and nominate: only ones with a start and end,
--- unless the server has hardly any of those yet. Never hidden ones.
+-- Maps players can vote for and nominate, and the only ones picked
+-- automatically: never a map without a start and an end, never a hidden one.
+-- Admins can still load any installed map with !map (to place zones).
 function MV.Playable()
 	local known, bad, hidden = SURF.Zones.KnownZoned(), SURF.Zones.KnownBad(), MV.Hidden()
-	local zoned, all = {}, {}
+	local zoned = {}
 	for _, m in ipairs(MV.MapList()) do
-		if not hidden[m] then
-			all[#all + 1] = m
-			if MV.HasZones(m, known, bad) then zoned[#zoned + 1] = m end
-		end
+		if not hidden[m] and MV.HasZones(m, known, bad) then zoned[#zoned + 1] = m end
 	end
-	if #zoned >= 3 then return zoned end
-	return all
+	return zoned
 end
 
 -- Map list with tiers, for menus and the portal
@@ -190,13 +188,17 @@ function MV.Start(allowExtend)
 	MV.active = true
 	MV.votes = {}
 	local choices, used = {}, { [game.GetMap()] = true }
+	local pool = VotePool()
+	local playable = {}
+	for _, map in ipairs(pool) do playable[map] = true end
 	for _, map in pairs(MV.nominations) do
-		if not used[map] and #choices < SURF.Config.MapVoteChoices then
+		-- (a nominated map may have been hidden since)
+		if playable[map] and not used[map] and #choices < SURF.Config.MapVoteChoices then
 			choices[#choices + 1] = map
 			used[map] = true
 		end
 	end
-	for _, map in ipairs(VotePool()) do
+	for _, map in ipairs(pool) do
 		if #choices >= SURF.Config.MapVoteChoices then break end
 		if not used[map] then
 			choices[#choices + 1] = map
@@ -257,6 +259,27 @@ timer.Create("surf_maptime", 5, 0, function()
 	if CurTime() >= GetGlobal2Int("surf_mapend") then MV.Start(true) end
 end)
 
+-- A map that turns out to have no working start and end when it loads
+-- (bad_zones.txt then keeps it out of later votes) doesn't stay either: a
+-- vote for the next map starts once someone is playing, without an extend
+-- option. Not when an admin loaded it on purpose with !map, to place zones.
+local ADMIN_MAP_FILE = "surfline/admin_map.txt"
+function MV.MarkAdminMap(map) file.Write(ADMIN_MAP_FILE, map) end
+
+hook.Add("InitPostEntity", "surf_nozones_leave", function()
+	local map = game.GetMap()
+	local byAdmin = string.Trim(file.Read(ADMIN_MAP_FILE, "DATA") or "") == map
+	file.Delete(ADMIN_MAP_FILE)
+	if byAdmin or not string.StartWith(map, SURF.Config.MapPrefix) then return end
+	timer.Create("surf_nozones_leave", 15, 0, function()
+		if SURF.Zones.HasTimer(0) then return timer.Remove("surf_nozones_leave") end
+		if MV.active or #player.GetHumans() == 0 or CurTime() - mapStart < 30 then return end
+		timer.Remove("surf_nozones_leave")
+		SURF.Chat(nil, SURF.Config.Accent, "[Vote] ", color_white, "This map has no working start and end zones, so let's pick another one.")
+		MV.Start(false)
+	end)
+end)
+
 -- If the server boots on a non-surf map (e.g. the gm_construct fallback while
 -- workshop maps mount), hop to a random surf map once one is available.
 hook.Add("InitPostEntity", "surf_bootmap", function()
@@ -264,7 +287,7 @@ hook.Add("InitPostEntity", "surf_bootmap", function()
 	timer.Simple(10, function()
 		local maps = VotePool()
 		if #maps == 0 then
-			print("[Surf] No " .. SURF.Config.MapPrefix .. "* maps found. Check maps.log on the server.")
+			print("[Surf] No " .. SURF.Config.MapPrefix .. "* maps with zones found. Check maps.log on the server.")
 			return
 		end
 		local pick = maps[1]

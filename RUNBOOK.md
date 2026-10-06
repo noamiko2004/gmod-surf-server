@@ -40,15 +40,22 @@ For Claude (or anyone) picking up the server for a scheduled update.
 ## 4. Check
 - `journalctl -u gmod-surf -n 200` has no Lua errors.
 - The portal (address in `/home/gmod/portal_url.txt`) loads and Steam sign-in
-  reaches /admin. A domain is set with `scripts/set-domain.sh <name>` (one
+  reaches /admin. Its footer version matches the last line of `update.sh`; if
+  not, `systemctl restart surf-portal`. A domain is set with `scripts/set-domain.sh <name>` (one
   command, no `&&`: the Hetzner web console garbles some symbols). If not: `journalctl -u surf-portal -n 50` and
   `journalctl -u caddy -n 50` (certificate errors mean ports 80/443 are
   blocked, for example by a Hetzner Cloud firewall).
 - Join, run `!r`, finish a map, `!wr`, `!rtv`, `!spec`, `!trail`.
+- F1 opens the main menu. `!admin` > Log shows what admins did since the last
+  session (in game and on the website).
 - Maps players call weird or broken: `!hidemap <map>` in game, or add them to
   `maps/blocked_maps.txt` so they stay out on every server; the next update
   deletes them. If players spawn facing a wall on a map, stand in the start,
   look the right way and type `!zone angle`.
 - `!zone info` shows where the current map's zones came from (map, triggers,
-  admin) and how many stages/bonuses loaded. Maps whose ready-made zones don't
-  fit are listed in `garrysmod/data/surfline/bad_zones.txt`.
+  admin) and how many stages/bonuses loaded. Maps that loaded without a
+  working start and end are listed in `garrysmod/data/surfline/bad_zones.txt`:
+  they never come up in votes, nominations or the start map, a vote for
+  another map starts when one loads anyway, and the next update installs
+  working maps in their place. To fix one, load it with `!map <name>` (it then
+  stays) and place `!zone start` and `!zone end`.

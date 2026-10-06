@@ -1,6 +1,7 @@
 """config.env parsing (a bash file; parsed, never executed) with periodic reload."""
 import os
 import re
+import subprocess
 import threading
 import time
 
@@ -136,3 +137,17 @@ def read_invite(path):
     except OSError:
         return ""
     return line if _INVITE.fullmatch(line) else ""
+
+
+def read_version(repo):
+    """(short commit, commit time) of the checkout, or ("", 0). Read once when the
+    portal starts, so the footer shows the version the site is really running."""
+    try:
+        out = subprocess.run(["git", "-C", repo, "log", "-1", "--format=%h %ct"],
+                             capture_output=True, text=True, timeout=5)
+        parts = out.stdout.split()
+        if out.returncode == 0 and len(parts) == 2 and parts[1].isdigit() and re.fullmatch(r"[0-9a-f]{4,40}", parts[0]):
+            return parts[0], int(parts[1])
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return "", 0

@@ -45,19 +45,48 @@ in chat is `BRAND_NAME`.
 - `!discord` shows and opens the invite (DISCORD_URL, else the bot's invite)
 - Players away for 5 minutes move to the spectators and don't block `!rtv`
 - Practice: `!saveloc` / `!tele`, `!stage <n>` (timer turns off)
+- Main menu on F1 (`!menu`): your stats and this map, records, top players,
+  maps (search, tier filter, nominate), styles, settings and a searchable
+  command list
+- Scoreboard: click a player for their Steam profile, to watch them
+  (`!spec <name>`) or to mute their voice
 - HUD with timer, speed that turns green/red when gaining/losing, CP progress,
   key display (`!keys`), PB/WR; scoreboard with titles and points
 - `!r` restart, `!spec` spectating, `!rtv`, `!nominate`, `!maps` (with tiers),
   map vote every 40 minutes with tiers shown and an extend option
-- `!hide` other players, `!trail` trails, colored chat tags
-- Cosmetic VIP (trails, gold tag and name). No pay to win.
+- `!hide` other players, colored chat tags
+- Coins and a cosmetic shop (`!shop`, `!coins`; F3 opens it on the trails):
+  coins come from finishing maps (more for a first finish and harder tiers),
+  personal bests, records, a daily visit and time spent surfing, and buy
+  hats, player skins, trails, chat tags, name colors (Rainbow included),
+  finish sounds and VIP time. The menu previews each item (3D for hats and
+  skins). Prices, coin rates and VIP coin prices can be changed on the
+  website (Admin > Shop) without editing files. Coins
+  are separate from points, nothing changes movement, and there are no random
+  rewards. The website shows the catalog and your coins at `/shop`. Items and
+  rates live in `sh_config.lua` (`Trails`, `Hats`, `Skins`, `ChatTags`,
+  `NameColors`, `FinishSounds`, `VIPPackages`, `Coins`)
+- Cosmetic VIP: VIP trails, tag and name color, a gold [VIP] tag and name,
+  and 50% more coins. No pay to win.
 
 Admin: `!zone start` / `!zone end` (two corners each; replaces only that zone),
 `!zone angle` (players face the way you look in the start), `!zone delete start`,
 `!zone reset` (back to ready-made zones and angles), `!zone info`,
 `!map <name>` (any installed map, also ones without zones), `!deltime <steamid64> [style]`,
 `!hidemap [map]` / `!unhidemap <map>` (take a map out of the rotation),
-`!forcevote`. Console: `surf_givevip <id> <days>`, `surf_removevip <id>`.
+`!forcevote`. Console: `surf_givevip <id> <days>`, `surf_removevip <id>`,
+`surf_givecoins <id> <amount>`, `surf_giveitem <id> <item>` and
+`surf_removeitem <id> <item>` (items look like `trail:gold`, `tag:wave`,
+`color:rainbow`, `sound:pop`). The admin page can give coins and items too.
+
+Admin panel in game: `!admin` (or F1 > Admin, or click a player on the
+scoreboard). Players (online, plus a search over everyone who joined) with go
+to, bring, freeze, slay, chat mute, voice gag, kick, ban and deleting times;
+Server (vote, extend, restart, change or hide maps, announcements); Bans;
+Staff; and a Log of every admin action in game and on the website. Owners
+(`OWNER_STEAMIDS`) also give VIP, coins, items and points there and make
+admins. Chat versions: `!kick`, `!ban <player> <minutes> [reason]`, `!mute`,
+`!gag`, `!goto`, `!bring`, `!slay`, `!freeze`, `!announce`, `!extend`.
 
 ## Maps
 
@@ -114,6 +143,9 @@ splits, records, bonuses, ranks, the map vote lists and the portal bridge.
 `python3 tests/test_maps.py` runs the map installer against a fake Steam API.
 `python3 tests/test_portal.py` runs the web portal against fake game data, a
 fake Steam login and a fake control helper.
+`python3 tests/test_tebex.py` runs the Tebex poller against a fake Tebex API.
+`python3 tests/client_smoke.py` opens every tab of the shop menu against
+stubbed Derma to catch client Lua errors.
 
 ## Layout
 
@@ -152,7 +184,8 @@ CHANGELOG.md            what changed in each session
    - Create, and note the IPv4 address.
 4. Wait 20-30 minutes, then connect in GMOD's console with `connect IP:27015`.
    Owners in `OWNER_STEAMIDS` are superadmin automatically. Place zones on each
-   map with `!zone start` / `!zone end`; maps without zones are free-surf.
+   map with `!zone start` / `!zone end`. Maps without a working start and end
+   are never voted for or picked automatically; `!map <name>` loads one to zone it.
 
 Manual install instead: clone to /home/gmod/surfline, copy config.env.example
 to config.env, fill it in, and run `sudo bash scripts/install.sh`.
@@ -165,9 +198,26 @@ allow access fees, donations, cosmetics, server currency and ads, but you
 can't sell or block Facepunch DLC. Keep it cosmetic, and no loot boxes or
 gambling (legal risk in many countries).
 
-The plan: open a Tebex store (it has a GMOD plugin), sell VIP packages that
-run `surf_givevip {id} 30` (or `0` for lifetime), and put the store URL in
-`StoreURL` in `sh_config.lua`. Players see it with `!vip`.
+### Selling VIP with Tebex
+
+The portal does the Tebex side itself, so no Tebex addon is needed on the
+game server:
+
+1. Make a store at https://tebex.io for Garry's Mod and add a game server
+   (Integrations > Game servers). Copy its secret key.
+2. Put it in config.env as `TEBEX_SECRET="..."`, and the store's address as
+   `STORE_URL="https://yourstore.tebex.io"`, then run the update.
+3. Add packages whose command is one of these (`{id}` is the buyer's Steam ID;
+   don't tick "player must be online", the game hands them out either way):
+   - `surf_givevip {id} 30` VIP for 30 days (`0` for lifetime; buying again adds days)
+   - `surf_givecoins {id} 5000` a coin pack
+   - `surf_giveitem {id} color:rainbow` one shop item
+   - `surf_removevip {id}` as an expiry or chargeback command
+
+The portal checks Tebex about every minute and the game runs each purchase
+within seconds (or when it is back up). `!vip`, `!shop` and the website's Shop
+page link to the store. Commands it doesn't know stay in the Tebex queue and
+show in the portal log (`journalctl -u surf-portal`).
 
 ## Roadmap (next sessions)
 
@@ -176,4 +226,4 @@ run `surf_givevip {id} 30` (or `0` for lifetime), and put the store URL in
 - Points and a global rank (`!rank`, `!top`), map tiers
 - Per-player HUD settings, stage records
 - Custom loading screen, map voting thumbnails
-- Tebex store hookup, more VIP cosmetics (rainbow trails, hats, join sounds)
+- More cosmetics (rainbow trails, hats, join sounds), buying from the website

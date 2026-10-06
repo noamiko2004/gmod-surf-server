@@ -22,12 +22,12 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
-from surfweb import admin, loading, pages, views  # noqa: E402
+from surfweb import admin, loading, pages, shop, tebex, views  # noqa: E402
 from surfweb.actions import Invalid, describe, run_ctl, validate, write_command  # noqa: E402
 from surfweb.auth import (FLASH_COOKIE, NEXT_COOKIE, SESSION_COOKIE, SESSION_TTL, Auth, load_secret,  # noqa: E402
                           origin_of, safe_next)
 from surfweb.avatars import Avatars  # noqa: E402
-from surfweb.conf import Config  # noqa: E402
+from surfweb.conf import Config, read_version  # noqa: E402
 from surfweb.fmt import MAPNAME_RE, valid_steamid  # noqa: E402
 from surfweb.store import Store, log  # noqa: E402
 
@@ -108,6 +108,7 @@ class App:
     def __init__(self, args):
         repo = os.path.abspath(args.repo)
         self.conf = Config(args.config or os.path.join(repo, "config.env"))
+        self.version = read_version(repo)
         home = self.conf.gmod_home
         gmod_dir = args.gmod_dir or os.path.join(home, "server", "garrysmod")
         data_dir = args.data_dir or os.path.join(gmod_dir, "data", "surfline")
@@ -287,6 +288,15 @@ def r_player(ctx, sid):
     return ctx.html(html)
 
 
+def r_shop(ctx):
+    return ctx.html(shop.shop_page(ctx))
+
+
+def r_shop_css(ctx):
+    cache = "public, max-age=31536000, immutable" if ctx.query.get("v") else "public, max-age=300"
+    return Resp(200, shop.shop_css(ctx.app.store.shop_catalog()), "text/css; charset=utf-8", [("Cache-Control", cache)])
+
+
 def r_api_status(ctx):
     return json_resp(pages.api_status(ctx))
 
@@ -392,6 +402,11 @@ def r_admin_vip(ctx):
 
 
 @admin_only
+def r_admin_shop(ctx):
+    return ctx.html(admin.shop_admin(ctx))
+
+
+@admin_only
 def r_admin_maps(ctx):
     return ctx.html(admin.maps_admin(ctx))
 
@@ -456,6 +471,8 @@ GET_ROUTES = [
     (re.compile(r"^/maps/?$"), r_maps),
     (re.compile(r"^/maps/([^/]{1,200})$"), r_map),
     (re.compile(r"^/players/([0-9]{1,20})/?$"), r_player),
+    (re.compile(r"^/shop/?$"), r_shop),
+    (re.compile(r"^/shop\.css$"), r_shop_css),
     (re.compile(r"^/api/status$"), r_api_status),
     (re.compile(r"^/healthz$"), r_health),
     (re.compile(r"^/robots\.txt$"), r_robots),
@@ -471,6 +488,7 @@ GET_ROUTES = [
     (re.compile(r"^/admin/vip$"), r_admin_vip),
     (re.compile(r"^/admin/maps$"), r_admin_maps),
     (re.compile(r"^/admin/logs$"), r_admin_logs),
+    (re.compile(r"^/admin/shop$"), r_admin_shop),
 ]
 POST_ROUTES = {"/logout": (p_logout, False), "/admin/cmd": (p_admin_cmd, True), "/admin/ctl": (p_admin_ctl, True)}
 
@@ -614,6 +632,7 @@ def main(argv=None):
     args = parse_args(argv)
     app = App(args)
     Handler.app = app
+    tebex.start(app.conf, app.store.portal_dir)  # paid store; idle until TEBEX_SECRET is set
     srv = Server(app.listen, Handler)
     host, port = srv.server_address[:2]
     print(f"[portal] listening on http://{host}:{port} (base {app.base_url})", flush=True)

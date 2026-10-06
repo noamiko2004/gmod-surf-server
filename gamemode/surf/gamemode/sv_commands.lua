@@ -7,6 +7,7 @@ local function Add(names, help, fn, adminOnly)
 	for _, n in ipairs(names) do C.list[n] = entry end
 	C.order[#C.order + 1] = entry
 end
+C.Add = Add
 
 function C.Run(ply, name, args)
 	local entry = C.list[string.lower(name)]
@@ -173,7 +174,13 @@ Add({ "replay", "wrbot" }, "Watch the server record replay", function(ply) SURF.
 
 Add({ "keys", "showkeys" }, "Show or hide the key display", function(ply) SURF.ClientAction(ply, "keys") end)
 
-Add({ "spec", "spectate" }, "Spectate other players (again to return)", function(ply) SURF.Spec.Toggle(ply) end)
+Add({ "spec", "spectate" }, "Spectate other players (again to return); !spec <name> watches that player", function(ply, args)
+	if not args[1] then return SURF.Spec.Toggle(ply) end
+	local t, err = SURF.Admin.FindPlayer(table.concat(args, " "))
+	if not t then return SURF.Chat(ply, acc, "[Spec] ", white, err) end
+	if t == ply or not t:Alive() or t:Team() == TEAM_SPECTATOR then return SURF.Chat(ply, acc, "[Spec] ", white, t:Nick() .. " isn't surfing right now.") end
+	SURF.Spec.Watch(ply, t)
+end)
 
 Add({ "auto", "autohop" }, "Toggle holding jump to bunnyhop", function(ply)
 	local on = not ply:GetNW2Bool("surf_autohop", SURF.Config.DefaultAutoHop)
@@ -192,7 +199,7 @@ end)
 
 Add({ "zonefx" }, "Glowing zones on or off", function(ply) SURF.ClientAction(ply, "zonefx") end)
 
-Add({ "trail", "trails" }, "Pick a trail", function(ply) SURF.Menu.Open(ply, "trails") end)
+Add({ "trail", "trails" }, "Pick a trail", function(ply) SURF.Shop.OpenMenu(ply, "trail") end)
 
 Add({ "rtv", "rockthevote" }, "Vote to change the map", function(ply) SURF.MapVote.RTV(ply) end)
 
@@ -207,8 +214,8 @@ Add({ "timeleft" }, "Time until the map vote", function(ply)
 	SURF.Chat(ply, acc, "[Vote] ", white, string.format("%d:%02d left on this map.", math.floor(left / 60), math.floor(left % 60)))
 end)
 
-Add({ "vip", "store", "donate" }, "VIP perks and how to support the server", function(ply)
-	SURF.Menu.Open(ply, "vip", { url = SURF.Config.StoreURL, vip = SURF.IsVIP(ply), expires = ply.SurfVIPExpires })
+Add({ "vip", "store", "donate" }, "VIP perks, buying VIP with coins, and how to support the server", function(ply)
+	SURF.Shop.OpenMenu(ply, "vip")
 end)
 
 Add({ "discord", "dc" }, "Join our Discord (live status, records, chat with the server)", function(ply)
@@ -271,6 +278,7 @@ Add({ "map", "changelevel" }, "!map <name> switches to any installed map (also o
 	SURF.Chat(nil, acc, "[Admin] ", white, ply:Nick() .. " is changing the map to ", acc, map, white, ".")
 	timer.Simple(3, function()
 		for _, p in ipairs(player.GetHumans()) do SURF.DB.SavePlayer(p) end
+		SURF.MapVote.MarkAdminMap(map) -- stays even without zones, to place them
 		RunConsoleCommand("changelevel", map)
 	end)
 end, true)
