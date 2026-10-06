@@ -27,7 +27,7 @@ from surfweb.actions import Invalid, describe, run_ctl, validate, write_command 
 from surfweb.auth import (FLASH_COOKIE, NEXT_COOKIE, SESSION_COOKIE, SESSION_TTL, Auth, load_secret,  # noqa: E402
                           origin_of, safe_next)
 from surfweb.avatars import Avatars  # noqa: E402
-from surfweb.conf import Config, read_version  # noqa: E402
+from surfweb.conf import Config, read_version, save_site_settings  # noqa: E402
 from surfweb.fmt import MAPNAME_RE, valid_steamid  # noqa: E402
 from surfweb.store import Store, log  # noqa: E402
 
@@ -123,6 +123,8 @@ class App:
         self.origin = origin_of(self.base_url)
         self.public_addr = args.public_addr or derive_public_addr(self.base_url, self.conf.port)
         self.store = Store(data_dir, db, gmod_dir, self.logs_dir)
+        self.conf.site_dir = self.store.portal_dir  # owner settings saved on the website
+        self.conf.reload()
         secret = load_secret(args.secret_file or os.path.join(home, ".portal_secret"))
         self.auth = Auth(secret, self.base_url, args.steam_openid)
         self.avatars = Avatars(os.path.join(data_dir, "portal", "avatars.json"), enabled=not args.no_avatars)
@@ -450,6 +452,39 @@ def p_admin_cmd(ctx, form):
     return ctx.flash_redirect(back, "ok", msg)
 
 
+def p_admin_store(ctx, form):
+    """Tebex secret key and store address, saved on the website (portal/settings.json)."""
+    app = ctx.app
+    back = "/admin/shop"
+    updates = {}
+    if form.get("disconnect") == "1":
+        updates = {"TEBEX_SECRET": "", "STORE_URL": ""}
+    else:
+        key = str(form.get("tebex_secret", "")).strip()
+        if key:
+            if not tebex.SECRET_RE.match(key):
+                return ctx.flash_redirect(back, "err", "That doesn't look like a Tebex secret key (letters and numbers only). Copy it again from Tebex.")
+            updates["TEBEX_SECRET"] = key
+        url = str(form.get("store_url", "")).strip().rstrip("/")
+        if url and not tebex.STORE_URL_RE.match(url):
+            return ctx.flash_redirect(back, "err", "The store address must start with https://, like https://yourstore.tebex.io")
+        updates["STORE_URL"] = url
+    try:
+        save_site_settings(app.store.portal_dir, updates)
+    except OSError as ex:
+        log("cannot save store settings:", ex)
+        return ctx.flash_redirect(back, "err", "Could not save (the data folder is not writable).")
+    app.conf.reload()
+    tebex.write_store_url(app.store.portal_dir, app.conf.https_url("STORE_URL"))
+    app.store.append_audit({"time": int(time.time()), "by": ctx.sid, "ip": ctx.ip, "kind": "store",
+                            "changed": sorted(k for k, v in updates.items() if v), "cleared": sorted(k for k, v in updates.items() if not v)})
+    if form.get("disconnect") == "1":
+        return ctx.flash_redirect(back, "ok", "Tebex is disconnected. Nothing more is handed out until you save a key again.")
+    if "TEBEX_SECRET" in updates:
+        return ctx.flash_redirect(back, "ok", "Saved. The website checks the key with Tebex within a minute; reload this page to see the result.")
+    return ctx.flash_redirect(back, "ok", "Saved.")
+
+
 def p_admin_ctl(ctx, form):
     app = ctx.app
     op = form.get("op", "")
@@ -490,7 +525,8 @@ GET_ROUTES = [
     (re.compile(r"^/admin/logs$"), r_admin_logs),
     (re.compile(r"^/admin/shop$"), r_admin_shop),
 ]
-POST_ROUTES = {"/logout": (p_logout, False), "/admin/cmd": (p_admin_cmd, True), "/admin/ctl": (p_admin_ctl, True)}
+POST_ROUTES = {"/logout": (p_logout, False), "/admin/cmd": (p_admin_cmd, True), "/admin/ctl": (p_admin_ctl, True),
+               "/admin/store": (p_admin_store, True)}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -632,6 +668,7 @@ def main(argv=None):
     args = parse_args(argv)
     app = App(args)
     Handler.app = app
+    tebex.write_store_url(app.store.portal_dir, app.conf.https_url("STORE_URL"))  # for the game's !vip
     tebex.start(app.conf, app.store.portal_dir)  # paid store; idle until TEBEX_SECRET is set
     srv = Server(app.listen, Handler)
     host, port = srv.server_address[:2]

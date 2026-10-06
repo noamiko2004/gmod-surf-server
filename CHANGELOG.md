@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-10-06 (v5.5)
+- Tebex from the website: Admin > Shop has a "Selling VIP with Tebex" card to
+  paste the store's secret key (and optionally the store address). It is saved
+  in `data/surfline/portal/settings.json` (owner-only file) and wins over
+  config.env. The portal checks the key with Tebex (`/information`) and the
+  card shows the store and game server it belongs to, the last purchase check,
+  or why it fails. The key itself is never shown again.
+- The store address falls back to the one Tebex reports, and the game picks it
+  up for `!vip` and the shop (`portal/store_url.txt`, re-read every 30 s).
+
 ## 2026-10-03 (v5.4)
 - The website footer shows the version it runs (commit and date), and
   `update.sh` ends with the version it installed and the website address, so

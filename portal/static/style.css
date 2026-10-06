@@ -801,3 +801,7 @@ pre.log {
   .shop-items > form { flex-wrap: wrap; }
   .shop-items .si-name { flex: 1 1 100%; }
 }
+/* Tebex card on the admin shop page */
+.alert:not(.alert-err):not(.alert-warn):not(.alert-ok) { border-color: var(--line); background: rgba(255, 255, 255, 0.03); }
+.alert-ok { background: var(--ok-soft); border-color: rgba(52, 211, 153, 0.35); color: #a7f3d0; }
+.store-form { margin: 14px 0 10px; }
