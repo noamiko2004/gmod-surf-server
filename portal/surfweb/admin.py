@@ -472,7 +472,10 @@ def logs(ctx):
     upd = pre_box(tail_lines(os.path.join(app.logs_dir, "update.log"), 200), "update.log not found.")
     mlog = pre_box(tail_lines(os.path.join(app.logs_dir, "maps.log"), 200), "maps.log not found.")
     audit = pre_box(tail_lines(os.path.join(app.store.portal_dir, "audit.log"), 200), "No admin actions logged yet.")
+    health = pre_box(tail_lines(os.path.join(app.logs_dir, "health.txt"), 200),
+                     "No health report yet. It is written every 10 minutes after the next update.")
     body = (f'<div class="stack">'
+            f'<section class="card"><header class="card-h"><h2>Health check</h2><span class="muted small">every 10 min, or sudo surfcheck</span></header>{health}</section>'
             f'<section class="card"><header class="card-h"><h2>Server journal</h2><span class="muted small">last 300 lines</span></header>{journal}</section>'
             f'<section class="card"><header class="card-h"><h2>update.log</h2><span class="muted small">last 200 lines</span></header>{upd}</section>'
             f'<section class="card"><header class="card-h"><h2>maps.log</h2><span class="muted small">last 200 lines</span></header>{mlog}</section>'

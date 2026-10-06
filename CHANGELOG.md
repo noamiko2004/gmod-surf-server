@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-10-06 (health check)
+- `sudo surfcheck` (scripts/health.py) prints a one-screen health summary:
+  the four services and their restarts, Lua errors and crashes in the game log
+  of the last 24 hours (grouped by file and line), website and Discord bot
+  errors (including HTTP 500s), Caddy errors, messages stuck between the game
+  and Discord, the `!discord` link, the last update and its problem lines,
+  backups, installed maps, the database, disk, memory and out-of-memory kills,
+  and whether the server runs the version on GitHub. `sudo surfcheck full`
+  adds the details.
+- Cron refreshes the report every 10 minutes: the full report is on top of
+  the website's Admin > Logs page, and a summary with links, IPs and keys
+  removed is public at `/health.json`, so the server can be checked without
+  a console screenshot.
+
 ## 2026-10-03 (v5.4)
 - The website footer shows the version it runs (commit and date), and
   `update.sh` ends with the version it installed and the website address, so

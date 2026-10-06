@@ -163,6 +163,8 @@ json.dump({"updated": NOW, "coins": {"FirstFinish": 50, "PerTier": 25, "Improved
           open(os.path.join(data, "portal", "shop.json"), "w"))
 open(os.path.join(logs, "maps.log"), "w").write("".join(f"maps line {i}\n" for i in range(300)) + XSS1 + "\n")
 open(os.path.join(logs, "update.log"), "w").write("update started\nupdate finished OK\n")
+open(os.path.join(logs, "health.txt"), "w").write("SURF health check line\n" + XSS1 + "\n")
+open(os.path.join(logs, "health.json"), "w").write('{"status": "ok", "checks": []}\n')
 json.dump({A: {"url": "https://avatars.steamstatic.com/abc_medium.jpg", "t": NOW},
            CC: {"url": "https://evil.example.com/a.jpg", "t": NOW}},
           open(os.path.join(data, "portal", "avatars.json"), "w"))
@@ -892,6 +894,7 @@ check(r.status == 403 and open(ctl_log).read().split() == ["restart", "update"],
 lg = get("/admin/logs", cookies=OWN)
 check(lg.status == 200 and "Could not read the server journal" in lg.body and "journal is broken" in lg.body
       and "update finished OK" in lg.body and "maps line 299" in lg.body and "maps line 50" not in lg.body, "logs: ctl failure is friendly, log tails shown")
+check("SURF health check line" in lg.body and not no_raw(lg.body) and lg.body.find("Health check") < lg.body.find("Server journal"), "logs: health report on top, escaped")
 check(any(a.get("kind") == "ctl" and a.get("op") == "restart" for a in map(json.loads, open(os.path.join(data, "portal", "audit.log")))),
       "ctl actions are audited")
 
@@ -982,6 +985,8 @@ codes = [get("/login", ip="10.66.66.66").status for _ in range(25)]
 check(429 in codes and codes[0] == 302, f"login is rate limited per IP ({codes.count(429)} x 429)")
 check(get("/login", ip="10.66.66.67").status == 302, "other IPs are not affected")
 check(get("/healthz").status == 200 and get("/robots.txt").status == 200, "healthz and robots")
+hj = get("/health.json")
+check(hj.status == 200 and json.loads(hj.body)["status"] == "ok", "health.json serves the health summary")
 
 # ------------------------------------------------------------------ portal with nothing to read
 empty_root = os.path.join(tmp, "empty")
