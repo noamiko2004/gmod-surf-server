@@ -545,6 +545,28 @@ SURF.AFK.Check()
 check(len(G.active) == 1 and G.active[1].name == "Bob", "Alice is AFK after 5 minutes, Bob moved")
 check(list(G.specToggles.values()) == ["Alice"] and any("[AFK]" in c for c in G.chats.values()), "AFK player moved to spectators")
 
+# The HUD's spectator list: the names of who watches each player (the rest of
+# the tests keep the stubbed SURF.Spec)
+L.execute("savedSpec = SURF.Spec")
+include("sv_spectate.lua")
+L.execute(r"""
+SURF.Spec = savedSpec
+hooks.KeyPress.surf_spec_keys = nil
+carl = MakePlayer("Carl", "76561190000000033")
+carl.team = TEAM_SPECTATOR
+function carl:GetObserverMode() return OBS_MODE_IN_EYE end
+function carl:GetObserverTarget() return b end
+function b:IsPlayer() return true end
+humans = { a, b, carl }
+timers.surf_spec_fix()
+watchersB, watchersA = b:GetNW2String("surf_watchers", ""), a:GetNW2String("surf_watchers", "")
+carl.team = 1
+timers.surf_spec_fix()
+watchersAfter = b:GetNW2String("surf_watchers", "")
+humans = { a, b }
+""")
+check(G.watchersB == "1\nCarl" and G.watchersA == "" and G.watchersAfter == "", f"who is watching is kept on the watched player ({G.watchersB!r}, {G.watchersAfter!r})")
+
 # !mapinfo
 L.execute('chats = {} SURF.Commands.Run(a, "mapinfo", {})')
 msgs = list(G.chats.values())
@@ -1227,6 +1249,20 @@ SURF.Commands.Run(eve, "skins", {})
 """)
 check(G.menus[1].kind == "shop" and G.menus[1].data.tab == "vip" and G.menus[1].data.vipPackages[1].price == 5000, "!vip opens the shop's VIP tab with the packages")
 check(G.menus[2].data.tab == "hat" and G.menus[3].data.tab == "skin", "!hats and !skins open their tabs")
+
+# Store address from the website
+L.execute(r"""
+SURF.Config.StoreURL = "https://cfg.example.com"
+SURF.Shop.baseStoreURL = nil
+SURF.Shop.LoadStoreURL()
+url0 = SURF.Config.StoreURL
+""")
+vfs["surfline/portal/store_url.txt"] = "https://surf-eu.tebex.io\n"
+L.execute('SURF.Shop.LoadStoreURL() url1 = SURF.Config.StoreURL')
+vfs["surfline/portal/store_url.txt"] = "javascript:alert(1)\n"
+L.execute('SURF.Shop.LoadStoreURL() url2 = SURF.Config.StoreURL')
+check(G.url0 == "https://cfg.example.com" and G.url1 == "https://surf-eu.tebex.io" and G.url2 == "https://cfg.example.com",
+      f"the website's store address is used, bad ones are ignored ({G.url0}, {G.url1}, {G.url2})")
 
 # Every bundled zone file parses and has a main start+end
 bad = []

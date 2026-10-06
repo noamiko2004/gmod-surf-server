@@ -1,4 +1,5 @@
 """Owner-only pages. Every form posts with a CSRF token; the server validates again."""
+import json
 import os
 import time
 
@@ -356,12 +357,70 @@ def shop_item_form(ctx, it, owners, back):
     return form(ctx, "shopitem", inner, back, "row-form shop-item")
 
 
+def tebex_status(app):
+    try:
+        with open(os.path.join(app.store.portal_dir, "tebex_status.json"), encoding="utf-8") as f:
+            st = json.load(f)
+        return st if isinstance(st, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def store_card(ctx):
+    """Selling VIP with Tebex: paste the secret key and see whether Tebex accepts it."""
+    app = ctx.app
+    conf = app.conf
+    secret = conf.get("TEBEX_SECRET")
+    st = tebex_status(app)
+    if not secret:
+        state = ('<div class="alert"><div><b>Not connected.</b><p class="small">Paste the secret key from Tebex below to start '
+                 'handing out what people buy.</p></div></div>')
+    elif st.get("key_end") != secret[-4:] or not st.get("checked"):
+        state = ('<div class="alert"><div><b>Checking the key with Tebex...</b><p class="small">This takes up to a minute. '
+                 'Reload the page to see the result.</p></div></div>')
+    elif st.get("ok"):
+        polled = f' Last checked for purchases {when(to_int(st.get("polled")))}.' if st.get("polled") else ""
+        state = (f'<div class="alert alert-ok"><div><b>Connected to Tebex.</b><p class="small">Store '
+                 f'<b>{e(to_str(st.get("account"), "?"))}</b>, game server <b>{e(to_str(st.get("server"), "?"))}</b>.{e(polled)}</p></div></div>')
+    else:
+        state = (f'<div class="alert alert-err"><div><b>Not working.</b><p class="small">{e(to_str(st.get("error"), "Tebex refused the key."))} '
+                 f'Copy the key again from Tebex (Integrations &gt; Game servers).</p></div></div>')
+    src = conf.source("TEBEX_SECRET")
+    if secret:
+        ph = f"Saved (ends in {secret[-4:]}). Paste a new one to replace it"
+        if src == "config":
+            ph += " (now set in config.env)"
+    else:
+        ph = "Paste the secret key from Tebex"
+    url_src = conf.source("STORE_URL")
+    url_val = conf.get("STORE_URL") if url_src == "website" else ""
+    url_ph = conf.https_url("STORE_URL") or "https://yourstore.tebex.io"
+    form_html = (f'<form method="post" action="/admin/store" class="form-stack store-form">{csrf_field(ctx)}'
+                 f'<label class="field"><span>Tebex secret key</span><input name="tebex_secret" type="password" autocomplete="off" '
+                 f'spellcheck="false" maxlength="128" placeholder="{e(ph)}"></label>'
+                 f'<label class="field"><span>Store address</span><input name="store_url" maxlength="200" value="{e(url_val)}" '
+                 f'placeholder="{e(url_ph)}"></label>'
+                 f'<div class="btn-row">{button("Save", "btn-gold")}</div></form>')
+    disc = ""
+    if secret and src == "website":
+        disc = (f'<form method="post" action="/admin/store" data-confirm="Disconnect Tebex? Purchases wait in Tebex until you connect again.">'
+                f'{csrf_field(ctx)}<input type="hidden" name="disconnect" value="1">{button("Disconnect")}</form>')
+    help_html = ('<p class="muted small">In Tebex: Integrations &gt; Game servers &gt; your server shows the secret key. '
+                 'You don\'t need the Tebex addon on the game server; this website does that job. '
+                 'Package command: <b class="mono">surf_givevip {id} 30</b> (0 days = lifetime), coins: '
+                 '<b class="mono">surf_givecoins {id} 5000</b>, refund or chargeback: <b class="mono">surf_removevip {id}</b>. '
+                 'Leave the store address empty to use the one Tebex reports.</p>')
+    return (f'<section class="card"><header class="card-h"><h2>{icon("cart")}Selling VIP with Tebex</h2></header>'
+            f'{state}{form_html}{disc}{help_html}</section>')
+
+
 def shop_admin(ctx):
     app = ctx.app
     back = "/admin/shop"
     cat = app.store.shop_catalog()
     if cat is None:
-        body = f'<section class="card">{empty("The game server has not written the shop yet.", "It does once it runs this update.", "cart")}</section>'
+        body = (f'<div class="stack">{store_card(ctx)}<section class="card">'
+                f'{empty("The game server has not written the shop yet.", "It does once it runs this update.", "cart")}</section></div>')
         return admin_layout(ctx, "Shop", body)
     stats = app.store.shop_stats()
     names = app.store.player_names()
@@ -392,7 +451,7 @@ def shop_admin(ctx):
                      f'<span>{e(item_names.get(r["reason"][7:], r["reason"][7:]))}</span>'
                      f'<span class="mono gold">{fmt_int(-r["amount"])}</span><span class="muted small">{when(r["date"])}</span></li>'
                      for r in stats["recent"] if valid_steamid(r["sid"]))
-    body = (f'<dl class="stat-grid stat-4">{grid}</dl>'
+    body = (f'{store_card(ctx)}<dl class="stat-grid stat-4">{grid}</dl>'
             f'<p class="muted small">Changes reach the game within a few seconds and are saved on the server. Coins 0 means no coin price: '
             f'the item is then free, or VIP only when VIP is ticked. VIP ticked with a price means it is bought with coins and free for VIPs. '
             f'Hidden items leave the shop, but players who own them keep them.</p>'

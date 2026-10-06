@@ -1,7 +1,7 @@
 """Tebex, the paid VIP store, to the game server.
 
 Off until TEBEX_SECRET (the store's secret key from Tebex > Integrations > Game
-servers) is set in config.env. Then the portal asks Tebex's Plugin API for paid
+servers) is set, on the website (Admin > Shop) or in config.env. Then the portal asks Tebex's Plugin API for paid
 commands every minute or so, turns the ones it knows into portal commands (the
 game runs them within seconds, or when it is back if it is down), and tells
 Tebex they are done. Anything else stays in the Tebex queue and is logged.
@@ -26,6 +26,7 @@ import urllib.parse
 import urllib.request
 
 from .actions import ITEM_RE, write_command
+from .conf import TEBEX_STATUS_FILE
 from .store import log
 
 API = "https://plugin.tebex.io"
@@ -34,6 +35,22 @@ DONE_KEEP = 5000
 _STEAM2 = re.compile(r"^STEAM_[0-5]:([01]):(\d{1,10})$")
 _STEAM3 = re.compile(r"^\[?U:1:(\d{1,10})\]?$")
 _STEAM64 = re.compile(r"^7656\d{13}$")
+
+
+SECRET_RE = re.compile(r"^[A-Za-z0-9]{16,128}$")
+STORE_URL_RE = re.compile(r"^https://[A-Za-z0-9.-]{3,100}(/[A-Za-z0-9._~/-]{0,90})?$")
+
+
+def write_store_url(portal_dir, url):
+    """The store address for the game's !vip and shop menu (portal/store_url.txt)."""
+    try:
+        os.makedirs(portal_dir, exist_ok=True)
+        tmp = os.path.join(portal_dir, "store_url.txt.tmp")
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write((url or "") + "\n")
+        os.replace(tmp, os.path.join(portal_dir, "store_url.txt"))
+    except OSError as ex:
+        log(f"tebex: cannot write store_url.txt: {ex}")
 
 
 def to_steamid64(v):
@@ -81,6 +98,9 @@ class Tebex:
         self.done_path = os.path.join(portal_dir, "tebex_done.json")
         self.done = self._load_done()
         self.warned = set()
+        self.status_path = os.path.join(portal_dir, TEBEX_STATUS_FILE)
+        self.checked_secret = None
+        self.status = {}
 
     def _load_done(self):
         try:
@@ -96,6 +116,46 @@ class Tebex:
             json.dump(self.done[-DONE_KEEP:], f)
         os.replace(tmp, self.done_path)
 
+    def _save_status(self, **kw):
+        """What the admin page shows: the store Tebex knows the key for, the last poll and the last error."""
+        self.status.update(kw)
+        try:
+            os.makedirs(self.portal_dir, exist_ok=True)
+            tmp = self.status_path + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(self.status, f)
+            os.replace(tmp, self.status_path)
+        except OSError as ex:
+            log(f"tebex: cannot save status: {ex}")
+
+    def check_key(self, secret):
+        """Ask Tebex which store and server the key belongs to (GET /information)."""
+        self.checked_secret = secret
+        self.status = {"key_end": secret[-4:]}
+        try:
+            info = self.request("GET", "/information", secret)
+        except urllib.error.HTTPError as ex:
+            self._save_status(ok=False, checked=int(time.time()),
+                              error="Tebex refused this secret key." if ex.code in (401, 403) else f"Tebex answered HTTP {ex.code}.")
+            return False
+        except (OSError, ValueError) as ex:
+            self._save_status(ok=False, checked=int(time.time()), error=f"Could not reach Tebex ({str(ex)[:120]}).")
+            self.checked_secret = None  # try again next round
+            return False
+        account = info.get("account") if isinstance(info.get("account"), dict) else {}
+        server = info.get("server") if isinstance(info.get("server"), dict) else {}
+        domain = str(account.get("domain") or "")
+        if domain and not domain.startswith("http"):
+            domain = "https://" + domain
+        self._save_status(ok=True, checked=int(time.time()), error="", account=str(account.get("name") or "")[:80],
+                          server=str(server.get("name") or "")[:80],
+                          domain=domain[:200] if domain.startswith("https://") and not any(c in domain for c in "<>\"' ") else "")
+        log(f"tebex: connected to store {self.status['account']!r} (server {self.status['server']!r})")
+        if hasattr(self.conf, "reload"):
+            self.conf.reload()
+            write_store_url(self.portal_dir, self.conf.https_url("STORE_URL"))
+        return True
+
     def request(self, method, path, secret, form=None):
         data = urllib.parse.urlencode(form, doseq=True).encode() if form is not None else None
         req = urllib.request.Request(self.api + path, data=data, method=method, headers={
@@ -110,7 +170,15 @@ class Tebex:
         """One round. Returns how many seconds to wait before the next one."""
         secret = self.conf.get("TEBEX_SECRET")
         if not secret:
+            if self.checked_secret is not None or self.status:
+                self.checked_secret, self.status = None, {}
+                try:
+                    os.remove(self.status_path)
+                except OSError:
+                    pass
             return 60
+        if secret != self.checked_secret and not self.check_key(secret):
+            return 120
         try:
             queue = self.request("GET", "/queue", secret)
             meta = queue.get("meta") or {}
@@ -145,11 +213,14 @@ class Tebex:
                 log(f"tebex: ran command {cid}: {cmd['action']} for {cmd['steamid']}")
             if finished:
                 self.request("DELETE", "/queue", secret, {"ids[]": finished})
+            self._save_status(ok=True, error="", polled=int(time.time()))
             return wait
         except urllib.error.HTTPError as ex:
             log(f"tebex: HTTP {ex.code} from Tebex" + (" (check TEBEX_SECRET)" if ex.code in (401, 403) else ""))
+            self._save_status(ok=False, error="Tebex refused this secret key." if ex.code in (401, 403) else f"Tebex answered HTTP {ex.code}.")
         except (OSError, ValueError, AttributeError, TypeError) as ex:
             log(f"tebex: poll failed: {ex}")
+            self._save_status(error=f"Could not reach Tebex ({str(ex)[:120]}).")
         return 120
 
     def run_forever(self):

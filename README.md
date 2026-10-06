@@ -38,7 +38,7 @@ in chat is `BRAND_NAME`.
   and download progress (served by the portal at `/loading`)
 - You spawn and restart (`!r`) facing the way the map goes
 - `!graphics`: color presets (Vivid by default, Cinematic or Off) and glowing
-  START/END zones with labels (`!zonefx` turns the glow off)
+  START/END zones with labels (off at first; `!zonefx` turns the glow on)
 - F (or `!light`) lights up the whole map for that player on dark maps
 - Chat hints: typing `!` lists the matching commands with what they do, and
   Tab completes them
@@ -51,7 +51,12 @@ in chat is `BRAND_NAME`.
 - Scoreboard: click a player for their Steam profile, to watch them
   (`!spec <name>`) or to mute their voice
 - HUD with timer, speed that turns green/red when gaining/losing, CP progress,
-  key display (`!keys`), PB/WR; scoreboard with titles and points
+  key display with mouse turning (`!keys`), PB/WR, who is spectating you and an
+  optional speedometer; scoreboard with titles and points
+- `!hud` (or F1 > Settings > Edit HUD layout): each player drags the parts of
+  their HUD where they want them, resizes them (scroll or right-click), hides
+  them and sets the background. Saved in their own `data/surf_hud.json`. Other
+  client files add parts with `SURF.HUD.Add` (how is at the top of `cl_hud.lua`)
 - `!r` restart, `!spec` spectating, `!rtv`, `!nominate`, `!maps` (with tiers),
   map vote every 40 minutes with tiers shown and an extend option
 - `!hide` other players, colored chat tags
@@ -205,8 +210,10 @@ game server:
 
 1. Make a store at https://tebex.io for Garry's Mod and add a game server
    (Integrations > Game servers). Copy its secret key.
-2. Put it in config.env as `TEBEX_SECRET="..."`, and the store's address as
-   `STORE_URL="https://yourstore.tebex.io"`, then run the update.
+2. Paste it on the website under Admin > Shop > "Selling VIP with Tebex" (the
+   store address is optional; Tebex reports it). The card shows whether Tebex
+   accepts the key. Setting `TEBEX_SECRET` and `STORE_URL` in config.env works
+   too; values saved on the website win.
 3. Add packages whose command is one of these (`{id}` is the buyer's Steam ID;
    don't tick "player must be online", the game hands them out either way):
    - `surf_givevip {id} 30` VIP for 30 days (`0` for lifetime; buying again adds days)
@@ -224,6 +231,6 @@ show in the portal log (`journalctl -u surf-portal`).
 - Stages and bonus zones, checkpoints, per-stage times
 - Replay bot of the server record
 - Points and a global rank (`!rank`, `!top`), map tiers
-- Per-player HUD settings, stage records
+- Stage records
 - Custom loading screen, map voting thumbnails
 - More cosmetics (rainbow trails, hats, join sounds), buying from the website
