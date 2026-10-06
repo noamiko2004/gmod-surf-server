@@ -532,7 +532,7 @@ check(len(os.listdir(br.outbox)) == BR.MAX_QUEUED, "the queue for the game is ca
 for n in os.listdir(br.outbox):
     os.remove(os.path.join(br.outbox, n))
 check(BR.one_line("a\nb\u202e\tc  d" + "x" * 300) == ("a b c d" + "x" * 300)[:200], "one_line strips newlines, bidi, caps length")
-check(BR.webhook_name("Discord King") == "disc0rd King" and BR.webhook_name("\u200b") == "Player", "webhook names Discord accepts")
+check(BR.webhook_name("Discord King") == "disc0rd King" and BR.webhook_name("\u200b") == BR.FALLBACK_NAME, "webhook names Discord accepts")
 pend = {}
 code = BR.new_code(pend)
 pend[code] = {"user": "600", "exp": time.time() + 600}
@@ -619,6 +619,100 @@ asyncio.run(bot.busy_ping({**base, "count": 9}))
 asyncio.run(bot.busy_ping({**base, "count": 3}))
 asyncio.run(bot.busy_ping({**base, "count": 10}))
 check(len(busy.sent) == 1 and "9 people" in busy.sent[0], "busy ping once when the server fills up, not again within 6 hours")
+
+# ------------------------------------------------------------------ game chat to Discord when Discord says no
+def http_error(status, code, text):
+    resp = type("R", (), {"status": status, "reason": "x"})()
+    cls = {403: discord.Forbidden, 404: discord.NotFound}.get(status, discord.HTTPException)
+    if status >= 500:
+        cls = discord.DiscordServerError
+    return cls(resp, {"code": code, "message": text})
+
+
+class FHook:
+    def __init__(self, channel, fail=None):
+        self.id, self.channel_id, self.fail, self.posts = next(_ids), channel.id, fail or {}, []
+
+    async def send(self, text, username=None, avatar_url=None, allowed_mentions=None):
+        err = self.fail.get(username) or self.fail.get(text)
+        if err:
+            if callable(err):
+                err = err()
+            if err:
+                raise err
+        self.posts.append((username, text))
+
+
+ml = guild.get_channel(state["channels"]["modlog"])
+ml.sent.clear()
+hiccup = iter([http_error(503, 0, "Service Unavailable"), None])
+bot.webhook = FHook(gc, {"Bad Name": http_error(400, 50035, "Invalid Form Body: username"),
+                         "blocked words": http_error(400, 200000, "Message was blocked by automatic moderation"),
+                         "Eve": lambda: next(hiccup)})
+for i, (who, text) in enumerate([("Kitsu", "first"), ("Bob", "blocked words"), ("Bad Name", "hi"),
+                                 ("Eve", "later"), ("Bob", "last")]):
+    with open(os.path.join(br.inbox, f"{int(time.time())}_{i:04d}.json"), "w") as f:
+        json.dump({"t": "chat", "sid": P2, "name": who, "text": text}, f)
+asyncio.run(bot.bridge_tick())
+posts = list(bot.webhook.posts)
+check(posts == [("Kitsu", "first"), (BR.FALLBACK_NAME, "**Bad Name:** hi"), ("Bob", "last")],
+      f"one refused line doesn't stop the rest; a name Discord refuses goes into the text ({posts})")
+check(len(ml.sent) == 1 and "AutoMod blocked it" in ml.sent[0].embeds and "Bob" in ml.sent[0].embeds,
+      f"mod-log hears why a line was blocked ({[m.embeds for m in ml.sent]})")
+asyncio.run(bot.bridge_tick())
+check(bot.webhook.posts[-1] == ("Eve", "later") and not bot.retry, "a Discord hiccup is posted on the next tick")
+bot.relay_warned = 0
+bot.webhook = FHook(gc, {"x": http_error(503, 0, "down")})
+with open(os.path.join(br.inbox, f"{int(time.time())}_0099.json"), "w") as f:
+    json.dump({"t": "chat", "sid": P2, "name": "x", "text": "y"}, f)
+for _ in range(3):
+    asyncio.run(bot.bridge_tick())
+check(not bot.retry and "Discord answered 503" in ml.sent[-1].embeds, "after three tries it gives up and says why")
+dead = FHook(gc, {"z": http_error(404, 10015, "Unknown Webhook")})
+fresh = FHook(gc)
+bot.webhook = dead
+
+
+async def new_hook(name=None, avatar=None, reason=None):
+    return fresh
+
+gc.create_webhook = new_hook
+asyncio.run(bot.game_chat({"t": "chat", "sid": P2, "name": "z", "text": "again"}))
+check(fresh.posts == [("z", "again")] and state.get("game_webhook") == fresh.id,
+      "a deleted webhook is made again and the line still goes out")
+
+# ------------------------------------------------------------------ invite and Message Content notice
+guild.invs.clear()
+asyncio.run(bot.invite_tick())
+check(len(guild.invs) == 1 and state.get("invite") == "https://discord.gg/surfabc", "a deleted invite is made again")
+asyncio.run(bot.invite_tick())
+check(len(guild.invs) == 1, "a working invite is kept")
+bot.content_intent = False
+n = len(ml.sent)
+asyncio.run(bot.intent_notice())
+asyncio.run(bot.intent_notice())
+check(len(ml.sent) == n + 1 and "Message Content Intent" in ml.sent[-1].embeds, "mod-log is told once that Message Content is off")
+bot.content_intent = True
+asyncio.run(bot.intent_notice())
+check("content_warned" not in state, "and the note resets once it is on")
+
+# ------------------------------------------------------------------ website moves, invite for the game
+guild.calls.clear()
+asyncio.run(bot.refresh_texts())
+check(not guild.calls, "the welcome message is left alone while nothing in it changed")
+with open(os.path.join(home, "portal_url.txt"), "w") as f:
+    f.write("https://eusurf.duckdns.org\n")
+asyncio.run(bot.refresh_texts())
+intro = json.dumps([e.to_dict() for e in welcome.sent[0].embeds])
+check(("message.edit", welcome.name) in guild.calls and "eusurf.duckdns.org" in intro and "128.140.7.178" not in intro,
+      "the welcome message follows the website to its new address")
+guild.calls.clear()
+asyncio.run(bot.refresh_texts())
+check(not guild.calls, "and is edited only once")
+with open(os.path.join(home, "portal_url.txt"), "w") as f:
+    f.write("https://128.140.7.178\n")
+for p in (os.path.join(bot.data_dir, "invite.txt"), os.path.join(br.root, "invite.txt")):
+    check(open(p).read() == "https://discord.gg/surfabc\n", f"the invite is saved for the game and the website ({p})")
 
 # ------------------------------------------------------------------ bot profile
 

@@ -72,6 +72,12 @@ class LinksView(discord.ui.View):
             self.add_item(discord.ui.Button(label="Maps", emoji="\U0001F5FA", url=portal_url + "/maps"))
 
 
+def texts_key(game):
+    """What the welcome message names: the bot edits it again when any of this changes."""
+    brand = game.config.brand
+    return brand, game.config.server_name or brand, game.public_addr(), game.portal_url()
+
+
 class Builder:
     def __init__(self, bot, guild, state):
         self.bot = bot
@@ -378,14 +384,12 @@ class Builder:
         return msg
 
     async def messages(self, game):
-        brand = game.config.brand
-        name = game.config.server_name or brand
-        addr = game.public_addr()
-        portal = game.portal_url()
+        brand, name, addr, portal = texts_key(game)
         await self.post("welcome", self.channel("welcome"),
                         layout.welcome_embeds(brand, name, addr, portal) + [layout.guide_embed()],
                         AcceptView(self.bot))
         await self.post("roles", self.channel("roles"), [layout.roles_embed()], RolesView(self.bot))
+        self.state["texts"] = list(texts_key(game))
 
     async def invite(self):
         ch = self.channel("welcome")

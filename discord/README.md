@@ -17,13 +17,14 @@ It runs on the game server as the `surf-discord` service.
 
 - **Roles:** Admin (the server owner gets it automatically), Moderator, VIP, the in-game ranks (★ Newbie to ★ Legend), Surfer, and three ping roles people pick themselves (News, Events, Looking to Surf).
 - **Account linking:** `/link` gives a code; typing `!link CODE` in game connects Steam and Discord. Linked players get their in-game rank as a role, plus VIP while it lasts, kept up to date every 10 minutes. `/player` with no name then shows your own stats.
-- **Game chat bridge:** what people say in game appears in game-chat under their Steam name and avatar, and what members write there shows in game as `[Discord] Name: text`. Joins, leaves and map changes are posted too.
+- **Game chat bridge:** what people say in game appears in game-chat under their Steam name and avatar, and what members write there shows in game as `[Discord] Name: text`. Joins, leaves and map changes are posted too; a map change doesn't post everyone as joining again. When Discord refuses a line (AutoMod, a name it won't take, an outage) the bot retries or posts it another way, and says why in mod-log at most every 10 minutes. If Message Content Intent is off, mod-log says so once.
 - **Busy ping:** when the server goes from under 8 to 8+ players, the bot pings Looking to Surf in general (at most every 6 hours).
 - **Rules gate:** new people only see START HERE until they press *Accept the rules*. That gives them Surfer and opens everything else, and the bot welcomes them in general.
 - **Safety:** verification level Medium, Discord's AutoMod (slurs and NSFW, spam, mass mentions, other servers' invites, Steam and Nitro scam links), the explicit-media filter, and pings off by default.
 - **Community** is turned on so the forum, the announcement channel and the welcome screen work.
 - **Name and look:** the server is named `SURF EU 🌊 Surf Timer & Ranks` once (rename it yourself and it stays), with the icon from `assets/icon.png`. The bot calls itself `SURF` and uses `assets/bot.png`, a dark version of the website logo. These are set in `surfbot/layout.py`.
-- A permanent invite link, saved to `/home/gmod/discord/invite.txt`.
+- A permanent invite link (made again if someone deletes it), saved to `/home/gmod/discord/invite.txt` (for the website and `deploy.sh`) and to the game's `data/surfline/discord/invite.txt`, so `!discord` in game has it right away.
+- **Website address:** the welcome message, the status buttons and every link follow `/home/gmod/portal_url.txt`. When `scripts/set-domain.sh` moves the site, the bot edits the welcome message within a minute.
 
 Slash commands: `/status`, `/top`, `/map`, `/player`, `/recent`, `/connect`, `/vip`, `/link`, `/unlink`, and for staff `/announce` and `/setup` (repairs anything that was deleted or broken; it never removes your own channels).
 

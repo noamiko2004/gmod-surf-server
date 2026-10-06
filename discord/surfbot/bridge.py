@@ -25,6 +25,7 @@ MAX_QUEUED = 200       # to_game files kept while the game isn't reading them
 CODE_TTL = 600
 CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # no 0/O or 1/I
 SID_RE = re.compile(r"^7656\d{13}$")
+FALLBACK_NAME = "In-game player"
 
 
 class Bridge:
@@ -110,7 +111,7 @@ def webhook_name(name):
     n = one_line(name, 80)
     n = re.sub(r"(?i)discord", "disc0rd", n)
     n = re.sub(r"(?i)clyde", "clyd3", n)
-    return n if len(n) >= 1 and n.strip(" ") else "Player"
+    return n if len(n) >= 1 and n.strip(" ") else FALLBACK_NAME
 
 
 def to_num(v):
