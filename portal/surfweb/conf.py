@@ -1,4 +1,8 @@
-"""config.env parsing (a bash file; parsed, never executed) with periodic reload."""
+"""config.env parsing (a bash file; parsed, never executed) with periodic reload.
+
+A few settings can also be set by the owner on the website (Admin > Shop):
+they are kept in <data>/portal/settings.json and win over config.env."""
+import json
 import os
 import re
 import subprocess
@@ -62,26 +66,94 @@ def parse_owners(value):
     return set(_SID.findall(value or ""))
 
 
-class Config:
-    """Reads config.env, re-reading it at most every `interval` seconds."""
+# Settings the owner may set on the website instead of in config.env
+SITE_KEYS = ("TEBEX_SECRET", "STORE_URL")
+SITE_FILE = "settings.json"
+TEBEX_STATUS_FILE = "tebex_status.json"
 
-    def __init__(self, path, interval=30):
+
+def read_json_file(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            v = json.load(f)
+        return v if isinstance(v, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def save_site_settings(site_dir, updates):
+    """Merge updates ({key: value or ""}) into settings.json, readable by this user only."""
+    path = os.path.join(site_dir, SITE_FILE)
+    data = {k: v for k, v in read_json_file(path).items() if k in SITE_KEYS and isinstance(v, str)}
+    for k, v in updates.items():
+        if k in SITE_KEYS:
+            if v:
+                data[k] = v
+            else:
+                data.pop(k, None)
+    os.makedirs(site_dir, exist_ok=True)
+    tmp = path + ".tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        json.dump(data, f)
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, path)
+
+
+class Config:
+    """Reads config.env, re-reading it at most every `interval` seconds.
+    With site_dir set, settings saved on the website (SITE_KEYS) win, and the
+    store address falls back to the one Tebex reports for the store."""
+
+    def __init__(self, path, interval=30, site_dir=None):
         self.path = path
         self.interval = interval
+        self.site_dir = site_dir
         self._lock = threading.Lock()
         self._data = parse_env(path)
-        self._read_at = time.time()
+        self._site = {}
+        self._read_at = 0.0
         self._invite = (0.0, "")
+        self._fresh()
 
     def _fresh(self):
         with self._lock:
             if time.time() - self._read_at >= self.interval:
                 self._data = parse_env(self.path)
+                self._site = self._read_site()
                 self._read_at = time.time()
             return self._data
 
+    def _read_site(self):
+        if not self.site_dir:
+            return {}
+        site = {k: v for k, v in read_json_file(os.path.join(self.site_dir, SITE_FILE)).items()
+                if k in SITE_KEYS and isinstance(v, str) and v}
+        domain = read_json_file(os.path.join(self.site_dir, TEBEX_STATUS_FILE)).get("domain")
+        if isinstance(domain, str) and domain.startswith("https://"):
+            site["_TEBEX_DOMAIN"] = domain
+        return site
+
+    def reload(self):
+        """Re-read config.env and the website settings now (after the owner saves)."""
+        with self._lock:
+            self._read_at = 0.0
+        self._fresh()
+
+    def source(self, key):
+        """Where a setting comes from: "website", "config" or ""."""
+        self._fresh()
+        if self._site.get(key):
+            return "website"
+        return "config" if self._data.get(key) else ""
+
     def get(self, key, default=""):
-        v = self._fresh().get(key)
+        data = self._fresh()
+        v = self._site.get(key) if key in SITE_KEYS else None
+        if not v:
+            v = data.get(key)
+        if not v and key == "STORE_URL":
+            v = self._site.get("_TEBEX_DOMAIN")
         return default if v is None or v == "" else v
 
     @property

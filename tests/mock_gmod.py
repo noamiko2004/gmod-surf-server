@@ -1250,6 +1250,20 @@ SURF.Commands.Run(eve, "skins", {})
 check(G.menus[1].kind == "shop" and G.menus[1].data.tab == "vip" and G.menus[1].data.vipPackages[1].price == 5000, "!vip opens the shop's VIP tab with the packages")
 check(G.menus[2].data.tab == "hat" and G.menus[3].data.tab == "skin", "!hats and !skins open their tabs")
 
+# Store address from the website
+L.execute(r"""
+SURF.Config.StoreURL = "https://cfg.example.com"
+SURF.Shop.baseStoreURL = nil
+SURF.Shop.LoadStoreURL()
+url0 = SURF.Config.StoreURL
+""")
+vfs["surfline/portal/store_url.txt"] = "https://surf-eu.tebex.io\n"
+L.execute('SURF.Shop.LoadStoreURL() url1 = SURF.Config.StoreURL')
+vfs["surfline/portal/store_url.txt"] = "javascript:alert(1)\n"
+L.execute('SURF.Shop.LoadStoreURL() url2 = SURF.Config.StoreURL')
+check(G.url0 == "https://cfg.example.com" and G.url1 == "https://surf-eu.tebex.io" and G.url2 == "https://cfg.example.com",
+      f"the website's store address is used, bad ones are ignored ({G.url0}, {G.url1}, {G.url2})")
+
 # Every bundled zone file parses and has a main start+end
 bad = []
 G.anyHook = True
