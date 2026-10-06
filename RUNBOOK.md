@@ -4,8 +4,8 @@ For Claude (or anyone) picking up the server for a scheduled update.
 
 ## 1. Get the current state
 - Read CHANGELOG.md and the Roadmap in README.md.
-- Ask Noam for: player feedback, errors in `journalctl -u gmod-surf` or
-  `garrysmod/console.log`, and the player count since last time.
+- Read `https://<site>/health.json` (services, Lua errors, bot and website
+  errors, last update). Ask Noam for player feedback and anything it can't show.
 - If a GitHub repo is attached, work there; otherwise work in
   /mnt/project-files/gmod-server/.
 
@@ -38,6 +38,9 @@ For Claude (or anyone) picking up the server for a scheduled update.
   copy a `sv_*.db` over `garrysmod/sv.db`, start it.
 
 ## 4. Check
+- `sudo surfcheck` (one screen; `sudo surfcheck full` for details), or read
+  `https://<site>/health.json` (refreshed every 10 minutes, no console
+  needed). Admin > Logs on the website shows the full report.
 - `journalctl -u gmod-surf -n 200` has no Lua errors.
 - The portal (address in `/home/gmod/portal_url.txt`) loads and Steam sign-in
   reaches /admin. Its footer version matches the last line of `update.sh`; if

@@ -307,6 +307,16 @@ def r_health(ctx):
     return Resp(200, "ok\n", "text/plain; charset=utf-8")
 
 
+def r_health_json(ctx):
+    """Public server health summary from scripts/health.py (cron, every 10 min). It holds no secrets."""
+    try:
+        with open(os.path.join(ctx.app.logs_dir, "health.json"), "rb") as f:
+            body = f.read(262144)
+    except OSError:
+        return json_resp({"status": "unknown", "error": "no health report yet (scripts/health.py runs from cron)"}, 404)
+    return Resp(200, body, "application/json; charset=utf-8", [("Cache-Control", "no-store")])
+
+
 def r_robots(ctx):
     return Resp(200, "User-agent: *\nDisallow: /admin\nDisallow: /login\nDisallow: /auth/\n", "text/plain; charset=utf-8")
 
@@ -510,6 +520,7 @@ GET_ROUTES = [
     (re.compile(r"^/shop\.css$"), r_shop_css),
     (re.compile(r"^/api/status$"), r_api_status),
     (re.compile(r"^/healthz$"), r_health),
+    (re.compile(r"^/health\.json$"), r_health_json),
     (re.compile(r"^/robots\.txt$"), r_robots),
     (re.compile(r"^/favicon\.ico$"), r_favicon),
     (re.compile(r"^/static/([^/]{1,64})$"), r_static),
