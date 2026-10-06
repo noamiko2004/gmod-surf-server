@@ -18,6 +18,7 @@ local ITEMS = {
 	{ id = "settings", name = "Settings", icon = "icon16/cog.png" },
 	{ id = "help", name = "Commands", icon = "icon16/book_open.png" },
 	{ spacer = true },
+	{ id = "challenges", name = "Challenges", icon = "icon16/flag_green.png", window = true },
 	{ id = "shop", name = "Shop", icon = "icon16/cart.png", window = true },
 	{ id = "vip", name = "VIP", icon = "icon16/star.png", window = true, color = C.gold },
 	{ id = "discord", name = "Discord", icon = "icon16/comments.png", window = true },

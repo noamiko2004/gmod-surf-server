@@ -71,6 +71,18 @@ in chat is `BRAND_NAME`.
   rewards. The website shows the catalog and your coins at `/shop`. Items and
   rates live in `sh_config.lua` (`Trails`, `Hats`, `Skins`, `ChatTags`,
   `NameColors`, `FinishSounds`, `VIPPackages`, `Coins`)
+- Challenges (`!challenges`, or F1 > Challenges; `sv_challenges.lua`): three
+  daily challenges and two weekly ones, the same for everyone, each paying
+  coins, plus a bonus for doing all three dailies. A map of the day pays extra
+  and is always in the map vote (`!motd`). Playing on consecutive days grows a
+  streak bonus (`!streak`). Challenge lists and rewards are at the top of
+  `sv_challenges.lua`
+- 26 achievements with coin rewards (`!achievements`, `sv_achievements.lua`),
+  counted from saved times, records and playtime, so older players get theirs
+  on their next join
+- 1v1 races (`!race <name>`, `!accept`, `!forfeit`; `sv_race.lua`): both go to
+  the start, a countdown holds them, first to finish wins a few coins (the
+  first 5 wins a day pay)
 - Cosmetic VIP: VIP trails, tag and name color, a gold [VIP] tag and name,
   and 50% more coins. No pay to win.
 
@@ -149,6 +161,10 @@ splits, records, bonuses, ranks, the map vote lists and the portal bridge.
 `python3 tests/test_portal.py` runs the web portal against fake game data, a
 fake Steam login and a fake control helper.
 `python3 tests/test_tebex.py` runs the Tebex poller against a fake Tebex API.
+`python3 tests/test_challenges.py` runs the challenges, map of the day,
+streaks, achievements and races on the same mock.
+`python3 tests/mock_client.py` builds and paints every client menu against
+stubbed Derma.
 `python3 tests/client_smoke.py` opens every tab of the shop menu against
 stubbed Derma to catch client Lua errors.
 

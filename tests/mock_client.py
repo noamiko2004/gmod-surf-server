@@ -377,7 +377,7 @@ for f in ["cl_hud.lua", "cl_visuals.lua"]:
     include(f)
 
 include("shared.lua")
-for f in ["cl_ui.lua", "cl_menus.lua", "cl_hub.lua", "cl_admin.lua", "cl_scoreboard.lua", "cl_mapvote.lua"]:
+for f in ["cl_ui.lua", "cl_menus.lua", "cl_hub.lua", "cl_admin.lua", "cl_scoreboard.lua", "cl_mapvote.lua", "cl_challenges.lua"]:
     include(f)
 
 failures = []
@@ -938,6 +938,55 @@ if ok:
     check(G.boardRows == 3, f"the scoreboard picks up a player who joins while it's open ({G.boardRows})")
     check("Steam profile" in opts and "Watch them" in opts and "Admin" in opts and G.other.muted, f"right-click a player: profile, watch, mute and admin actions ({opts})")
     check(G.menusClosed, "releasing Tab closes the menu")
+
+# Challenges window, toasts and the race countdown (cl_challenges.lua)
+ok = run(r"""
+consoleCmds = {}
+local d = { streak = 4, bestStreak = 6, streakNext = 50, dayLeft = 5000, weekLeft = 200000, sweep = 100,
+	motd = { name = "surf_mesa", tier = 2 },
+	list = {
+		{ id = "finish3", text = "Finish 3 runs", goal = 3, progress = 1, coins = 60 },
+		{ id = "maps2", text = "Finish 2 different maps", goal = 2, progress = 2, done = true, coins = 90 },
+		{ id = "play20", text = "Surf for 20 minutes", goal = 20, progress = 7, coins = 60, unit = "min" },
+		{ id = "motd", text = "Finish the map of the day: surf_mesa", goal = 1, progress = 0, coins = 150, motd = "surf_mesa" },
+		{ id = "wmaps10", text = "Finish 10 different maps", goal = 10, progress = 3, coins = 500, weekly = true },
+	},
+	ach = {
+		{ id = "first", name = "First Wave", desc = "Finish any map", goal = 1, value = 1, coins = 50, date = 1700000000 },
+		{ id = "maps25", name = "Explorer", desc = "Finish 25 different maps", goal = 25, value = 5, coins = 300 },
+	} }
+Deliver("surf.Menu", "challenges", d)
+chWin = SURF.UI.Open.challenges
+PaintTree(chWin)
+hoverAll = true PaintTree(chWin) hoverAll = false
+chCards = 0
+for _, p in ipairs(AllPanels(chWin)) do if p.OnMousePressed then p:OnMousePressed() chCards = chCards + 1 end end
+for _, b in ipairs(FindButtons(chWin, "Achievements")) do b:DoClick() end
+PaintTree(chWin)
+d.tab = "achievements" d.motd = nil
+Deliver("surf.Menu", "challenges", d)
+PaintTree(SURF.UI.Open.challenges)
+Deliver("surf.Challenge", "toast", { text = "Daily challenge done", col = Color(255, 200, 40) })
+hooks.DrawOverlay.surf_ui_toasts()
+Deliver("surf.Challenge", "race", { count = 3, vs = "Bob" })
+hooks.HUDPaint.surf_race_countdown()
+Deliver("surf.Challenge", "race", { go = true, vs = "Bob" })
+hooks.HUDPaint.surf_race_countdown()
+GM:HUDPaint()
+raceShown = SURF.HUD.byId.race.rect ~= nil
+Deliver("surf.Challenge", "race", { stop = true })
+hooks.HUDPaint.surf_race_countdown()
+GM:HUDPaint()
+raceGone = SURF.HUD.byId.race.rect == nil
+-- F1 > Challenges runs !challenges
+Deliver("surf.Menu", "menu", {})
+for _, b in ipairs(FindButtons(SURF.UI.Open.hub.side, "Challenges")) do b:DoClick() end
+""", "the challenges window builds and paints")
+if ok:
+    cmds = list(G.consoleCmds.values())
+    check(G.chWin is not None and G.chCards >= 1 and "say !nominate surf_mesa" in cmds, "the challenges window opens; the map of the day card nominates it")
+    check("say !challenges" in cmds, "F1 > Challenges opens the challenges window")
+    check(G.raceShown and G.raceGone, "the Race HUD part shows during a race only")
 
 print("\n%d failure(s)" % len(failures))
 sys.exit(1 if failures else 0)

@@ -153,6 +153,7 @@ bit = require("bit")
 unpack = unpack or table.unpack
 function table.HasValue(t, v) for _, x in pairs(t) do if x == v then return true end end return false end
 function table.Shuffle(t) end
+function table.Count(t) local n = 0 for _ in pairs(t) do n = n + 1 end return n end
 function table.Copy(t) local o = {} for k, v in pairs(t) do o[k] = v end return o end
 function math.Round(n, d) local m = 10 ^ (d or 0) return math.floor(n * m + 0.5) / m end
 function math.Clamp(n, a, b) return math.min(math.max(n, a), b) end
