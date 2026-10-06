@@ -189,6 +189,11 @@ SURF.Config = {
 		"Finish maps to earn points and climb the titles. Type !rank to see yours.",
 		"Every finish earns coins. Spend them on hats, skins, trails and more in !shop, or save up for VIP.",
 		"Want a different map? Type !rtv, or !nominate <map> before the vote.",
+		"New daily challenges every day and bigger weekly ones: type !challenges. Each pays coins.",
+		"Finish the map of the day for bonus coins. !motd shows which one it is.",
+		"Think you're faster? !race <name> challenges someone to a race to the end.",
+		"Play on consecutive days to grow your streak bonus. !streak shows yours.",
+		"Achievements pay coins too. !achievements shows them all and how close you are.",
 	},
 
 	-- Where players can support the server. Shown by !vip / !store.
