@@ -116,6 +116,18 @@ game = G.Game(repo_dir=repo)
 check(game.store.db_path == os.path.join(gm, "sv.db"), "Game finds sv.db through GMOD_HOME in config.env")
 check(game.portal_url() == "https://128.140.7.178", "portal URL read from portal_url.txt")
 check(game.own_record_feed(), "bot posts records itself while DISCORD_WEBHOOK is empty")
+check(game.config.https_url("STORE_URL") == "", "no store address yet")
+with open(os.path.join(data, "portal", "tebex_status.json"), "w") as f:
+    json.dump({"domain": "https://surf.tebex.io"}, f)
+game.config.reload()
+check(game.config.https_url("STORE_URL") == "https://surf.tebex.io", "/vip uses the store Tebex reports")
+with open(os.path.join(data, "portal", "settings.json"), "w") as f:
+    json.dump({"STORE_URL": "https://shop.example.com"}, f)
+game.config.reload()
+check(game.config.https_url("STORE_URL") == "https://shop.example.com", "and the store address set on the website wins")
+os.remove(os.path.join(data, "portal", "settings.json"))
+os.remove(os.path.join(data, "portal", "tebex_status.json"))
+game.config.reload()
 
 
 def write_status(updated, mapname="surf_kitsune", players=None):
