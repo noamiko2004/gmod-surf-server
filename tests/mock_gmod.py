@@ -886,6 +886,27 @@ ev = bridge_events()
 check([(e["t"], e.get("name"), e.get("count"), e.get("max")) for e in ev[:2]] == [("join", "Bob", 2, 24), ("leave", "Bob", 1, 24)], f"join and leave with the player count ({ev[:2]})")
 check(ev[2:] and ev[2]["t"] == "map" and ev[2]["map"] == "surf_kitsune" and ev[2]["tier"] == 1, f"map change with the tier ({ev[2:]})")
 
+# A map change reconnects everyone: no "joined" for them, "left" for who didn't come back
+L.execute(r"""
+hooks.ShutDown.surf_discord_bridge()
+SURF.DiscordBridge.LoadCarried()
+hook.Run("SurfPlayerReady", a)
+humans = { a }
+SURF.DiscordBridge.ExpireCarried()
+humans = { a, b }
+hook.Run("SurfPlayerReady", b)
+""")
+ev = bridge_events()
+check([(e["t"], e["name"]) for e in ev] == [("leave", "Bob"), ("join", "Bob")] and "surfline/discord/online.txt" not in vfs,
+      f"after a map change only who didn't come back is posted ({ev})")
+vfs["surfline/discord/online.txt"] = "%d\n76561190000000001\tAlice" % (int(L.eval("os.time()")) - 600)
+L.execute(r"""
+SURF.DiscordBridge.LoadCarried()
+hook.Run("SurfPlayerReady", a)
+""")
+ev = bridge_events()
+check([e["t"] for e in ev] == ["join"], f"an old list from a crash long ago announces joins as usual ({ev})")
+
 # Messages from the bot
 vfs[INBOX + "1_00001.json"] = json.dumps({"t": "chat", "name": "Noam\u0007", "text": "gg everyone"})
 vfs[INBOX + "1_00002.json"] = json.dumps({"t": "linked", "sid": "76561190000000001", "discord": "noam"})
