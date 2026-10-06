@@ -48,6 +48,14 @@ check(sum(errs.values()) == 2, "ERROR line and traceback both counted")
 check(any(k.startswith("PermissionError") for k in errs), "traceback exception found")
 
 r = H.Report()
+H.check_py_log(r, "Discord bot log", ["WARNING surfbot: Game chat from Bob not posted: 50035 Invalid Form Body",
+                                      "WARNING surfbot: Game chat from Ann not posted: 50035 Invalid Form Body",
+                                      "INFO surfbot: New invite link: https://discord.gg/abc"])
+refused = [i for i in r.items if i[1] == "Discord bridge"]
+check(len(refused) == 1 and "refused 2 game lines" in refused[0][2] and "chat: N Invalid Form Body" in refused[0][2], "refused game chat grouped by reason")
+check(any("new Discord invite 1 time in" in i[2] for i in r.items), "new invite links counted")
+
+r = H.Report()
 errs = H.check_py_log(r, "Website log", ['[portal] 85.1.2.3 "GET /maps/x?y=1 HTTP/1.1" 500 -',
                                          '[portal] 85.1.2.3 "GET / HTTP/1.1" 200 -',
                                          '[portal] tebex poll failed: timed out'])

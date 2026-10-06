@@ -162,17 +162,25 @@ def check_game_log(r, lines):
 
 PY_ERR = re.compile(r"^(?:ERROR|CRITICAL)\b|Traceback \(most recent call last\)|^\w+(?:\.\w+)*(?:Error|Exception): ")
 PY_WARN = re.compile(r"^WARNING\b")
+NOT_POSTED = re.compile(r"Game (\w+) from .* not posted: (.*)$")
+NEW_INVITE = re.compile(r"New invite link: ")
 ACCESS_5XX = re.compile(r'"[A-Z]+ (\S+) HTTP/[\d.]+" (5\d\d) ')
 PORTAL_ERR = re.compile(r"^\[(?:portal|tebex)\].*\b(error|failed|exception|could not)\b", re.I)
 
 
 def check_py_log(r, area, lines):
-    errs, warns = Counter(), Counter()
-    tb = 0
+    errs, warns, refused = Counter(), Counter(), Counter()
+    invites = 0
     for i, line in enumerate(lines):
         s = line.strip()
+        m = NOT_POSTED.search(s)
+        if m:  # bot: Discord refused a game chat/join line (grouped by reason, not player)
+            refused[f"{m.group(1)}: {NUM.sub('N', m.group(2))[:120]}"] += 1
+            continue
+        if NEW_INVITE.search(s):
+            invites += 1
+            continue
         if s.startswith("Traceback"):
-            tb += 1
             # the exception is the first unindented line after the traceback
             for nxt in lines[i + 1:i + 60]:
                 if nxt and not nxt.startswith(" "):
@@ -194,6 +202,10 @@ def check_py_log(r, area, lines):
         r.add(OK, area, f"{area}: no errors, {sum(warns.values())} warnings in 24 h", top(warns, 5))
     else:
         r.add(OK, area, f"{area}: no errors in 24 h")
+    if refused:
+        r.add(WARN, "Discord bridge", f"Discord refused {sum(refused.values())} game lines in 24 h. Top: {next(iter(top(refused, 1)))}", top(refused, 6))
+    if invites:
+        r.add(OK if invites < 3 else WARN, "Links", f"The bot made a new Discord invite {invites} time{"s" if invites != 1 else ""} in 24 h")
     return errs
 
 
