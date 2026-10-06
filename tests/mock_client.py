@@ -1,11 +1,13 @@
 """Smoke test for the client menus (cl_ui.lua, cl_hub.lua, cl_admin.lua, the scoreboard and map vote)
-against a permissive mock of Derma. (The shop has tests/client_smoke.py.)
+and the HUD with its layout editor (cl_hud.lua) against a permissive mock of Derma. (The shop has
+tests/client_smoke.py.)
 
 Panels accept any method call, so this can't prove the Derma calls are right;
 it runs every menu's building, layout, painting and click code to catch Lua
 errors (nil values, typos, bad arithmetic) without the game.
 Run: python3 tests/mock_client.py
 """
+import json
 import os
 import sys
 
@@ -28,6 +30,7 @@ function SetTime(t) now = t end
 function ScrW() return 1920 end
 function ScrH() return 1080 end
 function Color(r, g, b, a) return { r = r, g = g, b = b, a = a or 255 } end
+function ColorAlpha(c, a) return Color(c.r, c.g, c.b, a) end
 color_white, color_black = Color(255, 255, 255), Color(0, 0, 0)
 function IsColor(c) return type(c) == "table" and c.r ~= nil end
 function isfunction(v) return type(v) == "function" end
@@ -81,8 +84,26 @@ draw = { RoundedBox = function(r, x, y, w, h, c) assert(type(c) == "table" and c
          SimpleText = function(t, f, x, y, c) assert(t ~= nil, "SimpleText(nil)") assert(type(c) == "table" and c.r, "SimpleText without a color: " .. tostring(t)) return 10, 10 end,
          SimpleTextOutlined = function() end, NoTexture = function() end, DrawText = function() end }
 render = {}
-gui = { MouseX = function() return 0 end, MouseY = function() return 0 end, OpenURL = function(u) openedURL = u end }
-input = { IsKeyDown = function() return false end }
+mouseX, mouseY = 0, 0
+gui = { MouseX = function() return mouseX end, MouseY = function() return mouseY end, OpenURL = function(u) openedURL = u end }
+keysDown = {}
+input = { IsKeyDown = function(k) return keysDown[k] == true end }
+KEY_LSHIFT, KEY_LEFT, KEY_RIGHT, KEY_UP, KEY_DOWN = 79, 89, 91, 88, 90
+IN_FORWARD, IN_BACK, IN_MOVELEFT, IN_MOVERIGHT, IN_JUMP, IN_DUCK = 8, 16, 512, 1024, 2, 4
+-- 2D drawing with a model matrix (the HUD's moved and resized parts)
+matrixDepth = 0
+function Matrix() local m = { t = { 0, 0 }, s = 1 } function m:Translate(v) self.t = { v.x, v.y } end function m:Scale(v) self.s = v.x end return m end
+cam = { PushModelMatrix = function(m) matrixDepth = matrixDepth + 1 end,
+        PopModelMatrix = function() matrixDepth = matrixDepth - 1 end }
+TEXFILTER = { ANISOTROPIC = 3 }
+render.PushFilterMag, render.PushFilterMin, render.PopFilterMag, render.PopFilterMin = function() end, function() end, function() end, function() end
+alphaMult = 1
+surface.SetAlphaMultiplier = function(a) alphaMult = a end
+hudErrors = {}
+function ErrorNoHalt(m) hudErrors[#hudErrors + 1] = m end
+function math.AngleDifference(a, b) local d = (a - b + 180) % 360 - 180 return d end
+files = {}
+file = { Read = function(n) return files[n] end, Write = function(n, s) files[n] = s end }
 chatLines = {}
 chat = { AddText = function(...) chatLines[#chatLines + 1] = { ... } end, GetChatBoxPos = function() return 0, 0 end,
          GetChatBoxSize = function() return 400, 200 end }
@@ -94,9 +115,6 @@ function GetGlobal2String(k, d) return d end
 convars = { surf_hideplayers = false, surf_showkeys = true }
 function GetConVar(n) if convars[n] == nil then return nil end return { GetBool = function() return convars[n] end } end
 SURF = SURF or {}
-SURF.Visuals = { Presets = { { id = "off", name = "Off", help = "x" }, { id = "vivid", name = "Vivid", help = "y" } }, Current = function() return nil end,
-	ZonesOn = function() return true end, ToggleZones = function() zonesToggled = true end, MapLightOn = function() return false end,
-	ToggleMapLight = function() end, SetPreset = function(id) presetSet = id end }
 function GetGlobal2Int(k, d) return d or 0 end
 game = { GetMap = function() return "surf_kitsune" end, MaxPlayers = function() return 24 end }
 
@@ -143,8 +161,11 @@ function PM:UserID() return 1 end
 function PM:GetUserGroup() return self.superadmin and "superadmin" or (self.admin and "admin" or "user") end
 function PM:ShowProfile() self.profileShown = true end
 function PM:GetObserverTarget() return nil end
+function PM:IsPlayer() return true end
 function PM:TimeConnected() return 300 end
 function PM:Alive() return self.dead ~= true end
+function PM:GetVelocity() local v = self.vel or 0 return { Length2D = function() return v end } end
+function PM:EyeAngles() return Angle(0, self.yaw or 0, 0) end
 me = MakePlayer({ name = "Noam", sid = "76561190000000001", superadmin = true })
 other = MakePlayer({ name = "Bob", sid = "76561190000000002" })
 allPlayers = { me, other }
@@ -218,6 +239,11 @@ function P:GetVBar() return self.vbar end
 function P:GetCanvas() return self.canvas or self end
 function P:GetParent() return self.parent end
 function P:SetTooltip(t) self.tooltip = t end
+function P:SetParent(parent)
+	if self.parent then table.RemoveByValue(self.parent.kids, self) end
+	self.parent = parent
+	parent.kids[#parent.kids + 1] = self
+end
 local function Frame(p)
 	p.lblTitle, p.btnClose, p.btnMaxim, p.btnMinim = Panel("DLabel", p), Panel("DButton", p), Panel("DButton", p), Panel("DButton", p)
 	p.btnClose.DoClick = function() p:Close() end
@@ -325,6 +351,31 @@ def include(name):
 
 
 G.include = lambda n: include(n)
+
+
+def to_json(t):
+    def conv(v):
+        if lj.lua_type(v) == "table":
+            d = dict(v.items())
+            if d and all(isinstance(k, (int, float)) for k in d):
+                return [conv(d[k]) for k in sorted(d)]
+            return {str(k): conv(x) for k, x in d.items()}
+        return v
+    return json.dumps(conv(t))
+
+
+def from_json(s):
+    try:
+        return L.table_from(json.loads(s), recursive=True)
+    except ValueError:
+        return None
+
+
+G.util = L.table_from({"TableToJSON": to_json, "JSONToTable": from_json})
+G.SURF.ClientCPCount = lambda track: 2
+for f in ["cl_hud.lua", "cl_visuals.lua"]:
+    include(f)
+
 include("shared.lua")
 for f in ["cl_ui.lua", "cl_menus.lua", "cl_hub.lua", "cl_admin.lua", "cl_scoreboard.lua", "cl_mapvote.lua"]:
     include(f)
@@ -489,7 +540,7 @@ if ok:
     check(G.recLines == 2 and G.swReq[1] == "records" and G.swReq[2] == "sw|0", f"records list and style tabs ({G.recLines}, {G.swReq[2]})")
     check(G.staleDropped, "a late answer for a page you left is dropped")
     check(G.mapRowsAll == 3 and G.mapRowsHard == 1 and "say !nominate surf_mesa" in cmds, f"maps: tier filter and nominate ({G.mapRowsAll}, {G.mapRowsHard})")
-    check(G.zonesToggled and G.presetSet == "vivid" and "say !auto" in cmds, "settings switch zones, presets and autohop")
+    check("surf_zoneglow 1" in cmds and "surf_graphics 1" in cmds and "say !auto" in cmds, "settings switch zones, presets and autohop")
     check(G.helpRows >= 1, "commands page lists the chat hints")
     check(G.hubClosedForShop and "say !shop" in cmds, "Shop closes the menu and opens the shop")
     check(G.f1Toggles and G.wrOpens, "F1 closes an open menu; !wr opens it on Records")
@@ -667,6 +718,197 @@ if ok:
     check(True, "opening without admin rights doesn't error")
 L.execute('me.superadmin = true')
 
+# The HUD: default spots, parts that come and go, the layout editor.
+# cl_init.lua's client actions (!keys, !hud) run on their own: the whole file would include everything again.
+init = open(os.path.join(GM, "cl_init.lua")).read()
+L.execute(init[init.index("-- Client-only toggles"):init.index('hook.Add("PrePlayerDraw"')])
+ok = run(r"""
+HUD = SURF.HUD
+SURF.UI.Close("hub")
+function Rect(id) return HUD.byId[id].rect end
+function Saved() return util.JSONToTable(files["surf_hud.json"] or "{}") end
+function Overlay() for i = #created, 1, -1 do local p = created[i] if p.bar and not p.removed then return p end end end
+function Pick(menu, text) for _, o in ipairs(menu:GetChildren()) do if o.text == text then o:DoClick() return true end end error("no option " .. text) end
+glowOff = not SURF.Visuals.ZonesOn()
+me.vel = 812
+GM:HUDPaint()
+timerR, keysR, infoR = Rect("timer"), Rect("keys"), Rect("info")
+quietOff = Rect("split") == nil and Rect("spec") == nil and Rect("watchers") == nil and Rect("speed") == nil and Rect("mapvote") == nil
+balanced = matrixDepth == 0 and alphaMult == 1
+
+-- Things that come and go: splits, who's watching, spectating, the map vote
+Deliver("surf.Split", 3, 42.1, true, -0.2, true, 0.5)
+me.nw.surf_watchers = "9\nBob\nAlice\nCarl\nDan\nEve\nFay\nGus\nHal"
+GM:HUDPaint()
+splitOn, watchOn = Rect("split") ~= nil, Rect("watchers") ~= nil and Rect("watchers")[4] == 34 + 7 * 19
+SetTime(104)
+me.nw.surf_watchers = nil
+GM:HUDPaint()
+splitGone, watchGone = Rect("split") == nil, Rect("watchers") == nil
+me.GetObserverTarget = function() return other end
+me.yaw = 10 GM:HUDPaint() me.yaw = 25 GM:HUDPaint()
+specOn = Rect("spec") ~= nil
+me.GetObserverTarget = nil
+me.dead = true
+GM:HUDPaint()
+deadHidesTimer = Rect("timer") == nil and Rect("keys") == nil
+me.dead = nil
+Deliver("surf.MapVote", true, { "surf_a", "__extend" }, { 2 }, { surf_a = 1 }, 130)
+GM:HUDPaint()
+voteR = Rect("mapvote")
+Deliver("surf.MapVote", false, {}, {}, {}, 0)
+
+-- !keys hides the key display and remembers it
+Deliver("surf.Action", "keys")
+GM:HUDPaint()
+keysOff = Rect("keys") == nil and Saved().el.keys.hide == true
+Deliver("surf.Action", "keys")
+
+-- !hud opens the editor; every part shows, hidden ones faded
+Deliver("surf.Action", "hud")
+editing = HUD.Editing()
+ov = Overlay()
+GM:HUDPaint()
+allShown = true
+for _, el in ipairs(HUD.list) do if not el.rect then allShown = false missing = el.id end end
+PaintTree(ov)
+
+-- Drag the keys to the top left
+local r = Rect("keys")
+mouseX, mouseY = r[1] + 5, r[2] + 5
+ov:OnMousePressed(MOUSE_LEFT)
+mouseX, mouseY = 300, 200
+ov:Think()
+PaintTree(ov)
+ov:OnMouseReleased(MOUSE_LEFT)
+GM:HUDPaint()
+draggedR = Rect("keys")
+draggedSaved = Saved().el.keys
+
+-- Dragging the timer a little sideways snaps it back to the middle; Shift doesn't
+r = Rect("timer")
+mouseX, mouseY = r[1] + 10, r[2] + 10
+ov:OnMousePressed(MOUSE_LEFT)
+mouseX = mouseX + 6
+ov:Think()
+snapGuide = ov.guides and ov.guides[1]
+ov:OnMouseReleased(MOUSE_LEFT)
+GM:HUDPaint()
+snappedX = Rect("timer")[1]
+keysDown[KEY_LSHIFT] = true
+mouseX, mouseY = snappedX + 10, Rect("timer")[2] + 10
+ov:OnMousePressed(MOUSE_LEFT)
+mouseX = mouseX + 6
+ov:Think()
+ov:OnMouseReleased(MOUSE_LEFT)
+keysDown[KEY_LSHIFT] = nil
+GM:HUDPaint()
+freeX = Rect("timer")[1]
+
+-- Arrow keys nudge the part last clicked
+ov:OnKeyCodePressed(KEY_LEFT)
+GM:HUDPaint()
+nudgedX = Rect("timer")[1]
+
+-- Scroll on the map info to make it bigger
+r = Rect("info")
+mouseX, mouseY = r[1] + 5, r[2] + 5
+ov:OnMouseWheeled(2)
+timers.surf_hud_save()
+GM:HUDPaint()
+infoScale, infoSaved = HUD.Scale("info"), Saved().el.info.s
+scaledR = Rect("info")
+
+-- Right-click: hide, then a size
+r = Rect("keys")
+mouseX, mouseY = r[1] + 5, r[2] + 5
+ov:OnMousePressed(MOUSE_RIGHT)
+Pick(openMenus[#openMenus], "Hide")
+hiddenByMenu = HUD.Hidden("keys")
+ov:OnMousePressed(MOUSE_RIGHT)
+local m = openMenus[#openMenus]
+for _, o in ipairs(m:GetChildren()) do if o.SubMenu then Pick(o.SubMenu, "150%") end end
+keysScale = HUD.Scale("keys")
+
+-- Toolbar: show hidden parts again, background, reset all, done
+FindButtons(ov, "Hidden (")[1]:DoClick()
+Pick(openMenus[#openMenus], "Show Key display")
+Pick(openMenus[#openMenus], "Show Speedometer")
+shownAgain = not HUD.Hidden("keys") and not HUD.Hidden("speed")
+FindButtons(ov, "Background")[1]:DoClick()
+Pick(openMenus[#openMenus], "50%")
+bg = HUD.Background()
+PaintTree(ov)
+FindButtons(ov, "Reset all")[1]:DoClick()
+FindButtons(SURF.UI.Open.surf_dialog, "Reset")[1]:DoClick()
+GM:HUDPaint()
+resetKeys = Rect("keys")
+resetAll = HUD.Background() == 200 and HUD.Hidden("speed")
+FindButtons(ov, "Done")[1]:DoClick()
+closedByDone = not HUD.Editing() and ov.removed
+
+-- Escape and !hud again close it too
+Deliver("surf.Action", "hud")
+escClosedEditor = hooks.OnPauseMenuShow.surf_ui() == false and not HUD.Editing()
+Deliver("surf.Action", "hud")
+Deliver("surf.Action", "hud")
+hudToggles = not HUD.Editing()
+
+-- F1 > Settings: edit the layout, turn on the speedometer
+Deliver("surf.Menu", "menu", {})
+for _, b in ipairs(FindButtons(SURF.UI.Open.hub.side, "Settings")) do b:DoClick() end
+FindButtons(SURF.UI.Open.hub, "Speedometer")[1]:DoClick()
+FindButtons(SURF.UI.Open.hub, "Edit HUD layout")[1]:DoClick()
+fromSettings = HUD.Editing() and SURF.UI.Open.hub == nil and not HUD.Hidden("speed")
+Overlay().bar:Close()
+GM:HUDPaint()
+speedOn = Rect("speed") ~= nil
+
+-- A part from other code that breaks reports once and doesn't stop the rest
+errorsBefore = #hudErrors
+HUD.Add("broken", { name = "Broken", w = 10, h = 10, draw = function() error("boom") end })
+GM:HUDPaint() GM:HUDPaint()
+brokenReported = #hudErrors - errorsBefore
+brokenBalanced = matrixDepth == 0 and Rect("timer") ~= nil
+table.remove(HUD.list)
+HUD.byId.broken = nil
+table.remove(hudErrors)
+""", "the HUD draws and the layout editor works")
+if ok:
+    check(G.glowOff, "glowing zones are off until turned on")
+    check(G.timerR[1] == 800 and G.timerR[2] == 1080 - 134 - 30, f"the timer starts at the bottom middle ({list(G.timerR.values())})")
+    check(G.keysR[1] + G.keysR[3] == 1920 - 24 and G.keysR[2] + G.keysR[4] == 1080 - 24, f"the key display starts in the bottom right corner ({list(G.keysR.values())})")
+    check(G.infoR[1] == 16 and G.infoR[2] == 16, "the map info starts at the top left")
+    check(G.quietOff and G.balanced, "parts with nothing to show stay off, and every draw is undone")
+    check(G.splitOn and G.splitGone and G.watchOn and G.watchGone, "splits and the spectator list come and go")
+    check(G.specOn and G.deadHidesTimer, "spectating shows who you watch; the timer and keys hide while dead")
+    check(G.voteR is not None and G.voteR[1] + G.voteR[3] == 1920 - 16, "the map vote is a part of the HUD on the right")
+    check(G.keysOff, "!keys hides the key display and saves it")
+    check(G.editing and G.allShown, f"!hud opens the editor and shows every part ({G.missing})")
+    kd = G.draggedSaved
+    check(G.draggedR[1] == 295 and G.draggedR[2] == 195 and kd.x == 0 and kd.y == 0 and kd.ox == 295 and kd.oy == 195,
+          f"dragging moves a part and saves it from the nearest edge ({list(G.draggedR.values())})")
+    check(G.snappedX == 800 and G.snapGuide == 960 and G.freeX == 806 and G.nudgedX == 805, f"snapping to the middle, Shift and arrow keys ({G.snappedX}, {G.freeX}, {G.nudgedX})")
+    check(abs(G.infoScale - 1.1) < 1e-9 and abs(G.infoSaved - 1.1) < 1e-9 and abs(G.scaledR[3] - 308) < 1e-9 and G.scaledR[2] == 16,
+          f"scrolling resizes a part in place ({G.infoScale}, {list(G.scaledR.values())})")
+    check(G.hiddenByMenu and G.keysScale == 1.5, "right-click hides a part and sets its size")
+    check(G.shownAgain and G.bg == 128, "the toolbar shows hidden parts again and sets the background")
+    check(G.resetKeys[1] + G.resetKeys[3] == 1920 - 24 and G.resetAll, "Reset all puts everything back")
+    check(G.closedByDone and G.escClosedEditor and G.hudToggles, "Done, Escape and !hud close the editor")
+    check(G.fromSettings and G.speedOn, "F1 > Settings opens the editor and turns on the speedometer")
+    check(G.brokenReported == 1 and G.brokenBalanced, "a broken part reports once and the rest still draws")
+    check(len(G.hudErrors) == 0, f"no HUD part errors ({list(G.hudErrors.values())})")
+
+# The layout is kept after a reload
+L.execute('''
+SURF.HUD.SetHidden("watchers", true)
+SURF.HUD.SetScale("timer", 1.3)
+''')
+include("cl_hud.lua")
+check(G.SURF.HUD.Hidden("watchers") and G.SURF.HUD.Scale("timer") == 1.3 and G.SURF.HUD.byId["mapvote"] is not None,
+      "the layout loads from data/surf_hud.json and parts from other files stay")
+L.execute('SURF.HUD.Reset()')
+
 # Scoreboard and map vote
 ok = run(r"""
 other.nw.surf_mainpb = 61.5
@@ -689,7 +931,7 @@ for _, o in ipairs(sbMenu:GetChildren()) do if o.text == "Mute their voice (only
 GM:ScoreboardHide()
 table.remove(allPlayers)
 Deliver("surf.MapVote", true, { "surf_a", "surf_b", "__extend" }, { 2, 3 }, { surf_a = 2 }, 130)
-GM:DrawMapVote()
+GM:HUDPaint()
 """, "the scoreboard and map vote draw")
 if ok:
     opts = list(G.sbOptions.values())

@@ -64,7 +64,6 @@ end
 
 -- Client-only toggles
 local hidePlayers = CreateClientConVar("surf_hideplayers", "0", true, false)
-local showKeys = CreateClientConVar("surf_showkeys", "1", true, false)
 
 net.Receive("surf.Action", function()
 	local action = net.ReadString()
@@ -73,9 +72,10 @@ net.Receive("surf.Action", function()
 		RunConsoleCommand("surf_hideplayers", on and "1" or "0")
 		chat.AddText(SURF.Config.Accent, "[Settings] ", color_white, "Other players are now " .. (on and "hidden" or "visible") .. ".")
 	elseif action == "keys" then
-		local on = not showKeys:GetBool()
-		RunConsoleCommand("surf_showkeys", on and "1" or "0")
-		chat.AddText(SURF.Config.Accent, "[Settings] ", color_white, "Key display " .. (on and "on" or "off") .. ".")
+		local on = SURF.HUD.Toggle("keys")
+		chat.AddText(SURF.Config.Accent, "[Settings] ", color_white, "Key display " .. (on and "on" or "off") .. ". !hud moves it.")
+	elseif action == "hud" then
+		SURF.HUD.Edit()
 	elseif action == "maplight" then
 		SURF.Visuals.ToggleMapLight()
 	elseif action == "zonefx" then
