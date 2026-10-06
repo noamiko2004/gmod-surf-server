@@ -24,7 +24,11 @@ pick_start_map() {
 MAP="$START_MAP"
 [[ -z "$MAP" || "$MAP" == auto || "$MAP" == gm_construct ]] && MAP="$(pick_start_map)"
 
-ARGS=(-game garrysmod -console -norestart -port "$PORT" -tickrate "$TICKRATE"
+# -condebug writes garrysmod/console.log (Lua errors for scripts/health.py);
+# the previous run's log is kept for looking into a crash
+[[ -f "$SERVER_DIR/garrysmod/console.log" ]] && mv -f "$SERVER_DIR/garrysmod/console.log" "$SERVER_DIR/garrysmod/console.prev.log"
+
+ARGS=(-game garrysmod -console -condebug -norestart -port "$PORT" -tickrate "$TICKRATE"
       +maxplayers "$MAXPLAYERS" +gamemode surf +map "$MAP")
 [[ -n "$GSLT" ]] && ARGS+=(+sv_setsteamaccount "$GSLT")
 [[ -n "$WORKSHOP_COLLECTION" ]] && ARGS+=(+host_workshop_collection "$WORKSHOP_COLLECTION")

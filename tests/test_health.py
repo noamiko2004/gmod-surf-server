@@ -30,8 +30,11 @@ r = H.Report()
 H.check_game_log(r, ["Segmentation fault (core dumped)", "normal line"])
 check(r.items[0][0] == H.BAD, "a crash is a problem")
 r = H.Report()
-H.check_game_log(r, ["fine", "also fine"])
+H.check_game_log(r, ["fine"] * 60)
 check(r.items[0][0] == H.OK, "clean game log is OK")
+r = H.Report()
+H.check_game_log(r, ["fine", "also fine"])
+check(r.items[0][0] == H.WARN, "a nearly empty game log is a warning, not proof of no errors")
 
 # Python logs: tracebacks name their exception once
 r = H.Report()
@@ -60,6 +63,31 @@ errs = H.check_py_log(r, "Website log", ['[portal] 85.1.2.3 "GET /maps/x?y=1 HTT
                                          '[portal] 85.1.2.3 "GET / HTTP/1.1" 200 -',
                                          '[portal] tebex poll failed: timed out'])
 check(errs.get("HTTP 500 on /maps/x") == 1 and sum(errs.values()) == 2, "website 500s and failures counted")
+
+# services: the bot's clean exit to reload its code is no crash; a real one is
+r = H.Report()
+H.unit_state = lambda u: {"LoadState": "loaded", "ActiveState": "active", "ActiveEnterTimestamp": "today"}
+bot_j = ["INFO surfbot: Code changed on disk, restarting to load it",
+         "surf-discord.service: Main process exited, code=exited, status=0/SUCCESS",
+         "surf-discord.service: Scheduled restart job, restart counter is at 6."]
+game_j = ["Segfault in sv_timer", "gmod-surf.service: Main process exited, code=dumped, status=11/SEGV",
+          "gmod-surf.service: Main process exited, code=killed, status=15/TERM"]
+H.check_services(r, {"surf-discord": bot_j, "gmod-surf": game_j}, [("surf-discord", "Discord bot"), ("gmod-surf", "Game server")])
+check(r.items[0][0] == H.OK, "bot reloading its code is not a crash: " + r.items[0][2])
+check(r.items[1][0] == H.WARN and "crashed 1 times" in r.items[1][2] and "Segfault in sv_timer" in r.items[1][2], "a real crash is reported with the line before it")
+
+# links: the bot's invite in the bridge folder is enough for !discord
+with tempfile.TemporaryDirectory() as d:
+    os.makedirs(os.path.join(d, "discord"))
+    open(os.path.join(d, "discord", "invite.txt"), "w").write("https://discord.gg/abc123\n")
+    r = H.Report()
+    H.check_links(r, d, d, {})
+    check(r.items[0][0] == H.OK, "bridge invite.txt counts as a !discord link")
+
+# voice warnings from discord.py are noise
+r = H.Report()
+H.check_py_log(r, "Discord bot log", ["WARNING discord.client: PyNaCl is not installed, voice will NOT be supported"])
+check(r.items[0][2] == "Discord bot log: no errors in 24 h", "voice warnings ignored")
 
 # update.log: last run and its problems
 with tempfile.TemporaryDirectory() as home:
