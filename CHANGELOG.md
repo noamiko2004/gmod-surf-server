@@ -1,5 +1,4 @@
 # Changelog
-## 2026-10-06 (v5.6): movable HUD
 ## 2026-10-06 (v5.7): challenges, achievements and races
 - Daily and weekly challenges (`!challenges`, also `!daily`, `!quests`, or
   F1 > Challenges). Every day three new ones for everyone (finish runs,
@@ -28,6 +27,7 @@
   streak, today's and this week's challenges with progress bars, and every
   achievement with how close you are.
 
+## 2026-10-06 (v5.6): movable HUD
 - The HUD is made of parts each player can move, resize and hide: `!hud`
   (also `!layout`, or F1 > Settings > Edit HUD layout) opens an editor over
   the game. Drag a part to move it (it snaps to the edges, the middle and
