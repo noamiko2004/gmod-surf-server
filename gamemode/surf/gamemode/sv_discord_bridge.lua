@@ -114,8 +114,49 @@ function B.Link(ply, code)
 	end
 end
 
+-- A map change reconnects everyone, which isn't a join. The players who were
+-- on are kept in a file at shutdown; they aren't announced again, and anyone
+-- who doesn't come back within CARRY_FOR seconds is posted as having left.
+local CARRY, CARRY_FOR = DIR .. "/online.txt", 240
+B.carried = {} -- SteamID64 -> name
+
+function B.LoadCarried()
+	local raw = file.Read(CARRY, "DATA")
+	file.Delete(CARRY)
+	B.carried = {}
+	local lines = string.Explode("\n", raw or "")
+	if os.time() - (tonumber(lines[1]) or 0) >= CARRY_FOR then return end
+	for i = 2, #lines do
+		local sid, name = string.match(lines[i], "^(%d+)\t(.*)$")
+		if sid then B.carried[sid] = name end
+	end
+end
+
+function B.ExpireCarried()
+	for sid, name in pairs(B.carried) do
+		if not IsValid(player.GetBySteamID64(sid)) then
+			B.Send({ t = "leave", sid = sid, name = name, count = #player.GetHumans(), max = game.MaxPlayers() })
+		end
+	end
+	B.carried = {}
+end
+
+hook.Add("ShutDown", "surf_discord_bridge", function()
+	local lines = { tostring(os.time()) }
+	for _, p in ipairs(player.GetHumans()) do lines[#lines + 1] = p:SteamID64() .. "\t" .. Clean(p:Nick(), 64) end
+	file.Write(CARRY, table.concat(lines, "\n"))
+end)
+
+B.LoadCarried()
+timer.Simple(CARRY_FOR, B.ExpireCarried)
+
 hook.Add("SurfPlayerReady", "surf_discord_bridge", function(ply)
-	B.Send({ t = "join", sid = ply:SteamID64(), name = Clean(ply:Nick(), 64), count = #player.GetHumans(), max = game.MaxPlayers() })
+	local sid = ply:SteamID64()
+	if B.carried[sid] then
+		B.carried[sid] = nil
+		return
+	end
+	B.Send({ t = "join", sid = sid, name = Clean(ply:Nick(), 64), count = #player.GetHumans(), max = game.MaxPlayers() })
 end)
 
 hook.Add("PlayerDisconnected", "surf_discord_bridge", function(ply)

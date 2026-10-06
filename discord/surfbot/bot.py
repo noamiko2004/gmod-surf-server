@@ -12,6 +12,7 @@ import os
 import sys
 import time
 
+import aiohttp
 import discord
 from discord import app_commands
 from discord.ext import tasks
@@ -27,6 +28,8 @@ RENAME_EVERY = 330  # Discord allows 2 channel renames per 10 minutes
 BUSY_AT = 8          # players for the "server is busy" ping in general
 BUSY_EVERY = 6 * 3600
 DISCORD_BLURPLE = 0x5865F2
+RELAY_WARN_EVERY = 600
+TRANSIENT = (discord.DiscordServerError, aiohttp.ClientError, asyncio.TimeoutError)
 
 
 def load_state(path):
@@ -62,6 +65,17 @@ def write_line(path, text):
         log.warning("Could not write %s: %s", path, ex)
 
 
+def relay_error(ex):
+    """Why Discord refused a message, in words for mod-log."""
+    if isinstance(ex, discord.HTTPException):
+        if ex.code == 200000:
+            return "Discord's AutoMod blocked it"
+        if isinstance(ex, discord.Forbidden):
+            return "the bot isn't allowed to post in game-chat (it needs Administrator)"
+        return f"Discord answered {ex.status} ({BR.one_line(ex.text, 150) or 'no reason given'})"
+    return f"{type(ex).__name__}: {BR.one_line(str(ex), 150)}"
+
+
 def code_stamp():
     files = glob.glob(os.path.join(HERE, "*.py")) + glob.glob(os.path.join(G.REPO_DIR, "portal", "surfweb", "*.py"))
     return max((os.path.getmtime(f) for f in files), default=0)
@@ -93,6 +107,8 @@ class SurfBot(discord.Client):
         self.avatars = None
         self.last_count = None
         self.content_intent = content_intent
+        self.retry = []         # game events to post again after a Discord hiccup
+        self.relay_warned = 0.0
         register_commands(self)
 
     def save(self):
@@ -143,6 +159,22 @@ class SurfBot(discord.Client):
                      self.bridge_loop, self.roles_loop):
             if not loop.is_running():
                 loop.start()
+        await self.guarded(self.intent_notice)
+
+    async def intent_notice(self):
+        """Without the Message Content intent, what people write in game-chat arrives empty."""
+        st = self.gstate()
+        if self.content_intent:
+            st.pop("content_warned", None)
+            return
+        ml = self.chan("modlog")
+        if st.get("content_warned") or ml is None:
+            return
+        await ml.send("\u26A0\uFE0F Messages written in game-chat can't reach the game: turn on **Message Content Intent** "
+                      "on the Bot page of https://discord.com/developers/applications. The bot picks it up by itself "
+                      "after the next update, or now with `sudo systemctl restart surf-discord`.")
+        st["content_warned"] = True
+        self.save()
 
     async def pick_home(self):
         want = self.state.get("guild_id") or os.environ.get("GUILD_ID")
@@ -390,18 +422,48 @@ class SurfBot(discord.Client):
         await self.guarded(self.bridge_tick)
 
     async def bridge_tick(self):
-        events = await asyncio.to_thread(self.bridge.read_events)
+        events = self.retry + await asyncio.to_thread(self.bridge.read_events)
+        self.retry = []
         now = time.time()
         for ev in events:
             kind = ev.get("t")
-            if kind == "link":
-                await self.game_link(ev)
-            elif now - BR.to_num(ev.get("at")) > BR.STALE_CHAT:
+            if kind != "link" and now - BR.to_num(ev.get("at")) > BR.STALE_CHAT:
                 continue  # the bot was down; don't flood the channel with old chat
-            elif kind == "chat":
-                await self.game_chat(ev)
-            elif kind in ("join", "leave", "map"):
-                await self.game_notice(ev)
+            # One line that fails must not take the rest of the batch with it
+            try:
+                if kind == "link":
+                    await self.game_link(ev)
+                elif kind == "chat":
+                    await self.game_chat(ev)
+                elif kind in ("join", "leave", "map"):
+                    await self.game_notice(ev)
+            except TRANSIENT as ex:
+                ev["tries"] = BR.to_num(ev.get("tries")) + 1
+                if kind != "link" and ev["tries"] < 3:
+                    self.retry.append(ev)  # Discord hiccup: again on the next tick, in order
+                else:
+                    await self.relay_failed(ev, ex)
+            except Exception as ex:  # noqa: BLE001
+                await self.relay_failed(ev, ex)
+
+    async def relay_failed(self, ev, ex):
+        """Logs why a line from the game didn't reach Discord, and tells mod-log (at most every 10 minutes)."""
+        why = relay_error(ex)
+        who = BR.one_line(ev.get("name"), 64) or "the game"
+        log.warning("Game %s from %s not posted: %s", ev.get("t"), who, why,
+                    exc_info=not isinstance(ex, discord.HTTPException))
+        if time.time() - self.relay_warned < RELAY_WARN_EVERY:
+            return
+        self.relay_warned = time.time()
+        ml = self.chan("modlog")
+        if ml:
+            try:
+                what = "A !link" if ev.get("t") == "link" else "A game-chat line"
+                await ml.send(f"\u26A0\uFE0F {what} from **{G.esc(who)}** didn't reach Discord: {why}. "
+                              "More failures in the next 10 minutes only go to the bot log.",
+                              allowed_mentions=discord.AllowedMentions.none())
+            except discord.HTTPException:
+                pass
 
     async def chat_webhook(self):
         ch = self.chan("game_chat")
@@ -440,15 +502,23 @@ class SurfBot(discord.Client):
             return
         text = discord.utils.escape_mentions(discord.utils.escape_markdown(text))
         name = BR.webhook_name(ev.get("name"))
-        hook = await self.chat_webhook()
-        if hook is None:
-            return
-        try:
-            await hook.send(text, username=name, avatar_url=self.avatar_of(ev.get("sid")) or None,
-                            allowed_mentions=discord.AllowedMentions.none())
-        except discord.NotFound:
-            self.webhook = None
-            self.gstate().pop("game_webhook", None)
+        avatar = self.avatar_of(ev.get("sid")) or None
+        for _ in range(3):
+            hook = await self.chat_webhook()
+            if hook is None:
+                return
+            try:
+                await hook.send(text, username=name, avatar_url=avatar, allowed_mentions=discord.AllowedMentions.none())
+                return
+            except discord.NotFound:  # someone deleted the webhook: make a new one
+                self.webhook = None
+                self.gstate().pop("game_webhook", None)
+            except discord.HTTPException as ex:
+                if not (ex.status == 400 and ex.code == 50035) or name == BR.FALLBACK_NAME:
+                    raise
+                # Discord refused this Steam name as a webhook name: keep the name in the text
+                text = f"**{G.esc(BR.one_line(ev.get('name'), 64))}:** {text}"
+                name = BR.FALLBACK_NAME
 
     async def game_notice(self, ev):
         ch = self.chan("game_chat")
@@ -466,6 +536,8 @@ class SurfBot(discord.Client):
             tail = f" ({int(BR.to_num(count))}/{most})" if count is not None else ""
             text = (f"\U0001F4E5 **{name}** joined{tail}" if kind == "join" else f"\U0001F4E4 **{name}** left{tail}")
         await ch.send(text, allowed_mentions=discord.AllowedMentions.none())
+        if kind == "join":
+            self.avatar_of(ev.get("sid"))  # fetch the Steam picture before they first chat
 
     async def on_message(self, msg):
         ch = self.chan("game_chat")
@@ -559,6 +631,19 @@ class SurfBot(discord.Client):
     @tasks.loop(minutes=10)
     async def roles_loop(self):
         await self.guarded(self.roles_tick)
+        await self.guarded(self.invite_tick)
+
+    async def invite_tick(self):
+        """A deleted invite is made again, so !discord and the website keep a working link."""
+        st = self.gstate()
+        if st.get("built") != layout.LAYOUT_VERSION or self.building.locked():
+            return
+        before = st.get("invite")
+        async with self.building:
+            await Builder(self, self.home, st).invite()
+        if st.get("invite") != before:
+            log.info("New invite link: %s", st.get("invite"))
+        self.save()
 
     async def roles_tick(self):
         if not self.links():
