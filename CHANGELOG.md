@@ -1,4 +1,32 @@
 # Changelog
+## 2026-10-06 (v5.6): movable HUD
+- The HUD is made of parts each player can move, resize and hide: `!hud`
+  (also `!layout`, or F1 > Settings > Edit HUD layout) opens an editor over
+  the game. Drag a part to move it (it snaps to the edges, the middle and
+  other parts; Shift stops snapping), scroll on it to resize it, right-click
+  it to hide it, pick a size or reset it. Arrow keys nudge the last part
+  clicked. The toolbar sets how see-through the backgrounds are, shows hidden
+  parts again and resets everything. The layout is saved per player in
+  `data/surf_hud.json` and positions are kept from the nearest screen edge,
+  so they hold on any resolution.
+- Parts: timer, checkpoint splits, key display, map info, spectating, map
+  vote, a new spectator list (who is watching you, kept by the server in the
+  `surf_watchers` NW2String) and a new big speedometer under the crosshair
+  (off until turned on).
+- The key display moved from the middle of the screen to the bottom right
+  corner, and shows mouse turning (left/right arrows next to W). `!keys` now
+  hides or shows that part; an old `!keys` off carries over.
+- Glowing START/END zones are off by default (new setting `surf_zoneglow`,
+  so earlier saved choices start off too). `!zonefx`, `!glow` or F1 >
+  Settings turn them on.
+- Code: other client files add HUD parts with `SURF.HUD.Add(id, { name, w, h
+  or size(ctx), pos = { ax, ay, ox, oy }, show(ctx), draw(w, h, ctx) })`;
+  see the top of `cl_hud.lua`. `GM:DrawMapVote` is gone (the map vote is the
+  `mapvote` part).
+- Discord (merged from its own branch): every player's game chat reaches
+  Discord again (one refused line used to drop the rest of a batch), the
+  in-game `!discord` invite works, and a map change no longer posts everyone
+  joining again.
 
 ## 2026-10-06 (v5.5)
 - Tebex from the website: Admin > Shop has a "Selling VIP with Tebex" card to

@@ -428,8 +428,17 @@ function BUILD.settings(parent)
 	Toggle(scroll, "Autohop", "Hold jump to keep bunnyhopping.", function() return me:GetNW2Bool("surf_autohop", SURF.Config.DefaultAutoHop) end,
 		function() Say("!auto") end)
 	Toggle(scroll, "Hide other players", "Also hides their trails.", function() return ConVarOn("surf_hideplayers") end, function() Say("!hide") end)
-	Toggle(scroll, "Key display", "Shows the keys you press, and the keys of whoever you spectate.", function() return ConVarOn("surf_showkeys") end,
-		function() Say("!keys") end)
+	local HUD = SURF.HUD
+	UI.Section(scroll, "HUD")
+	UI.Row(scroll, { title = "Edit HUD layout", sub = "Move, resize or hide the timer, keys and the rest. Same as !hud.", right = "Edit",
+		rightColor = UI.Accent(), onClick = function() HUD.Edit() end })
+	local function Part(id, title, sub)
+		Toggle(scroll, title, sub, function() return not HUD.Hidden(id) end, function() HUD.Toggle(id) end)
+	end
+	Part("keys", "Key display", "The keys you press and your mouse turning, or those of whoever you spectate.")
+	Part("speed", "Speedometer", "Big speed under the crosshair.")
+	Part("watchers", "Spectator list", "Who is watching you.")
+	Part("split", "Checkpoint splits", "Your time at each checkpoint against your best and the record.")
 end
 
 -- Commands ----------------------------------------------------------------------

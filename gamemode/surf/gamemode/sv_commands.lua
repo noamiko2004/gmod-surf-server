@@ -174,6 +174,8 @@ Add({ "replay", "wrbot" }, "Watch the server record replay", function(ply) SURF.
 
 Add({ "keys", "showkeys" }, "Show or hide the key display", function(ply) SURF.ClientAction(ply, "keys") end)
 
+Add({ "hud", "edithud", "layout" }, "Move, resize or hide parts of your HUD", function(ply) SURF.ClientAction(ply, "hud") end)
+
 Add({ "spec", "spectate" }, "Spectate other players (again to return); !spec <name> watches that player", function(ply, args)
 	if not args[1] then return SURF.Spec.Toggle(ply) end
 	local t, err = SURF.Admin.FindPlayer(table.concat(args, " "))
@@ -197,7 +199,7 @@ Add({ "graphics", "gfx" }, "Color presets and glowing zones (!graphics vivid|cin
 	SURF.Menu.Open(ply, "graphics")
 end)
 
-Add({ "zonefx" }, "Glowing zones on or off", function(ply) SURF.ClientAction(ply, "zonefx") end)
+Add({ "zonefx", "zoneglow", "glow" }, "Glowing zones on or off (off at first)", function(ply) SURF.ClientAction(ply, "zonefx") end)
 
 Add({ "trail", "trails" }, "Pick a trail", function(ply) SURF.Shop.OpenMenu(ply, "trail") end)
 
