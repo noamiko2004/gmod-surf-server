@@ -41,6 +41,14 @@ if [[ $EUID -eq 0 ]]; then
   fi
 fi
 
+# Health check: "sudo surfcheck" prints a one-screen summary; cron refreshes
+# the report every 10 minutes for the website (health.txt, /health.json)
+if [[ $EUID -eq 0 ]]; then
+  printf '#!/bin/sh\nexec python3 %s/scripts/health.py "$@"\n' "$REPO_DIR" > /usr/local/bin/surfcheck
+  chmod 755 /usr/local/bin/surfcheck
+  printf '*/10 * * * * root python3 %s/scripts/health.py --quiet >/dev/null 2>&1\n' "$REPO_DIR" > /etc/cron.d/surf-health
+fi
+
 log "Deploying gamemode"
 mkdir -p "$GM_DIR/gamemodes"
 rm -rf "$GM_DIR/gamemodes/surf" "$GM_DIR/gamemodes/surfline"  # surfline was the old name
