@@ -50,6 +50,8 @@
   the start, a 3 second countdown holds them, first to finish the map wins
   30 coins (5 paid wins a day). Leaving or spectating gives up; 15 minutes
   without a finish is a draw.
+  While racing, a "Race" HUD part (movable with `!hud`) shows who you race
+  and for how long.
 - The Challenges window has the map of the day (click to nominate), your
   streak, today's and this week's challenges with progress bars, and every
   achievement with how close you are.

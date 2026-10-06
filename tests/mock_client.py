@@ -972,8 +972,12 @@ Deliver("surf.Challenge", "race", { count = 3, vs = "Bob" })
 hooks.HUDPaint.surf_race_countdown()
 Deliver("surf.Challenge", "race", { go = true, vs = "Bob" })
 hooks.HUDPaint.surf_race_countdown()
+GM:HUDPaint()
+raceShown = SURF.HUD.byId.race.rect ~= nil
 Deliver("surf.Challenge", "race", { stop = true })
 hooks.HUDPaint.surf_race_countdown()
+GM:HUDPaint()
+raceGone = SURF.HUD.byId.race.rect == nil
 -- F1 > Challenges runs !challenges
 Deliver("surf.Menu", "menu", {})
 for _, b in ipairs(FindButtons(SURF.UI.Open.hub.side, "Challenges")) do b:DoClick() end
@@ -982,6 +986,7 @@ if ok:
     cmds = list(G.consoleCmds.values())
     check(G.chWin is not None and G.chCards >= 1 and "say !nominate surf_mesa" in cmds, "the challenges window opens; the map of the day card nominates it")
     check("say !challenges" in cmds, "F1 > Challenges opens the challenges window")
+    check(G.raceShown and G.raceGone, "the Race HUD part shows during a race only")
 
 print("\n%d failure(s)" % len(failures))
 sys.exit(1 if failures else 0)

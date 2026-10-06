@@ -170,7 +170,8 @@ Menus.challenges = Open
 
 -- Toasts and the race countdown ---------------------------------------------------
 
-local race -- { vs, goAt, until }
+local race -- the countdown: { vs, goAt, untilAt }
+local racing -- the race after the go: { vs, since }
 
 net.Receive("surf.Challenge", function()
 	local kind, d = net.ReadString(), net.ReadTable()
@@ -178,12 +179,13 @@ net.Receive("surf.Challenge", function()
 		UI.Toast(d.text or "", d.col and Color(d.col.r, d.col.g, d.col.b) or nil)
 	elseif kind == "race" then
 		if d.stop then
-			race = nil
+			race, racing = nil, nil
 		elseif d.count then
 			race = { vs = d.vs, goAt = RealTime() + d.count, untilAt = RealTime() + d.count + 1.2 }
 			surface.PlaySound("buttons/blip1.wav")
 		elseif d.go then
 			race = { vs = d.vs, goAt = RealTime(), untilAt = RealTime() + 1.2 }
+			racing = { vs = d.vs, since = RealTime() }
 			surface.PlaySound("buttons/button9.wav")
 			UI.Toast("Racing " .. tostring(d.vs) .. ": first to the end wins! (!forfeit gives up)", Color(255, 120, 60))
 		end
@@ -212,3 +214,18 @@ hook.Add("HUDPaint", "surf_race_countdown", function()
 	draw.SimpleTextOutlined(text, "SurfRaceCount", x, y, col, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER, 3, Color(0, 0, 0, 200))
 	draw.SimpleTextOutlined("Race vs " .. tostring(race.vs or "?"), "SurfUI_Head", x, y + S(76), color_white, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER, 1, Color(0, 0, 0, 200))
 end)
+
+-- A movable HUD part (!hud) while a race is on: who against and for how long
+if SURF.HUD and SURF.HUD.Add then
+	SURF.HUD.Add("race", {
+		name = "Race", w = 220, h = 50, pos = { 0.5, 0, 0, 120 },
+		show = function(ctx) return racing ~= nil or ctx.preview end,
+		draw = function(w, h, ctx)
+			SURF.HUD.Box(w, h)
+			local vs = racing and racing.vs or "Bob"
+			local t = racing and (RealTime() - racing.since) or 42
+			draw.SimpleText("Race vs " .. tostring(vs), "SurfSmall", w / 2, h * 0.32, Color(255, 120, 60), TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+			draw.SimpleText(SURF.FormatTime(t) .. "   !forfeit gives up", "SurfSmall", w / 2, h * 0.7, SURF.HUD.Colors.dim, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+		end,
+	})
+end
