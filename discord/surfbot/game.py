@@ -79,6 +79,8 @@ class Game:
         gmod_dir = os.path.join(home, "server", "garrysmod")
         self.store = Store(os.path.join(gmod_dir, "data", "surfline"), os.path.join(gmod_dir, "sv.db"),
                            gmod_dir, home)
+        self.config.site_dir = self.store.portal_dir  # the store address set on the website or reported by Tebex
+        self.config.reload()
         self.home = home
         self.host = host
 
