@@ -103,19 +103,37 @@ def ago(sec):
     return f"{sec // DAY} days ago"
 
 
-def check_services(r, units=UNITS):
+# systemd's own lines in a unit's journal. A clean exit (the Discord bot exits 0
+# to reload its code after an update) or a stop/restart (SIGTERM) is no crash
+EXITED = re.compile(r"Main process exited, code=(\w+), status=(\S+)")
+CLEAN_EXIT = re.compile(r"^(?:0/SUCCESS|15/TERM|143|9/KILL)$")
+
+
+def failed_exits(lines):
+    """Exit reasons of crashes in a unit's journal, each with the log line just before it."""
+    out = []
+    for i, line in enumerate(lines):
+        m = EXITED.search(line)
+        if m and not CLEAN_EXIT.match(m.group(2)):
+            before = next((l.strip() for l in reversed(lines[max(0, i - 5):i]) if l.strip() and "systemd" not in l and ".service" not in l), "")
+            out.append(f"{m.group(1)} {m.group(2)}" + (f" after: {before[:120]}" if before else ""))
+    return out
+
+
+def check_services(r, journals, units=UNITS):
     for unit, label in units:
         s = unit_state(unit)
         if s.get("LoadState") == "not-found":
             r.add(BAD if unit != "surf-discord" else WARN, label, f"{label}: not installed ({unit})")
             continue
         active = s.get("ActiveState", "?")
-        restarts = int(s.get("NRestarts") or 0)
         since = s.get("ActiveEnterTimestamp", "")
+        crashes = failed_exits(journals.get(unit) or [])
         if active != "active":
-            r.add(BAD, label, f"{label}: {active} ({s.get('SubState', '?')}). See: journalctl -u {unit} -n 50")
-        elif restarts:
-            r.add(WARN, label, f"{label}: running, but restarted {restarts} times (crash loop?) since {since}")
+            r.add(BAD, label, f"{label}: {active} ({s.get('SubState', '?')}). See: journalctl -u {unit} -n 50", crashes[-5:])
+        elif crashes:
+            lvl = BAD if len(crashes) >= 5 else WARN
+            r.add(lvl, label, f"{label}: running, but crashed {len(crashes)} times in 24 h. Last: {crashes[-1][:100]}", crashes[-5:])
         else:
             r.add(OK, label, f"{label}: running since {since}")
 
@@ -138,6 +156,18 @@ def top(counter, k=5):
     return [f"{n}x {s}" for s, n in counter.most_common(k)]
 
 
+def console_lines(gm, max_bytes=8 << 20):
+    """garrysmod/console.log (start.sh runs srcds with -condebug and keeps the last run's as console.prev.log)."""
+    path = os.path.join(gm, "console.log")
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            f.seek(max(0, f.tell() - max_bytes))
+            return f.read().decode("utf-8", "replace").splitlines()
+    except OSError:
+        return []
+
+
 def check_game_log(r, lines):
     errs, crashes = Counter(), Counter()
     for i, line in enumerate(lines):
@@ -156,7 +186,7 @@ def check_game_log(r, lines):
         lvl = BAD if total >= 50 else WARN
         r.add(lvl, "Game log", f"{total} Lua errors in 24 h ({len(errs)} different). Top: {next(iter(top(errs, 1)))}", top(errs, 10))
     elif not crashes:
-        r.add(OK, "Game log", f"No Lua errors in 24 h ({len(lines)} log lines)")
+        r.add(OK if len(lines) >= 50 else WARN, "Game log", f"No Lua errors in 24 h ({len(lines)} log lines" + (", too few to be sure: is console.log there?)" if len(lines) < 50 else ")"))
     return errs
 
 
@@ -193,7 +223,7 @@ def check_py_log(r, area, lines):
             errs[signature(s)] += 1
         elif PY_ERR.search(s) and not re.match(r"^\w+(?:\.\w+)*(?:Error|Exception): ", s):
             errs[signature(s)] += 1
-        elif PY_WARN.search(s):
+        elif PY_WARN.search(s) and "voice will NOT be supported" not in s:
             warns[signature(s)] += 1
     n = sum(errs.values())
     if n:
@@ -284,8 +314,16 @@ def check_links(r, data, home, conf):
             links = json.load(f)
     except (OSError, ValueError):
         links = {}
+    bridge_invite = ""
+    try:
+        with open(os.path.join(data, "discord", "invite.txt"), encoding="utf-8") as f:
+            bridge_invite = f.readline().strip()
+    except OSError:
+        pass
     if links.get("discord"):
         r.add(OK, "Links", "!discord has an invite link")
+    elif re.match(r"^https://(discord\.gg|discord\.com/invite)/[A-Za-z0-9-]+$", bridge_invite):
+        r.add(OK, "Links", "!discord uses the invite the bot made (config gets it on the next update)")
     elif os.path.isfile(os.path.join(home, "discord", "invite.txt")):
         r.add(WARN, "Links", "!discord has no link, though the bot wrote invite.txt (run update.sh to pick it up)")
     else:
@@ -416,12 +454,13 @@ def collect(conf, repo, now=None):
     data = os.path.join(gm, "data", "surfline")
     r = Report()
     version = check_version(r, repo)
-    check_services(r)
-    check_game_log(r, journal("gmod-surf"))
+    journals = {u: journal(u) for u, _ in UNITS}
+    check_services(r, journals)
+    check_game_log(r, console_lines(gm) or journals["gmod-surf"])  # the journal misses most srcds output
     check_website(r)
-    check_py_log(r, "Website log", journal("surf-portal"))
-    check_py_log(r, "Discord bot log", journal("surf-discord"))
-    check_caddy_log(r, journal("caddy"))
+    check_py_log(r, "Website log", journals["surf-portal"])
+    check_py_log(r, "Discord bot log", journals["surf-discord"])
+    check_caddy_log(r, journals["caddy"])
     check_bridge(r, data, now)
     check_links(r, data, home, conf)
     check_updates(r, home, now)

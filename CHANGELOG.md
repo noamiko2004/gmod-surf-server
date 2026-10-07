@@ -66,6 +66,17 @@
 - The store address falls back to the one Tebex reports, and the game picks it
   up for `!vip` and the shop (`portal/store_url.txt`, re-read every 30 s).
 
+## 2026-10-06 (health check fixes, after the first live report)
+- The Discord bot exits on purpose to load new code after an update; the
+  health check no longer calls that a crash loop. Only crashes (a non-zero
+  exit or a signal other than a stop) count, each with the log line before it.
+- `!discord` counts as working when the bot's invite is in the bridge
+  folder (the game reads it there until the next update copies it).
+- The game now writes `garrysmod/console.log` (`-condebug`; the previous
+  run's log is kept as `console.prev.log`). The systemd journal got only 25
+  game lines a day, too few to find Lua errors, so the check reads this log.
+- discord.py's "voice will NOT be supported" warnings are ignored.
+
 ## 2026-10-06 (health check)
 - `sudo surfcheck` (scripts/health.py) prints a one-screen health summary:
   the four services and their restarts, Lua errors and crashes in the game log
