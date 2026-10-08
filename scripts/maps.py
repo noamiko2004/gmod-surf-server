@@ -4,7 +4,9 @@
 Reads maps/sources.txt (item and collection IDs), asks the Steam API which of
 those are Garry's Mod items naming a wanted map (one that has zones in zones/,
 or is listed in maps/extra_maps.txt), downloads the best match per map with
-SteamCMD, and unpacks the .bsp (plus models) into the server.
+SteamCMD, and unpacks the .bsp (plus models) into the server. Maps that would
+show the purple checkerboard to players without CS:S (scripts/mapcheck.py)
+are swapped for another Workshop copy that ships the textures, or left out.
 Writes garrysmod/data/surfline/map_ws.txt so clients get each map from the
 Workshop, and maps_report.json for the web portal. Standard library only.
 """
@@ -21,12 +23,15 @@ import time
 import urllib.parse
 import urllib.request
 
+import mapcheck
+
 API = "https://api.steampowered.com/ISteamRemoteStorage/{}/v1/"
 GMOD_APPID = 4000
 MAX_SIZE = 400 * 1024 * 1024
 KEEP_DIRS = ("maps/", "models/")
 MIN_FREE_GB = 6  # stop downloading maps when the disk gets this full
 EASY_SLOTS = 25  # always keep this many tier 1-2 maps for new players
+SCAN_VERSION = 1  # bump to re-check every installed map with a new mapcheck.py
 
 
 def log(msg):
@@ -96,8 +101,8 @@ def word_names(text):
 
 
 def choose(details, wanted, preferred):
-    """Pick the best Workshop item per wanted map name."""
-    best = {}
+    """Workshop items per wanted map name, best first."""
+    found = {}
     for fid, d in details.items():
         if int(d.get("consumer_app_id", 0)) != GMOD_APPID or d.get("banned"):
             continue
@@ -109,9 +114,8 @@ def choose(details, wanted, preferred):
         tokens |= word_names(d.get("title"))
         score = int(d.get("subscriptions", 0) or 0) + (10 ** 9 if fid in preferred else 0)
         for name in tokens & wanted:
-            if name not in best or score > best[name][0]:
-                best[name] = (score, fid)
-    return {name: fid for name, (score, fid) in best.items()}
+            found.setdefault(name, []).append((-score, fid))
+    return {name: [fid for _, fid in sorted(items)] for name, items in found.items()}
 
 
 # GMA parsing ---------------------------------------------------------------
@@ -163,10 +167,12 @@ def load_gma(path):
     return buf
 
 
-def extract(gma_buf, garrysmod_dir):
-    """Writes maps and models into the server. Returns the surf map names found."""
+def extract(gma_buf, garrysmod_dir, staging):
+    """Writes models into the server and maps into staging (to be checked).
+    Returns (surf map names found, every file name in the item)."""
     maps = []
     files = list(parse_gma(gma_buf))
+    names = {p for p, _ in files}
     bsps = [p for p, _ in files if p.startswith("maps/") and p.endswith(".bsp")]
     for path, data in files:
         if ".." in path or not path.startswith(KEEP_DIRS):
@@ -178,7 +184,7 @@ def extract(gma_buf, garrysmod_dir):
             if not name.startswith("surf_"):
                 continue
             maps.append(name)
-            dest = os.path.join(garrysmod_dir, "maps", name + ".bsp")
+            dest = os.path.join(staging, name + ".bsp")
         else:
             dest = os.path.join(garrysmod_dir, "addons", "surfline_maps", path)
         os.makedirs(os.path.dirname(dest), exist_ok=True)
@@ -186,7 +192,7 @@ def extract(gma_buf, garrysmod_dir):
             f.write(data)
     if not bsps:
         log("  no .bsp inside")
-    return maps
+    return maps, names
 
 
 # Downloading ---------------------------------------------------------------
@@ -267,9 +273,10 @@ def free_gb(path):
     return st.f_bavail * st.f_frsize / 1024 ** 3
 
 
-def plan(picks, details, zoned, tiers, installed_maps, max_maps):
+def plan(picks, details, zoned, tiers, installed_maps):
     """Orders the wanted maps: already installed first, then a set of easy
-    maps for new players, then the most popular of the rest."""
+    maps for new players, then the most popular of the rest. The caller
+    installs from the top until it has MAX_MAPS that work."""
     def subs(name):
         return int(details[picks[name]].get("subscriptions", 0) or 0)
     names = sorted(picks, key=lambda n: (-subs(n), n))
@@ -279,7 +286,7 @@ def plan(picks, details, zoned, tiers, installed_maps, max_maps):
     order += easy
     order += [n for n in zoned_new if n not in easy]
     order += [n for n in names if n not in zoned and n not in installed_maps]
-    return order[:max(max_maps, len([n for n in order if n in installed_maps]))]
+    return order
 
 
 def main():
@@ -288,6 +295,7 @@ def main():
     ap.add_argument("--garrysmod", required=True)
     ap.add_argument("--steamcmd", required=True)
     ap.add_argument("--workdir", required=True)
+    ap.add_argument("--css", default="", help="CS:S install (only used to say why a texture is missing)")
     ap.add_argument("--max-maps", type=int, default=int(os.environ.get("MAX_MAPS") or 100))
     args = ap.parse_args()
 
@@ -314,13 +322,24 @@ def main():
     log(f"{len(sources)} sources, {len(collections)} collections, {len(candidates)} candidate items")
 
     details = file_details(candidates)
-    picks = choose(details, wanted, preferred)
+    ranked = choose(details, wanted, preferred)
+    picks = {name: fids[0] for name, fids in ranked.items()}
     found_zoned = len(set(picks) & zoned)
     log(f"{len(picks)} wanted maps found on the Garry's Mod Workshop ({found_zoned} with ready-made zones)")
+
+    # What players have without CS:S, to check each map's textures against
+    base = mapcheck.base_content(os.path.dirname(os.path.abspath(args.garrysmod)))
+    css = mapcheck.css_content(args.css)
+    checking = mapcheck.has_base(base)
+    if checking:
+        log(f"texture check on: {len(base)} base game files, {len(css)} CS:S files")
+    else:
+        log("texture check off: the Garry's Mod/HL2 .vpk files were not found")
 
     state_path = os.path.join(args.workdir, "installed.json")
     state = json.load(open(state_path)) if os.path.exists(state_path) else {}
     content_dir = os.path.join(args.workdir, "steamapps", "workshop", "content", str(GMOD_APPID))
+    staging = os.path.join(args.workdir, "staging")
     removed = False
     for info in state.values():
         for m in [m for m in info.get("maps", []) if m in blocked]:
@@ -335,28 +354,98 @@ def main():
     installed_maps = {m for info in state.values() for m in info.get("maps", [])
                       if os.path.exists(os.path.join(args.garrysmod, "maps", m + ".bsp"))}
 
-    order = plan(picks, details, zoned, tiers, installed_maps, args.max_maps)
-    if len(order) < len(picks):
-        log(f"keeping {len(order)} maps (MAX_MAPS={args.max_maps}); {len(picks) - len(order)} more are available")
-    todo = []
-    for name in order:
-        fid = picks[name]
-        if fid in todo:
-            continue
-        if fid not in state or state[fid].get("updated") != details[fid].get("time_updated") or \
-                not all(os.path.exists(os.path.join(args.garrysmod, "maps", m + ".bsp")) for m in state[fid].get("maps", [])):
-            todo.append(fid)
+    def current(fid):
+        """The item is installed from its latest version (and checked, when checking)."""
+        info = state.get(fid)
+        return bool(info) and info.get("updated") == details[fid].get("time_updated") and \
+            (not checking or info.get("scan") == SCAN_VERSION)
+
+    def usable(fid, name):
+        return current(fid) and name in state[fid].get("maps", []) and \
+            os.path.exists(os.path.join(args.garrysmod, "maps", name + ".bsp"))
+
+    def rejected(fid, name):
+        return current(fid) and (name in state[fid].get("bad", {}) or name not in state[fid].get("maps", []))
+
+    def recheck(fid):
+        """Maps installed before the texture check: when they pass using only
+        what is packed in the .bsp, mark them checked without downloading again."""
+        info = state.get(fid)
+        if not checking or not info or info.get("scan") == SCAN_VERSION or \
+                info.get("updated") != details[fid].get("time_updated"):
+            return
+        for m in info.get("maps", []):
+            try:
+                ok = mapcheck.verdict(mapcheck.check_map(os.path.join(args.garrysmod, "maps", m + ".bsp"), set(), base, css)) is None
+            except Exception:
+                ok = False
+            if not ok:
+                return  # download it again to see what its Workshop item ships
+        info["scan"] = SCAN_VERSION
+        json.dump(state, open(state_path, "w"), indent=1)
+
+    def too_many_rejected():
+        """Safety net: when over half of the checked maps fail, keep them
+        rather than emptying the rotation over a possible fault in the check."""
+        checked = [i for i in state.values() if i.get("scan") == SCAN_VERSION]
+        bad = sum(len(i.get("bad", {})) + len(i.get("kept", {})) for i in checked)
+        good = sum(len(i.get("maps", [])) for i in checked) - sum(len(i.get("kept", {})) for i in checked)
+        return bad + 1 >= 10 and (bad + 1) * 2 > bad + 1 + good
 
     failed = {}
-    for part in chunks(todo, 10):
-        if free_gb(args.garrysmod) < MIN_FREE_GB:
-            log(f"stopping: less than {MIN_FREE_GB} GB of disk left")
-            break
+
+    def install(fid, path):
+        """Unpacks one downloaded item and checks its maps. Returns an error or None."""
+        d = details[fid]
+        shutil.rmtree(staging, ignore_errors=True)
+        os.makedirs(staging)
+        maps, files = extract(load_gma(path), args.garrysmod, staging)
+        good, bad, kept = [], {}, {}
+        for m in maps:
+            src = os.path.join(staging, m + ".bsp")
+            why = None
+            if checking:
+                try:
+                    report = mapcheck.check_map(src, files, base, css)
+                    why = mapcheck.verdict(report)
+                    if why and too_many_rejected():
+                        log(f"  {m}: kept although it failed the texture check ({why}), "
+                            "because most maps fail it, which looks like a fault in the check")
+                        kept[m], why = why, None
+                    if report["missing"]:
+                        log(f"  {m}: {report['missing_faces']} of {report['faces']} surfaces lack textures "
+                            f"({', '.join(report['missing'][:5])}{', ...' if len(report['missing']) > 5 else ''})")
+                except Exception as e:  # unreadable map: let the game decide
+                    log(f"  {m}: texture check skipped ({e})")
+            dest = os.path.join(args.garrysmod, "maps", m + ".bsp")
+            if why:
+                bad[m] = why
+                # Remove the copy this item put there before (not one from another item)
+                if m in state.get(fid, {}).get("maps", []) and os.path.exists(dest):
+                    os.remove(dest)
+                log(f"  {m} left out: {why}")
+            else:
+                os.makedirs(os.path.dirname(dest), exist_ok=True)
+                os.replace(src, dest)
+                good.append(m)
+        shutil.rmtree(staging, ignore_errors=True)
+        state[fid] = {"updated": d.get("time_updated"), "maps": good, "title": d.get("title")}
+        if checking:
+            state[fid]["scan"] = SCAN_VERSION
+        if bad:
+            state[fid]["bad"] = bad
+        if kept:
+            state[fid]["kept"] = kept
+        log(f"installed {', '.join(good) or 'nothing'} from {fid} ({d.get('title')})")
+        json.dump(state, open(state_path, "w"), indent=1)
+        return None
+
+    def fetch(part):
         steamcmd_download(args.steamcmd, args.workdir, part)
         for fid in part:
             d = details[fid]
             path = find_download(content_dir, fid)
-            maps, error = None, None
+            done, error = False, None
             for attempt in ("steamcmd", "direct"):
                 if attempt == "direct":
                     if not d.get("file_url"):
@@ -370,7 +459,8 @@ def main():
                     error = "download failed"
                     continue
                 try:
-                    maps = extract(load_gma(path), args.garrysmod)
+                    install(fid, path)
+                    done = True
                     break
                 except Exception as e:
                     error = str(e)
@@ -380,13 +470,45 @@ def main():
                     shutil.rmtree(leftover, ignore_errors=True)
                 elif os.path.exists(leftover):
                     os.remove(leftover)
-            if maps is None:
+            if not done:
                 failed[fid] = error or "unknown error"
                 log(f"could not install {fid} ({d.get('title')}): {failed[fid]}")
+
+    # Install from the top of the plan until MAX_MAPS maps work. A map whose
+    # item fails the texture check tries its next Workshop copy, and when none
+    # works its slot goes to the next map in the plan.
+    pending = plan(picks, details, zoned, tiers, installed_maps)
+    limit = max(args.max_maps, len([n for n in pending if n in installed_maps]))
+    candidates = {name: list(ranked[name]) for name in pending}
+    accepted = []
+    while pending and len(accepted) < limit:
+        batch = []
+        while pending and len(accepted) + len(batch) < limit and len({picks[n] for n in batch}) < 10:
+            name = pending.pop(0)
+            fids = candidates[name]
+            while fids and (fids[0] in failed or rejected(fids[0], name)):
+                fids.pop(0)
+            if not fids:
                 continue
-            state[fid] = {"updated": d.get("time_updated"), "maps": maps, "title": d.get("title")}
-            log(f"installed {', '.join(maps) or 'nothing'} from {fid} ({d.get('title')})")
-            json.dump(state, open(state_path, "w"), indent=1)
+            picks[name] = fids[0]
+            recheck(fids[0])
+            if usable(fids[0], name):
+                accepted.append(name)
+            else:
+                batch.append(name)
+        if not batch:
+            break
+        if free_gb(args.garrysmod) < MIN_FREE_GB:
+            log(f"stopping: less than {MIN_FREE_GB} GB of disk left")
+            break
+        fetch(list(dict.fromkeys(picks[n] for n in batch)))
+        for name in reversed(batch):
+            if usable(picks[name], name):
+                accepted.insert(0, name)
+            else:
+                pending.insert(0, name)  # try its next copy, if any
+    if pending and len(accepted) >= limit:
+        log(f"keeping {len(accepted)} maps (MAX_MAPS={args.max_maps}); more are available")
 
     # map -> workshop id, so clients download the right item for each map
     lines, report = [], []
@@ -406,12 +528,18 @@ def main():
         json.dump({
             "generated": int(time.time()),
             "installed": sorted(report, key=lambda r: r["map"]),
-            "failed": [{"wsid": fid, "title": details.get(fid, {}).get("title", ""), "error": err} for fid, err in failed.items()],
+            "failed": [{"wsid": fid, "title": details.get(fid, {}).get("title", ""), "error": err} for fid, err in failed.items()] +
+                      [{"wsid": fid, "title": info.get("title") or "", "error": f"{m} left out: {why}"}
+                       for fid, info in sorted(state.items()) if fid in details
+                       for m, why in sorted(info.get("bad", {}).items()) if m not in installed],
             "not_found": len(wanted - set(picks)),
             "available": len(picks),
         }, f, indent=1)
 
     log(f"done: {len(installed)} surf maps installed, {len(installed & zoned)} with ready-made zones")
+    left_out = sorted({m for info in state.values() for m in info.get("bad", {})} - installed)
+    if left_out:
+        log(f"left out for missing textures: {', '.join(left_out)}")
     if failed:
         log(f"{len(failed)} item(s) failed and will be retried next time")
     log(f"not on the Garry's Mod Workshop (in our sources): {len(wanted - set(picks))} maps")
