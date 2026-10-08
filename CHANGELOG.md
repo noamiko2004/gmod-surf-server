@@ -1,4 +1,11 @@
 # Changelog
+## 2026-10-08: ramp fix
+- Getting stopped dead on a ramp mid-surf or when dropping onto one (Source's
+  "rampbug") is fixed: sh_rampfix.lua gives back the speed the slide along
+  the ramp should have kept. Walls, landings, map teleports and noclip are
+  left alone. Shared, so client prediction agrees. Tests: tests/test_rampfix.py.
+- Surfing fast through a bonus start zone near the route no longer ends the
+  run and caps the speed to 290 on the way out (`!b` still goes to bonuses).
 ## 2026-10-06 (v5.7): challenges, achievements and races
 - Daily and weekly challenges (`!challenges`, also `!daily`, `!quests`, or
   F1 > Challenges). Every day three new ones for everyone (finish runs,

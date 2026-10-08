@@ -1,4 +1,5 @@
 include("shared.lua")
+include("sh_rampfix.lua")
 include("cl_ui.lua")
 include("cl_hud.lua")
 include("cl_scoreboard.lua")
