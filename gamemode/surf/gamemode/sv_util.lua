@@ -70,3 +70,11 @@ function SURF.PortalURL()
 	end
 	return portalURL or nil
 end
+
+-- Hands for the first-person view. A player whose viewmodel isn't there yet
+-- (just joined, a bot, or switching from spectating) makes the base game's
+-- gmod_hands error with "Tried to use a NULL entity!"; skip it then, the next
+-- spawn sets them up
+function SURF.SetupHands(ply)
+	if IsValid(ply) and IsValid(ply:GetViewModel(0)) then ply:SetupHands() end
+end

@@ -123,7 +123,7 @@ function GM:PlayerSpawn(ply)
 	ply:UnSpectate()
 	player_manager.SetPlayerClass(ply, "player_default")
 	self:PlayerSetModel(ply)
-	ply:SetupHands()
+	SURF.SetupHands(ply)
 	ply:StripWeapons()
 
 	if ply:IsBot() then
