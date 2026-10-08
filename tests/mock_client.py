@@ -41,7 +41,11 @@ function IsValid(v) return v ~= nil and v ~= false and (type(v) ~= "table" or v.
 function Lerp(t, a, b) return a + (b - a) * t end
 function HSVToColor(h, s, v) return Color(255, 0, 0) end
 function Material(p) return { path = p } end
-function Vector(x, y, z) return { x = x or 0, y = y or 0, z = z or 0 } end
+local VecMT = {}
+VecMT.__index = VecMT
+VecMT.__add = function(a, b) return Vector(a.x + b.x, a.y + b.y, a.z + b.z) end
+VecMT.__mul = function(a, b) if type(a) == "number" then a, b = b, a end return Vector(a.x * b, a.y * b, a.z * b) end
+function Vector(x, y, z) return setmetatable({ x = x or 0, y = y or 0, z = z or 0 }, VecMT) end
 function Angle(p, y, r) return { p = p, y = y, r = r } end
 TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER, TEXT_ALIGN_RIGHT, TEXT_ALIGN_TOP, TEXT_ALIGN_BOTTOM = 0, 1, 2, 3, 4
 TOP, BOTTOM, LEFT, RIGHT, FILL, NODOCK = 4, 5, 1, 2, 3, 0
@@ -99,6 +103,12 @@ TEXFILTER = { ANISOTROPIC = 3 }
 render.PushFilterMag, render.PushFilterMin, render.PopFilterMag, render.PopFilterMin = function() end, function() end, function() end, function() end
 alphaMult = 1
 surface.SetAlphaMultiplier = function(a) alphaMult = a end
+surface.GetAlphaMultiplier = function() return alphaMult end
+-- What the crosshair points at (the HUD's "player you look at")
+lookHit, lookTraces = nil, 0
+function EyePos() return Vector(0, 0, 64) end
+function EyeVector() return Vector(1, 0, 0) end
+MASK_SHOT = 1174421507
 hudErrors = {}
 function ErrorNoHalt(m) hudErrors[#hudErrors + 1] = m end
 function math.AngleDifference(a, b) local d = (a - b + 180) % 360 - 180 return d end
@@ -372,12 +382,13 @@ def from_json(s):
 
 
 G.util = L.table_from({"TableToJSON": to_json, "JSONToTable": from_json})
+L.execute("util.TraceLine = function(t) lookTraces = lookTraces + 1 lastTrace = t return { Entity = lookHit } end")
 G.SURF.ClientCPCount = lambda track: 2
 for f in ["cl_hud.lua", "cl_visuals.lua"]:
     include(f)
 
 include("shared.lua")
-for f in ["cl_ui.lua", "cl_menus.lua", "cl_hub.lua", "cl_admin.lua", "cl_scoreboard.lua", "cl_mapvote.lua", "cl_challenges.lua"]:
+for f in ["cl_ui.lua", "cl_menus.lua", "cl_hub.lua", "cl_admin.lua", "cl_scoreboard.lua", "cl_mapvote.lua", "cl_challenges.lua", "cl_race.lua"]:
     include(f)
 
 failures = []
@@ -749,6 +760,28 @@ me.GetObserverTarget = function() return other end
 me.yaw = 10 GM:HUDPaint() me.yaw = 25 GM:HUDPaint()
 specOn = Rect("spec") ~= nil
 me.GetObserverTarget = nil
+
+-- Looking at someone shows their name, rank and best time; it fades after looking away
+other.nw.surf_points, other.nw.surf_rankpos, other.nw.surf_title, other.nw.surf_mainpb = 420, 3, 4, 62.345
+lookHit = other
+GM:HUDPaint()
+lookOn = Rect("lookat") ~= nil and lastTrace.filter[1] == me and lastTrace.mask == MASK_SHOT
+lookHit = nil
+SetTime(104.3)
+GM:HUDPaint()
+lookHeld = Rect("lookat") ~= nil
+SetTime(105.5)
+GM:HUDPaint()
+lookGone = Rect("lookat") == nil
+other.nw.surf_replay, lookHit = true, other
+GM:HUDPaint()
+lookReplay = Rect("lookat") ~= nil
+other.nw.surf_replay, lookHit = nil, nil
+convars.surf_hideplayers, lookHit = true, other
+SetTime(110)
+GM:HUDPaint()
+lookHidden = Rect("lookat") == nil
+convars.surf_hideplayers, lookHit = false, nil
 me.dead = true
 GM:HUDPaint()
 deadHidesTimer = Rect("timer") == nil and Rect("keys") == nil
@@ -882,6 +915,8 @@ if ok:
     check(G.quietOff and G.balanced, "parts with nothing to show stay off, and every draw is undone")
     check(G.splitOn and G.splitGone and G.watchOn and G.watchGone, "splits and the spectator list come and go")
     check(G.specOn and G.deadHidesTimer, "spectating shows who you watch; the timer and keys hide while dead")
+    check(G.lookOn and G.lookHeld and G.lookGone and G.lookReplay and G.lookHidden,
+          f"looking at a player shows their info, fades after, and not with !hide ({G.lookOn}, {G.lookHeld}, {G.lookGone}, {G.lookReplay}, {G.lookHidden})")
     check(G.voteR is not None and G.voteR[1] + G.voteR[3] == 1920 - 16, "the map vote is a part of the HUD on the right")
     check(G.keysOff, "!keys hides the key display and saves it")
     check(G.editing and G.allShown, f"!hud opens the editor and shows every part ({G.missing})")
@@ -987,6 +1022,88 @@ if ok:
     check(G.chWin is not None and G.chCards >= 1 and "say !nominate surf_mesa" in cmds, "the challenges window opens; the map of the day card nominates it")
     check("say !challenges" in cmds, "F1 > Challenges opens the challenges window")
     check(G.raceShown and G.raceGone, "the Race HUD part shows during a race only")
+
+# Race menu, the record ghost and hiding players while racing (cl_race.lua)
+ok = run(r"""
+-- Settings that remember what RunConsoleCommand sets, like the real convars
+cvars = {}
+function CreateClientConVar(name, def)
+	cvars[name] = cvars[name] or def
+	return { GetBool = function() return tonumber(cvars[name]) ~= 0 end, GetInt = function() return tonumber(cvars[name]) or 0 end }
+end
+local oldRCC = RunConsoleCommand
+function RunConsoleCommand(name, v, ...) if cvars[name] ~= nil and v ~= nil and select("#", ...) == 0 then cvars[name] = v end return oldRCC(name, v, ...) end
+util.Compress = function(s) return s end
+util.Decompress = function(s) return s end
+net.ReadData = function() return table.remove(netIn, 1) end
+math.NormalizeAngle = function(a) return (a + 180) % 360 - 180 end
+local vm = {}
+vm.__index = vm
+vm.__add = function(a, b) return Vector(a.x + b.x, a.y + b.y, a.z + b.z) end
+function vm:ToScreen() return { x = self.x, y = self.y, visible = true } end
+local plainVector = Vector
+function Vector(x, y, z) return setmetatable({ x = x or 0, y = y or 0, z = z or 0 }, vm) end
+drawn = 0
+function ClientsideModel() return { SetNoDraw = function() end, LookupSequence = function() return 1 end, ResetSequence = function() end,
+	SetPos = function(self, p) self.pos = p ghostAt = p end, SetAngles = function() end, SetCycle = function() end, DrawModel = function() drawn = drawn + 1 end } end
+render.SetBlend = function() end
+render.SetColorModulation = function() end
+RENDERGROUP_TRANSLUCENT = 2
+include("cl_race.lua")
+
+consoleCmds = {}
+Deliver("surf.Menu", "race", { map = "surf_kitsune", zoned = true, countdown = 3, invite = "Bob", ghost = false,
+	wr = { time = 61.5, name = "Bob" },
+	players = { { name = "Bob", sid = "76561190000000002" }, { name = "Busy", sid = "76561190000000003", state = "racing" } } })
+raceWin = SURF.UI.Open.race
+PaintTree(raceWin)
+hoverAll = true PaintTree(raceWin) hoverAll = false
+for _, b in ipairs(FindButtons(raceWin, "Countdown")) do b:DoClick() end
+for _, b in ipairs(FindButtons(raceWin, "Hide other players")) do b:DoClick() end
+for _, b in ipairs(FindButtons(raceWin, "Record ghost")) do b:DoClick() end
+busyClickable = #FindButtons(raceWin, "Busy") > 0 and FindButtons(raceWin, "Busy")[1].uiRow.onClick ~= nil
+for _, b in ipairs(FindButtons(raceWin, "Bob wants")) do b:DoClick() end
+Deliver("surf.Menu", "race", { map = "surf_kitsune", zoned = true, players = { { name = "Bob", sid = "76561190000000002" } } })
+for _, b in ipairs(FindButtons(SURF.UI.Open.race, "Bob")) do b:DoClick() end
+Deliver("surf.Menu", "race", { map = "surf_kitsune", players = {} })
+PaintTree(SURF.UI.Open.race)
+
+-- The ghost arrives in two pieces and follows your run
+Deliver("surf.Challenge", "race", { ghostOn = true })
+local raw = "0,0,0,0;100,0,0,90;200,0,0,90"
+Deliver("surf.Ghost", "k1", 2, 2, 0.4, "Bob", 1, #raw - 5, string.sub(raw, 6))
+ghostEarly = SURF.RaceClient.Ghost.pts == nil
+Deliver("surf.Ghost", "k1", 1, 2, 0.4, "Bob", 1, 5, string.sub(raw, 1, 5))
+ghostN = SURF.RaceClient.Ghost.n
+me.nw.surf_state = SURF.STATE_RUNNING
+me.nw.surf_start = CurTime() - 0.5
+hooks.PostDrawTranslucentRenderables.surf_race_ghost(false, false)
+ghostX = ghostAt and ghostAt.x
+hooks.HUDPaint.surf_race_ghost_name()
+cvars.surf_race_hide = "1"
+hidesOther = SURF.RaceHides(other)
+SURF.RaceClient.rivalSid = other.sid
+keepsRival = not SURF.RaceHides(other)
+SURF.RaceClient.rivalSid = nil
+me.nw.surf_style = "sw"
+offOnStyle = SURF.RaceClient.Ghost.Pose() == nil
+me.nw.surf_style = nil
+me.nw.surf_start = CurTime() - 10
+goneAfter = SURF.RaceClient.Ghost.Pose() == nil
+Deliver("surf.Ghost", "", 0, 0)
+cleared = SURF.RaceClient.Ghost.pts == nil
+me.nw.surf_state = nil me.nw.surf_start = nil
+Vector = plainVector
+""", "the race menu and the record ghost work")
+if ok:
+    cmds = list(G.consoleCmds.values())
+    check(G.cvars.surf_race_countdown == "5" and G.cvars.surf_race_hide == "1", "race settings change the countdown and hiding")
+    check("say !race wr on" in cmds and "say !accept" in cmds and "say !race 76561190000000002" in cmds and not G.busyClickable,
+          f"the race menu accepts, challenges by SteamID and toggles the ghost ({cmds})")
+    check(G.ghostEarly and G.ghostN == 3 and G.cvars.surf_race_ghost == "1", "the ghost is put together from its pieces")
+    check(G.drawn >= 1 and G.ghostX is not None and abs(G.ghostX - 50) < 1e-6, f"the ghost is drawn where the record was at that time ({G.ghostX})")
+    check(G.hidesOther and G.keepsRival, "hiding players while racing keeps your rival")
+    check(G.offOnStyle and G.goneAfter and G.cleared, "the ghost is off on other styles, gone after its finish, and cleared")
 
 print("\n%d failure(s)" % len(failures))
 sys.exit(1 if failures else 0)

@@ -102,6 +102,9 @@ function T.OnZoneEnter(ply, zone)
 	if not SURF.Zones.HasTimer(zone.track) then return end
 	local running = ply:GetNW2Int("surf_state") == SURF.STATE_RUNNING
 	if zone.ztype == "start" then
+		-- Surfing fast through a bonus start zone near the route mustn't end
+		-- the run and cap the speed on the way out (!b goes to a bonus)
+		if zone.track ~= (ply.SurfTrack or 0) and ply:GetVelocity():Length2D() > SURF.Config.StartSpeedCap * 2 then return end
 		T.SetTrack(ply, zone.track)
 		ply.SurfInStart = true
 		ClearRun(ply)

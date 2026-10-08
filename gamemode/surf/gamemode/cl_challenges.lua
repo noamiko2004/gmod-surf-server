@@ -172,20 +172,27 @@ Menus.challenges = Open
 
 local race -- the countdown: { vs, goAt, untilAt }
 local racing -- the race after the go: { vs, since }
+-- Shared with cl_race.lua: rivalSid (from the countdown to the end of a race)
+SURF.RaceClient = SURF.RaceClient or {}
+local RC = SURF.RaceClient
 
 net.Receive("surf.Challenge", function()
 	local kind, d = net.ReadString(), net.ReadTable()
 	if kind == "toast" then
 		UI.Toast(d.text or "", d.col and Color(d.col.r, d.col.g, d.col.b) or nil)
 	elseif kind == "race" then
-		if d.stop then
-			race, racing = nil, nil
+		if d.ghostOn ~= nil then
+			RunConsoleCommand("surf_race_ghost", d.ghostOn and "1" or "0")
+		elseif d.stop then
+			race, racing, RC.rivalSid = nil, nil, nil
 		elseif d.count then
+			RC.rivalSid = d.vsSid
 			race = { vs = d.vs, goAt = RealTime() + d.count, untilAt = RealTime() + d.count + 1.2 }
 			surface.PlaySound("buttons/blip1.wav")
 		elseif d.go then
 			race = { vs = d.vs, goAt = RealTime(), untilAt = RealTime() + 1.2 }
 			racing = { vs = d.vs, since = RealTime() }
+			RC.rivalSid = d.vsSid
 			surface.PlaySound("buttons/button9.wav")
 			UI.Toast("Racing " .. tostring(d.vs) .. ": first to the end wins! (!forfeit gives up)", Color(255, 120, 60))
 		end

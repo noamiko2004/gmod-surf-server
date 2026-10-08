@@ -168,6 +168,23 @@ def console_lines(gm, max_bytes=8 << 20):
         return []
 
 
+STACK = re.compile(r"^\s*\d+\.\s+(\S+)\s+-\s+(\S+:-?\d+)")
+
+
+def caller(lines, i):
+    """The first stack frame in our own gamemode under an error, so base-game errors say who called them."""
+    first = LUA_ERR.match(lines[i]).group(1)
+    if "gamemodes/surf/" in first:
+        return ""
+    for nxt in lines[i + 1:i + 16]:
+        m = STACK.match(nxt)
+        if not m:
+            break
+        if "gamemodes/surf/" in m.group(2):
+            return f" <- {m.group(1)} {m.group(2)}"
+    return ""
+
+
 def check_game_log(r, lines):
     errs, crashes = Counter(), Counter()
     for i, line in enumerate(lines):
@@ -176,7 +193,7 @@ def check_game_log(r, lines):
             msg = m.group(1).strip()
             if not msg and i + 1 < len(lines):
                 msg = lines[i + 1].strip()
-            errs[signature(msg)] += 1
+            errs[signature(msg) + caller(lines, i)] += 1
         elif CRASH.search(line):
             crashes[signature(line.strip())] += 1
     total = sum(errs.values())
@@ -235,7 +252,7 @@ def check_py_log(r, area, lines):
     if refused:
         r.add(WARN, "Discord bridge", f"Discord refused {sum(refused.values())} game lines in 24 h. Top: {next(iter(top(refused, 1)))}", top(refused, 6))
     if invites:
-        r.add(OK if invites < 3 else WARN, "Links", f"The bot made a new Discord invite {invites} time{"s" if invites != 1 else ""} in 24 h")
+        r.add(OK if invites < 3 else WARN, "Links", f"The bot made a new Discord invite {invites} time{'s' if invites != 1 else ''} in 24 h")
     return errs
 
 

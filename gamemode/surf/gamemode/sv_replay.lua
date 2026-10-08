@@ -158,7 +158,12 @@ hook.Add("Move", "surf_replay", function(ply)
 end)
 
 hook.Add("InitPostEntity", "surf_replay_load", function()
-	local info, frames, n = Load()
+	-- A damaged replay file must not stop the other map-start hooks
+	local ok, info, frames, n = pcall(Load)
+	if not ok then
+		ErrorNoHalt("[SURF] error: couldn't read the replay of " .. game.GetMap() .. ": " .. tostring(info) .. "\n")
+		return
+	end
 	if not info then return end
 	R.info, R.frames, R.n, R.idx = info, frames, n, 1
 	timer.Simple(5, R.EnsureBot)

@@ -27,6 +27,15 @@ errs = H.check_game_log(r, game)
 check(sum(errs.values()) == 3 and len(errs) == 2, "Lua errors counted and grouped")
 check(r.items[0][0] == H.WARN and "3 Lua errors" in r.items[0][2], "Lua errors are a warning line")
 r = H.Report()
+errs = H.check_game_log(r, ["[ERROR] gamemodes/base/entities/entities/gmod_hands.lua:31: Tried to use a NULL entity!",
+                            "  1. DeleteOnRemove - [C]:-1",
+                            "   2. DoSetup - gamemodes/base/entities/entities/gmod_hands.lua:31",
+                            "    3. SetupHands - lua/includes/extensions/player.lua:350",
+                            "     4. unknown - gamemodes/surf/gamemode/init.lua:126",
+                            "Map is surf_x"])
+check(list(errs) == ["gamemodes/base/entities/entities/gmod_hands.lua:31: Tried to use a NULL entity! <- unknown gamemodes/surf/gamemode/init.lua:126"],
+      "base-game errors name the gamemode line that called them: " + str(list(errs)))
+r = H.Report()
 H.check_game_log(r, ["Segmentation fault (core dumped)", "normal line"])
 check(r.items[0][0] == H.BAD, "a crash is a problem")
 r = H.Report()

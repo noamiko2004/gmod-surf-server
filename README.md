@@ -51,8 +51,9 @@ in chat is `BRAND_NAME`.
 - Scoreboard: click a player for their Steam profile, to watch them
   (`!spec <name>`) or to mute their voice
 - HUD with timer, speed that turns green/red when gaining/losing, CP progress,
-  key display with mouse turning (`!keys`), PB/WR, who is spectating you and an
-  optional speedometer; scoreboard with titles and points
+  key display with mouse turning (`!keys`), PB/WR, who is spectating you, the
+  name, rank and best time of the player you look at, and an optional
+  speedometer; scoreboard with titles and points
 - `!hud` (or F1 > Settings > Edit HUD layout): each player drags the parts of
   their HUD where they want them, resizes them (scroll or right-click), hides
   them and sets the background. Saved in their own `data/surf_hud.json`. Other
@@ -82,7 +83,9 @@ in chat is `BRAND_NAME`.
   on their next join
 - 1v1 races (`!race <name>`, `!accept`, `!forfeit`; `sv_race.lua`): both go to
   the start, a countdown holds them, first to finish wins a few coins (the
-  first 5 wins a day pay)
+  first 5 wins a day pay). `!race` alone opens the race menu (players to
+  challenge, countdown, hiding other players); `!race wr` races a gold ghost
+  of the server record (`cl_race.lua`)
 - Cosmetic VIP: VIP trails, tag and name color, a gold [VIP] tag and name,
   and 50% more coins. No pay to win.
 
