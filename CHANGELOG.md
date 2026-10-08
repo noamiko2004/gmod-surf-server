@@ -1,4 +1,22 @@
 # Changelog
+## 2026-10-08 (v5.8): player info on look, ranks always load
+- Looking at a player shows their name (with OWNER, ADMIN or VIP), title,
+  points and rank, and their best time on the map, under the crosshair. On
+  for everyone at first; it's the "Player you look at" part of `!hud`, and
+  F1 > Settings > Player info turns it off. It fades out after you look
+  away, shows the record replay bot's run, and stays off while `!hide` hides
+  players.
+- Ranks no longer show "Newbie, 0 pts" for a whole map. They were built in an
+  InitPostEntity hook, and when another map-start hook failed on a map, GMOD
+  skipped the hooks after it, so the ranks were never built. They are now
+  built when the gamemode loads, rebuilt if a player's rank is asked for
+  before that, and set again once each player's game has loaded.
+- Joining runs each step (player data, shop, track, rank) on its own with
+  the new `SURF.Try`, so one failing step is logged as a `[SURF] error` line
+  (the health check counts these) instead of skipping the rest. The zone and
+  replay loading at map start are protected the same way.
+- The optional speedometer starts a little lower, under the player info.
+
 ## 2026-10-06 (v5.7): challenges, achievements and races
 - Daily and weekly challenges (`!challenges`, also `!daily`, `!quests`, or
   F1 > Challenges). Every day three new ones for everyone (finish runs,

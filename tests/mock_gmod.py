@@ -412,6 +412,28 @@ check(G.a.nw["surf_pb"] == 60, "Alice PB stays 60 after slower run")
 check(G.b.nw["surf_points"] == 110 and G.a.nw["surf_points"] == 55, f"points: Bob {G.b.nw['surf_points']}, Alice {G.a.nw['surf_points']}")
 check(G.b.nw["surf_rankpos"] == 1, "Bob is #1")
 
+# Ranks don't wait for a map-start hook: a join before any recalc builds them,
+# and a step that fails at join is logged without stopping the rest
+L.execute(r"""
+SURF.Ranks.loaded, SURF.Ranks.list, SURF.Ranks.bySid = false, {}, {}
+b.nw.surf_points, b.nw.surf_rankpos = nil, nil
+SURF.Ranks.Apply(b)
+lateApply = { b.nw.surf_points, b.nw.surf_rankpos, SURF.Ranks.loaded }
+b.nw.surf_points = nil
+hooks.SurfPlayerReady.surf_ranks(b)
+readyApply = b.nw.surf_points
+errs = {}
+local oldErr = ErrorNoHalt
+ErrorNoHalt = function(m) errs[#errs + 1] = m end
+tryOk = SURF.Try(function(x) error("boom " .. x) end, "here")
+tryArgs = nil
+SURF.Try(function(x, y) tryArgs = x .. y end, "a", "b")
+ErrorNoHalt = oldErr
+""")
+check(list(G.lateApply.values()) == [110, 1, True] and G.readyApply == 110, f"a player's rank is set even if the ranks weren't built yet ({list(G.lateApply.values())})")
+check(G.tryOk is False and len(G.errs) == 1 and G.errs[1].startswith("[SURF] error: ") and "boom here" in G.errs[1] and G.tryArgs == "ab",
+      "a failing step is logged as a [SURF] error and the next one still runs")
+
 # Discord record feed (the webhook file is set above)
 posts = [json.loads(c["body"]) for c in G.httpCalls.values()]
 check(len(posts) == 2 and all(c["url"] == "https://discord.com/api/webhooks/123456/abc_DEF-ghi" and c["method"] == "POST" for c in G.httpCalls.values()),

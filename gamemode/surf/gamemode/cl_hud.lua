@@ -527,12 +527,90 @@ local shadow = Color(0, 0, 0, 170)
 HUD.Add("speed", {
 	name = "Speedometer",
 	w = 200, h = 56,
-	pos = { 0.5, 0.5, 0, 110 },
+	pos = { 0.5, 0.5, 0, 140 },
 	hidden = true,
 	show = function(c) return c.alive end,
 	draw = function(w, h, c)
 		draw.SimpleTextOutlined(tostring(c.speed), "SurfTimer", w / 2, 22, c.speedColor, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER, 1, shadow)
 		draw.SimpleTextOutlined("u/s", "SurfSmall", w / 2, 47, DIM, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER, 1, shadow)
+	end,
+})
+
+-- The player you look at: name, title, points, rank and best time here (on at
+-- first; off with !hud or F1 > Settings) --------------------------------------------
+
+local LOOK_RANGE, LOOK_HOLD = 6000, 0.6
+local look = { at = -10 }
+local SAMPLE_LOOK = { sample = true }
+
+local function LookTrace(c)
+	local hide = GetConVar("surf_hideplayers")
+	if hide and hide:GetBool() then return end
+	local start = EyePos()
+	local tr = util.TraceLine({ start = start, endpos = start + EyeVector() * LOOK_RANGE, filter = { c.me, c.target }, mask = MASK_SHOT })
+	local e = tr.Entity
+	if IsValid(e) and e:IsPlayer() and e:Alive() then return e end
+end
+
+-- Kept for a moment after you look away, so it fades instead of flickering
+local function Looked(c)
+	if IsValid(look.ply) and RealTime() - look.at < LOOK_HOLD then return look.ply end
+	if c.preview then return SAMPLE_LOOK end
+end
+
+-- Three lines: { text, font, color }
+local function LookLines(p)
+	if p.sample then
+		return { { "Bob  [VIP]", "SurfMedium", Color(255, 220, 120) }, { "Skilled  |  420 pts  |  #3", "SurfSmall", Color(120, 140, 255) },
+			{ "Best here 1:02.345", "SurfSmall", DIM } }
+	end
+	if p:GetNW2Bool("surf_replay", false) then
+		local t = p:GetNW2Float("surf_mainpb", 0)
+		return { { "Server record replay", "SurfMedium", GOLD }, { "by " .. p:GetNW2String("surf_replay_name", "?"), "SurfSmall", color_white },
+			{ t > 0 and SURF.FormatTime(t) or "", "SurfSmall", DIM } }
+	end
+	local vip = SURF.IsVIP(p)
+	local nc = SURF.NameColorOf(p)
+	local name = p:Nick() .. (p:IsSuperAdmin() and "  [OWNER]" or (p:IsAdmin() and "  [ADMIN]" or (vip and "  [VIP]" or "")))
+	local title = SURF.Config.Titles[p:GetNW2Int("surf_title", 1)] or SURF.Config.Titles[1]
+	local pos = p:GetNW2Int("surf_rankpos", 0)
+	local rank = title.name .. "  |  " .. string.Comma(p:GetNW2Int("surf_points", 0)) .. " pts" .. (pos > 0 and ("  |  #" .. pos) or "")
+	local pb = p:GetNW2Float("surf_mainpb", 0)
+	local best = pb > 0 and ("Best here " .. SURF.FormatTime(pb)) or "No time on this map yet"
+	local style = SURF.StyleOf(p)
+	if style.id ~= "n" then best = best .. "  |  " .. style.name end
+	return { { name, "SurfMedium", nc and SURF.ItemColor(nc) or (vip and Color(255, 220, 120) or color_white) },
+		{ rank, "SurfSmall", title.color }, { best, "SurfSmall", DIM } }
+end
+
+HUD.Add("lookat", {
+	name = "Player you look at",
+	size = function(c)
+		local p = Looked(c)
+		local w = 200
+		for _, l in ipairs(p and LookLines(p) or {}) do
+			surface.SetFont(l[2])
+			w = math.max(w, surface.GetTextSize(l[1]) + 32)
+		end
+		return w, 70
+	end,
+	pos = { 0.5, 0.5, 0, 60 },
+	show = function(c)
+		local p = LookTrace(c)
+		if p then look.ply, look.at = p, RealTime() end
+		return Looked(c) ~= nil
+	end,
+	draw = function(w, h, c)
+		local p = Looked(c)
+		if not p then return end
+		local fade = p.sample and 1 or math.Clamp((LOOK_HOLD - (RealTime() - look.at)) / 0.25, 0, 1)
+		local base = surface.GetAlphaMultiplier()
+		surface.SetAlphaMultiplier(base * fade)
+		HUD.Box(w, h)
+		for i, l in ipairs(LookLines(p)) do
+			draw.SimpleText(l[1], l[2], w / 2, ({ 18, 40, 56 })[i], l[3], TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+		end
+		surface.SetAlphaMultiplier(base)
 	end,
 })
 
