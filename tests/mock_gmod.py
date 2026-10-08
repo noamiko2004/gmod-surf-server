@@ -317,6 +317,7 @@ function MakePlayer(name, sid)
 	function p:GetModel() return self.model end
 	function p:SetModel(m) self.model = m end
 	function p:SetupHands() end
+	function p:GetViewModel() return p end
 	p.gravity, p.ground = 1, false
 	function p:SetGravity(g) self.gravity = g end
 	function p:OnGround() return self.ground end

@@ -1,4 +1,13 @@
 # Changelog
+
+## 2026-10-08 (health check: first Lua errors)
+- The game log showed 6 "gmod_hands.lua:31: Tried to use a NULL entity!"
+  errors a day: hands were set up for a player without a viewmodel yet.
+  `SURF.SetupHands` (sv_util.lua) now skips that case; spawning and the shop's
+  model change use it.
+- Lua errors from the base game now name the gamemode line that called them,
+  so the next one points straight at our code.
+- `scripts/health.py` runs on Python 3.11 too (no nested f-string quotes).
 ## 2026-10-08 (v5.8): player info on look, ranks always load
 - Looking at a player shows their name (with OWNER, ADMIN or VIP), title,
   points and rank, and their best time on the map, under the crosshair. On
