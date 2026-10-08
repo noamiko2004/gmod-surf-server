@@ -1,4 +1,16 @@
 # Changelog
+## 2026-10-08 (v5.8): race menu and racing the record
+- `!race` on its own opens a race menu: a player waiting to race you
+  (accept or decline), everyone online to challenge with one click (busy ones
+  greyed out), giving up your current race, the record ghost and settings.
+- Race the server record: `!race wr` (or `!ghost`, or the menu) sends you the
+  record replay and draws it as a see-through gold ghost that starts with each
+  of your runs on Normal, so you race it side by side, with its name over it.
+  After a run you see how far behind it you were. The setting is remembered
+  (`surf_race_ghost`), and a new record replaces the ghost for everyone.
+- Race settings, kept on your computer: the countdown when you challenge
+  someone (3, 5 or 10 seconds), hiding other players while racing (your rival
+  stays; also while running with the ghost), and the ghost's name label.
 ## 2026-10-06 (v5.7): challenges, achievements and races
 - Daily and weekly challenges (`!challenges`, also `!daily`, `!quests`, or
   F1 > Challenges). Every day three new ones for everyone (finish runs,

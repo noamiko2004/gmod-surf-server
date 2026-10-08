@@ -229,5 +229,47 @@ L.execute('chats = {} SURF.Commands.Run(r1, "race", { "rae" }) said13 = Said() S
 check("can't race yourself" in G.said13, "no racing yourself")
 check("Nobody has asked you" in G.said14, "!accept without an invite")
 
+# Race menu, countdown choice and the record ghost
+L.execute(r"""
+util.Compress = function(s) return s end
+net.WriteData = function(d, n) sent[#sent + 1] = { "WriteData", d, n } end
+r1.SurfRaceAsked = 0
+r1.info = { surf_race_countdown = "10" }
+function r1:GetInfo(k) return (self.info or {})[k] or "" end
+menus = {}
+SURF.Commands.Run(r1, "race", {})
+rm = menus[#menus]
+SURF.Replay.frames, SURF.Replay.info, SURF.Replay.n = nil, nil, 0
+chats = {}
+SURF.Commands.Run(r1, "race", { "wr" })
+noGhost = Said()
+noGhostOn = r1.SurfGhost
+local f = {}
+for i = 1, 9 do for _, v in ipairs({ i * 10, 0, 5, 0, 90 }) do f[#f + 1] = v end end
+SURF.Replay.frames, SURF.Replay.info, SURF.Replay.n = f, { time = 0.09, name = "Bob" }, 9
+sent = {}
+SURF.Commands.Run(r1, "race", { "wr" })
+ghostSaid = Said()
+ghostOn = r1.SurfGhost
+for _, e in ipairs(sent) do if e[1] == "WriteData" then ghostData = e[2] end end
+SURF.Commands.Run(r1, "race", { "ray" })
+SURF.Commands.Run(r2, "accept", {})
+cd = r1.SurfRace and r1.SurfRace.countdown
+racingNW = r1.nw.surf_racing
+SURF.Commands.Run(r1, "forfeit", {})
+racingAfter = r1.nw.surf_racing
+chats = {}
+SURF.Commands.Run(r1, "ghost", { "off" })
+ghostOff = r1.SurfGhost == nil
+""")
+rm = G.rm
+check(rm.kind == "race" and any(p.name == "Ray" for p in rm.data.players.values()) and rm.data.countdown == 10, "!race opens the race menu with the players and your countdown")
+check(not G.noGhostOn and "no record replay" in G.noGhost, "no ghost without a record replay")
+pts = (G.ghostData or "").split(";")
+check(G.ghostOn and len(pts) == 3 and pts[0] == "10.0,0.0,5.0,90", f"!race wr sends every 4th replay tick as the ghost ({pts})")
+check("Racing the record" in G.ghostSaid, "turning the ghost on says how it works")
+check(G.cd == 10 and G.racingNW is True and G.racingAfter is False, f"the challenger's countdown is used ({G.cd}) and racers are marked")
+check(G.ghostOff, "!ghost off turns it off")
+
 print("\n%d failure(s)" % len(failures))
 sys.exit(1 if failures else 0)

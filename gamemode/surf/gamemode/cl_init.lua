@@ -10,6 +10,7 @@ include("cl_chat.lua")
 include("cl_hub.lua")
 include("cl_admin.lua")
 include("cl_challenges.lua")
+include("cl_race.lua")
 
 local function Font(name, size, weight)
 	surface.CreateFont(name, { font = "Roboto", size = size, weight = weight or 500, antialias = true, extended = true })
@@ -102,7 +103,7 @@ timer.Create("surf_hide_trails", 0.5, 0, function()
 	for _, p in ipairs(player.GetAll()) do
 		local trail = p:GetNW2Entity("surf_trail")
 		if IsValid(trail) then
-			trail:SetNoDraw(hide and p ~= me and p ~= me:GetObserverTarget())
+			trail:SetNoDraw((hide or (SURF.RaceHides and SURF.RaceHides(p))) and p ~= me and p ~= me:GetObserverTarget())
 		end
 	end
 end)
