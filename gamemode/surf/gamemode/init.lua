@@ -1,4 +1,5 @@
 AddCSLuaFile("shared.lua")
+AddCSLuaFile("sh_rampfix.lua")
 AddCSLuaFile("sh_config.lua")
 AddCSLuaFile("cl_init.lua")
 AddCSLuaFile("cl_ui.lua")
@@ -14,6 +15,7 @@ AddCSLuaFile("cl_admin.lua")
 AddCSLuaFile("cl_challenges.lua")
 
 include("shared.lua")
+include("sh_rampfix.lua")
 include("sv_util.lua")
 include("sv_db.lua")
 include("sv_zones.lua")
