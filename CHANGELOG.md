@@ -11,6 +11,7 @@
 - Race settings, kept on your computer: the countdown when you challenge
   someone (3, 5 or 10 seconds), hiding other players while racing (your rival
   stays; also while running with the ghost), and the ghost's name label.
+
 ## 2026-10-08: ramp fix
 - Getting stopped dead on a ramp mid-surf or when dropping onto one (Source's
   "rampbug") is fixed: sh_rampfix.lua gives back the speed the slide along
