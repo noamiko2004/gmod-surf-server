@@ -1,4 +1,12 @@
 # Changelog
+## 2026-10-08: no more purple checkerboard maps
+- Maps made with Counter-Strike: Source textures (like surf_utopia_v3) showed a
+  purple and black checkerboard to every player who doesn't own CS:S. The map
+  installer now checks each map's textures (scripts/mapcheck.py) against what
+  is packed in the map, what its Workshop item ships, and what comes with
+  Garry's Mod. A map that fails gets its next Workshop copy, or is left out and
+  replaced by another map. Installed maps are checked once on the next update;
+  only the ones that fail on their own are downloaded again to check.
 ## 2026-10-06 (v5.7): challenges, achievements and races
 - Daily and weekly challenges (`!challenges`, also `!daily`, `!quests`, or
   F1 > Challenges). Every day three new ones for everyone (finish runs,

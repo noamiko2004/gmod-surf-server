@@ -118,6 +118,17 @@ automatically. Log: /home/gmod/maps.log; summary for tools:
 `garrysmod/data/surfline/maps_report.json`. To add maps, add Workshop IDs
 (items or collections) to `maps/sources.txt` and names to `maps/extra_maps.txt`.
 
+Most surf maps were made for Counter-Strike: Source. The server mounts CS:S,
+but players who don't own it see CS:S textures as a purple and black
+checkerboard. So `scripts/mapcheck.py` checks every map before it goes in:
+each texture must be packed in the .bsp, ship in the map's Workshop item, or be
+part of Garry's Mod/HL2. When 5% or more of a map's surfaces would show the
+checkerboard, the installer tries the map's next Workshop copy, and if none
+works it leaves the map out and installs the next one in its place. The log
+and Admin > Maps list what was left out and why. If more than half of the
+checked maps fail, they are kept instead (that points at a fault in the check),
+and maps.log says so. Bump `SCAN_VERSION` in maps.py to re-check every map.
+
 Maps listed in `maps/blocked_maps.txt`, and maps an admin hid in game with
 `!hidemap`, are never offered in votes or `!maps`, and the next update deletes
 them from the server. After a restart the server starts on a random easy map
