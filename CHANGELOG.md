@@ -11,6 +11,39 @@
 - Race settings, kept on your computer: the countdown when you challenge
   someone (3, 5 or 10 seconds), hiding other players while racing (your rival
   stays; also while running with the ghost), and the ghost's name label.
+## 2026-10-08: ramp fix
+- Getting stopped dead on a ramp mid-surf or when dropping onto one (Source's
+  "rampbug") is fixed: sh_rampfix.lua gives back the speed the slide along
+  the ramp should have kept. Walls, landings, map teleports and noclip are
+  left alone. Shared, so client prediction agrees. Tests: tests/test_rampfix.py.
+- Surfing fast through a bonus start zone near the route no longer ends the
+  run and caps the speed to 290 on the way out (`!b` still goes to bonuses).
+## 2026-10-08 (health check: first Lua errors)
+- The game log showed 6 "gmod_hands.lua:31: Tried to use a NULL entity!"
+  errors a day: hands were set up for a player without a viewmodel yet.
+  `SURF.SetupHands` (sv_util.lua) now skips that case; spawning and the shop's
+  model change use it.
+- Lua errors from the base game now name the gamemode line that called them,
+  so the next one points straight at our code.
+- `scripts/health.py` runs on Python 3.11 too (no nested f-string quotes).
+## 2026-10-08 (v5.8): player info on look, ranks always load
+- Looking at a player shows their name (with OWNER, ADMIN or VIP), title,
+  points and rank, and their best time on the map, under the crosshair. On
+  for everyone at first; it's the "Player you look at" part of `!hud`, and
+  F1 > Settings > Player info turns it off. It fades out after you look
+  away, shows the record replay bot's run, and stays off while `!hide` hides
+  players.
+- Ranks no longer show "Newbie, 0 pts" for a whole map. They were built in an
+  InitPostEntity hook, and when another map-start hook failed on a map, GMOD
+  skipped the hooks after it, so the ranks were never built. They are now
+  built when the gamemode loads, rebuilt if a player's rank is asked for
+  before that, and set again once each player's game has loaded.
+- Joining runs each step (player data, shop, track, rank) on its own with
+  the new `SURF.Try`, so one failing step is logged as a `[SURF] error` line
+  (the health check counts these) instead of skipping the rest. The zone and
+  replay loading at map start are protected the same way.
+- The optional speedometer starts a little lower, under the player info.
+
 ## 2026-10-06 (v5.7): challenges, achievements and races
 - Daily and weekly challenges (`!challenges`, also `!daily`, `!quests`, or
   F1 > Challenges). Every day three new ones for everyone (finish runs,

@@ -9,6 +9,15 @@ util.AddNetworkString("surf.MapVoteCast")
 util.AddNetworkString("surf.Commands")
 
 -- SURF.Chat(target or nil for everyone, Color, "text", Color, "text", ...)
+-- Runs fn(...) and logs any error instead of stopping the caller, so one
+-- failing step (or one failing hook, which stops the hooks after it) doesn't
+-- take the rest down. The "[SURF] error" line is what the health check counts.
+function SURF.Try(fn, ...)
+	local ok, err = xpcall(fn, debug.traceback, ...)
+	if not ok then ErrorNoHalt("[SURF] error: " .. tostring(err) .. "\n") end
+	return ok
+end
+
 function SURF.Chat(target, ...)
 	local args = { ... }
 	net.Start("surf.Chat")
@@ -60,4 +69,12 @@ function SURF.PortalURL()
 		portalURL = string.match(url, "^https://[%w%.%-:]+$") and url or false
 	end
 	return portalURL or nil
+end
+
+-- Hands for the first-person view. A player whose viewmodel isn't there yet
+-- (just joined, a bot, or switching from spectating) makes the base game's
+-- gmod_hands error with "Tried to use a NULL entity!"; skip it then, the next
+-- spawn sets them up
+function SURF.SetupHands(ply)
+	if IsValid(ply) and IsValid(ply:GetViewModel(0)) then ply:SetupHands() end
 end

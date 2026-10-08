@@ -51,8 +51,9 @@ in chat is `BRAND_NAME`.
 - Scoreboard: click a player for their Steam profile, to watch them
   (`!spec <name>`) or to mute their voice
 - HUD with timer, speed that turns green/red when gaining/losing, CP progress,
-  key display with mouse turning (`!keys`), PB/WR, who is spectating you and an
-  optional speedometer; scoreboard with titles and points
+  key display with mouse turning (`!keys`), PB/WR, who is spectating you, the
+  name, rank and best time of the player you look at, and an optional
+  speedometer; scoreboard with titles and points
 - `!hud` (or F1 > Settings > Edit HUD layout): each player drags the parts of
   their HUD where they want them, resizes them (scroll or right-click), hides
   them and sets the background. Saved in their own `data/surf_hud.json`. Other

@@ -436,6 +436,7 @@ function BUILD.settings(parent)
 	local function Part(id, title, sub)
 		Toggle(scroll, title, sub, function() return not HUD.Hidden(id) end, function() HUD.Toggle(id) end)
 	end
+	Part("lookat", "Player info", "Name, title, points and best time of the player you look at.")
 	Part("keys", "Key display", "The keys you press and your mouse turning, or those of whoever you spectate.")
 	Part("speed", "Speedometer", "Big speed under the crosshair.")
 	Part("watchers", "Spectator list", "Who is watching you.")

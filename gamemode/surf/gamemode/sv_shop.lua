@@ -135,7 +135,7 @@ local function ApplySkin(ply)
 	if string.lower(ply:GetModel() or "") ~= string.lower(mdl) then
 		util.PrecacheModel(mdl)
 		ply:SetModel(mdl)
-		ply:SetupHands()
+		SURF.SetupHands(ply)
 	end
 end
 
