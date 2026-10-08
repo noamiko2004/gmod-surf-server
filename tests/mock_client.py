@@ -1105,5 +1105,108 @@ if ok:
     check(G.hidesOther and G.keepsRival, "hiding players while racing keeps your rival")
     check(G.offOnStyle and G.goneAfter and G.cleared, "the ghost is off on other styles, gone after its finish, and cleared")
 
+# Map light (F / !light): brightens dark spots only, never darkens (cl_visuals.lua)
+ok = run(r"""
+-- The color shader keeps what it was given; each pass records its contrast
+passes = {}
+local mat = { floats = {} }
+function mat:SetTexture() end
+function mat:SetFloat(k, v) self.floats[k] = v end
+local oldMaterial = Material
+function Material() return mat end
+render.UpdateScreenEffectTexture = function() end
+render.GetScreenEffectTexture = function() return {} end
+render.SetMaterial = function() end
+render.DrawScreenQuad = function() passes[#passes + 1] = mat.floats["$pp_colour_contrast"] end
+-- Light at the eye and on the surfaces the traces hit
+eyeLight, wallLight = 0.01, 0.01
+render.GetLightColor = function(v)
+	local l = (v.z == 64) and eyeLight or wallLight
+	return Vector(l, l, l)
+end
+MASK_SOLID_BRUSHONLY = 16395
+local A = {}
+A.__index = A
+function A:Forward() return Vector(1, 0, 0) end
+function A:Right() return Vector(0, -1, 0) end
+function A:Up() return Vector(0, 0, 1) end
+function EyeAngles() return setmetatable({}, A) end
+traceSky, lightTraces = false, 0
+local oldTrace = util.TraceLine
+util.TraceLine = function(t)
+	lightTraces = lightTraces + 1
+	lastLightMask = t.mask
+	return { Hit = true, HitSky = traceSky, HitPos = Vector(t.endpos.x, t.endpos.y, 0), HitNormal = Vector(0, 0, 1) }
+end
+cvars.surf_graphics = "0"
+include("cl_visuals.lua")
+local V = SURF.Visuals
+local function Frames(n) for i = 1, n do hooks.Think.surf_maplight() end end
+local function Draw() passes = {} hooks.RenderScreenspaceEffects.surf_graphics() return passes end
+local t = 1000
+local function Later() t = t + 1 SetTime(t) end
+
+Later() Frames(50)
+offPasses = #Draw()
+offByDefault = not V.MapLightOn()
+noFullbright = not (hooks.PreRender and hooks.PreRender.surf_maplight) and not (hooks.PostRender and hooks.PostRender.surf_maplight)
+
+-- F turns it on (instead of the flashlight)
+sounds, chatLines = {}, {}
+fTaken = hooks.PlayerBindPress.surf_maplight(me, "impulse 100", true) == true
+onAfterF = V.MapLightOn() and cvars.surf_maplight == "1" and #sounds == 1
+
+-- A dark spot: brightened, up to 3 times
+Later() Frames(400)
+darkPasses = Draw()
+-- A lit spot: left exactly as it is
+eyeLight, wallLight = 0.6, 0.6
+Later() Frames(400)
+litPasses = #Draw()
+-- In between: a little brighter
+eyeLight, wallLight = 0.06, 0.06
+Later() Frames(400)
+midPasses = Draw()
+
+-- The sky doesn't count; walls and ramps do
+eyeLight, wallLight = 0.2, 0.02
+lightTraces = 0
+traceSky = true
+skyLevel = V.LightLevel()
+traceSky = false
+wallLevel = V.LightLevel()
+tracesPerLook = lightTraces / 2
+
+-- With the Vivid preset the map light runs after it
+cvars.surf_graphics = "1"
+eyeLight, wallLight = 0.01, 0.01
+Later() Frames(400)
+vividPasses = Draw()
+
+-- !light again turns it off at once
+V.ToggleMapLight()
+Later() Frames(1)
+offAgain = #Draw() == 1 and not V.MapLightOn()
+lastChat = chatLines[#chatLines]
+
+util.TraceLine = oldTrace
+Material = oldMaterial
+""", "the map light measures the light and brightens dark spots")
+if ok:
+    def near(a, b):
+        return a is not None and abs(a - b) < 0.02
+    check(G.offByDefault and G.offPasses == 0 and G.noFullbright, "the map light is off by default and no longer switches to fullbright")
+    check(G.fTaken and G.onAfterF, "F turns the map light on and is remembered (surf_maplight)")
+    dark = list(G.darkPasses.values())
+    check(len(dark) == 1 and near(dark[0], 3), f"a dark spot is brightened 3 times ({dark})")
+    check(G.litPasses == 0, "a lit spot is left exactly as it is")
+    mid = list(G.midPasses.values())
+    check(len(mid) == 1 and near(mid[0], (0.15 / 0.06) ** 0.5), f"a dim spot is brightened a little ({mid})")
+    check(near(G.skyLevel, 0.2) and near(G.wallLevel, (0.2 + 5 * 0.02) / 6) and G.tracesPerLook == 5 and G.lastLightMask == G.MASK_SOLID_BRUSHONLY,
+          f"the light is measured on walls and ramps in view, not the sky ({G.skyLevel}, {G.wallLevel})")
+    vivid = list(G.vividPasses.values())
+    check(len(vivid) == 2 and near(vivid[0], 1.05) and near(vivid[1], 3), f"the map light brightens after the Vivid preset ({vivid})")
+    check(G.offAgain and "off" in str(list(G.lastChat.values())[-1]), "!light again turns the map light off")
+
 print("\n%d failure(s)" % len(failures))
 sys.exit(1 if failures else 0)

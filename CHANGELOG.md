@@ -1,4 +1,13 @@
 # Changelog
+## 2026-10-08: F brightens dark spots instead of flattening the map
+- F (or `!light`) used to switch the map to fullbright for you. That throws
+  away the map's own lighting, so most maps looked flat and darker. Now it
+  measures the light on what you look at (walls and ramps, not the sky) and
+  brightens the picture only where that light is low, up to 3 times, easing
+  in like eyes getting used to the dark. Lit areas look exactly the same, so
+  it never makes anything darker. It is remembered between maps and visits
+  (`surf_maplight`), and F1 > Settings has the same switch.
+
 ## 2026-10-08: no more purple checkerboard maps
 - Maps made with Counter-Strike: Source textures (like surf_utopia_v3) showed a
   purple and black checkerboard to every player who doesn't own CS:S. The map

@@ -182,7 +182,7 @@ SURF.Config = {
 		"!stage <number> takes you to a stage to practice it.",
 		"Type !hud to move, resize or hide the timer, key display and the rest of your HUD.",
 		"Type !graphics for color presets (Vivid, Cinematic or Off) and glowing zones.",
-		"Map too dark? Press F (or type !light) to light it up just for you.",
+		"Map too dark? Press F (or type !light) to brighten the dark parts just for you.",
 		"Join our Discord: {discord} (or type !discord), then !link your account to show your rank there.",
 		"Start a chat message with ! to see every command. Tab completes it.",
 		"Leaderboards and player profiles: {portal}",

@@ -192,7 +192,7 @@ end)
 
 Add({ "hide", "show" }, "Hide or show other players", function(ply) SURF.ClientAction(ply, "hide") end)
 
-Add({ "light", "maplight", "fullbright" }, "Light up the whole map for yourself (or press F)", function(ply) SURF.ClientAction(ply, "maplight") end)
+Add({ "light", "maplight", "fullbright" }, "Brighten the dark parts of the map for yourself (or press F)", function(ply) SURF.ClientAction(ply, "maplight") end)
 
 Add({ "graphics", "gfx" }, "Color presets and glowing zones (!graphics vivid|cinematic|off)", function(ply, args)
 	if args[1] then return SURF.ClientAction(ply, "graphics:" .. string.lower(args[1])) end

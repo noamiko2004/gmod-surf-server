@@ -1,6 +1,6 @@
--- Looks: color presets (!graphics) and glowing start/end zones with labels
--- (off by default, !zonefx turns them on). All of it is client-side drawing;
--- none of it changes movement or times.
+-- Looks: color presets (!graphics), glowing start/end zones with labels
+-- (off by default, !zonefx turns them on) and the map light (F or !light).
+-- All of it is client-side drawing; none of it changes movement or times.
 SURF.Visuals = {}
 local V = SURF.Visuals
 
@@ -67,13 +67,16 @@ end
 
 hook.Add("RenderScreenspaceEffects", "surf_graphics", function()
 	local p = V.Current()
-	if not p or p.id == "off" then return end
-	if p.color then ColorModify(p.color) end
-	if p.bloom and DrawBloom then
-		local b = p.bloom
-		DrawBloom(b[1], b[2], b[3], b[4], b[5], b[6], 1, 1, 1)
+	if p and p.id ~= "off" then
+		if p.color then ColorModify(p.color) end
+		if p.bloom and DrawBloom then
+			local b = p.bloom
+			DrawBloom(b[1], b[2], b[3], b[4], b[5], b[6], 1, 1, 1)
+		end
+		if p.sharpen and DrawSharpen then DrawSharpen(p.sharpen[1], p.sharpen[2]) end
 	end
-	if p.sharpen and DrawSharpen then DrawSharpen(p.sharpen[1], p.sharpen[2]) end
+	-- Map light (F) last, so it brightens the graded picture
+	V.DrawMapLight()
 end)
 
 -- Zones -----------------------------------------------------------------------
@@ -170,16 +173,21 @@ hook.Add("PostDrawTranslucentRenderables", "surf_zones", function(depth, skybox)
 end)
 
 -- Map light ---------------------------------------------------------------------
--- F (the flashlight key) or !light lights up the whole map for this player
--- only, for dark maps. Off again on every map change.
-local mapLight = false
-function V.MapLightOn() return mapLight end
+-- F (the flashlight key) or !light brightens the dark parts of a map for this
+-- player only. It measures the light on what you look at and raises the
+-- exposure only where that is low, so lit areas look the same and nothing
+-- ever gets darker. (It used to switch the map to fullbright, which takes away
+-- the map's own lighting and made most maps flat and darker.) Remembered.
+local mapLight = CreateClientConVar("surf_maplight", "0", true, false, "Brighten the dark parts of maps (F or !light)")
+function V.MapLightOn() return mapLight:GetBool() end
 
 function V.ToggleMapLight()
-	mapLight = not mapLight
+	local on = not mapLight:GetBool()
+	RunConsoleCommand("surf_maplight", on and "1" or "0")
 	surface.PlaySound("items/flashlight1.wav")
-	chat.AddText(SURF.Config.Accent, "[Light] ", color_white,
-		mapLight and "The map is lit up for you. Press F again to turn it off." or "Map light off.")
+	chat.AddText(SURF.Config.Accent, "[Light] ", color_white, on
+		and "Map light on: dark spots are brightened for you, lit ones stay as they are. Press F again to turn it off."
+		or "Map light off.")
 end
 
 hook.Add("PlayerBindPress", "surf_maplight", function(ply, bind, pressed)
@@ -189,12 +197,47 @@ hook.Add("PlayerBindPress", "surf_maplight", function(ply, bind, pressed)
 	end
 end)
 
--- Fullbright while the world renders, normal lighting again for the HUD
-hook.Add("PreRender", "surf_maplight", function()
-	if mapLight then render.SetLightingMode(2) end
-end)
-local function LightOff()
-	if mapLight then render.SetLightingMode(0) end
+-- Light levels at or above TARGET are left alone; darker ones are brought up
+-- to it, by at most MAX_GAIN times
+local TARGET, MAX_GAIN = 0.15, 3
+-- Where to measure: the crosshair and four points around it
+local SPREAD = { { 0, 0 }, { 0.35, 0 }, { -0.35, 0 }, { 0, 0.25 }, { 0, -0.25 } }
+local gain, goal, nextSample = 1, 1, 0
+
+local function Luminance(c) return 0.299 * c.x + 0.587 * c.y + 0.114 * c.z end
+
+-- Average light at your eyes and on the walls and ramps in view (not the sky)
+function V.LightLevel()
+	local eye, ang = EyePos(), EyeAngles()
+	local fwd, right, up = ang:Forward(), ang:Right(), ang:Up()
+	local sum, n = Luminance(render.GetLightColor(eye)), 1
+	for _, s in ipairs(SPREAD) do
+		local tr = util.TraceLine({ start = eye, endpos = eye + (fwd + right * s[1] + up * s[2]) * 4000, mask = MASK_SOLID_BRUSHONLY })
+		if tr.Hit and not tr.HitSky then
+			sum, n = sum + Luminance(render.GetLightColor(tr.HitPos + tr.HitNormal * 4)), n + 1
+		end
+	end
+	return sum / n
 end
-hook.Add("PostRender", "surf_maplight", LightOff)
-hook.Add("PreDrawHUD", "surf_maplight", LightOff)
+
+function V.LightGain() return gain end
+
+hook.Add("Think", "surf_maplight", function()
+	if not mapLight:GetBool() then gain, goal = 1, 1 return end
+	local now = RealTime()
+	if now >= nextSample then
+		nextSample = now + 0.2
+		-- Light is measured linear and the screen is gamma, hence the root
+		goal = math.Clamp(math.sqrt(TARGET / math.max(V.LightLevel(), 0.001)), 1, MAX_GAIN)
+	end
+	-- Ease toward it, like eyes getting used to the dark
+	gain = gain + (goal - gain) * math.min(1, FrameTime() * 3)
+end)
+
+-- Contrast in this shader multiplies the picture: an exposure boost
+local lightTab = ColorTab({})
+function V.DrawMapLight()
+	if gain <= 1.01 then return end
+	lightTab["$pp_colour_contrast"] = gain
+	ColorModify(lightTab)
+end

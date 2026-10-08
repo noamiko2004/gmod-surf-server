@@ -39,7 +39,8 @@ in chat is `BRAND_NAME`.
 - You spawn and restart (`!r`) facing the way the map goes
 - `!graphics`: color presets (Vivid by default, Cinematic or Off) and glowing
   START/END zones with labels (off at first; `!zonefx` turns the glow on)
-- F (or `!light`) lights up the whole map for that player on dark maps
+- F (or `!light`) brightens the dark parts of a map for that player; lit areas
+  look the same, so it never makes a map darker (remembered between visits)
 - Chat hints: typing `!` lists the matching commands with what they do, and
   Tab completes them
 - `!discord` shows and opens the invite (DISCORD_URL, else the bot's invite)

@@ -424,7 +424,7 @@ function BUILD.settings(parent)
 	end
 	UI.Section(scroll, "Effects")
 	Toggle(scroll, "Glowing zones", "Start and end zones glow, with labels over them.", V.ZonesOn, V.ToggleZones)
-	Toggle(scroll, "Map light", "Lights up the whole map for you on dark maps. Same as F.", V.MapLightOn, V.ToggleMapLight)
+	Toggle(scroll, "Map light", "Brightens the dark parts of a map for you; lit parts stay as they are. Same as F.", V.MapLightOn, V.ToggleMapLight)
 	UI.Section(scroll, "Gameplay")
 	Toggle(scroll, "Autohop", "Hold jump to keep bunnyhopping.", function() return me:GetNW2Bool("surf_autohop", SURF.Config.DefaultAutoHop) end,
 		function() Say("!auto") end)
