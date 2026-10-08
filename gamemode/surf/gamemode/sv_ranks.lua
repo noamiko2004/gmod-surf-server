@@ -21,6 +21,8 @@ end
 
 local function Apply(ply)
 	if ply:IsBot() then return end
+	-- Never show a player 0 points because the list wasn't built yet
+	if not Ranks.loaded then return Ranks.Recalc() end
 	local r = Ranks.bySid[ply:SteamID64()]
 	local pts = r and r.points or 0
 	ply:SetNW2Int("surf_points", pts)
@@ -57,7 +59,7 @@ function Ranks.Recalc()
 		if a.points ~= b.points then return a.points > b.points end
 		return a.sid < b.sid -- same order as the web portal
 	end)
-	Ranks.list, Ranks.bySid = list, {}
+	Ranks.list, Ranks.bySid, Ranks.loaded = list, {}, true
 	for i, e in ipairs(list) do
 		e.pos = i
 		Ranks.bySid[e.sid] = e
@@ -65,11 +67,17 @@ function Ranks.Recalc()
 	for _, p in ipairs(player.GetHumans()) do Apply(p) end
 end
 
-hook.Add("InitPostEntity", "surf_ranks", Ranks.Recalc)
-
 -- Points given or taken by an admin, on top of the points from times
 SURF.DB.Query([[CREATE TABLE IF NOT EXISTS surf_points_adjust (
 	steamid TEXT PRIMARY KEY, points INTEGER NOT NULL DEFAULT 0, reason TEXT, date INTEGER)]])
+
+-- Built as soon as the gamemode loads. It used to wait for InitPostEntity, but
+-- one failing map-start hook stops the ones after it, and then the ranks were
+-- never built: everyone showed "Newbie, 0 pts" until someone set a time.
+Ranks.Recalc()
+-- Again once the player's game has loaded, in case anything at their first
+-- spawn failed before their rank was set
+hook.Add("SurfPlayerReady", "surf_ranks", function(ply) Apply(ply) end)
 
 function Ranks.Adjustment(sid)
 	local r = SURF.DB.Query("SELECT points FROM surf_points_adjust WHERE steamid = %s", sid)

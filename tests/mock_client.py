@@ -41,7 +41,11 @@ function IsValid(v) return v ~= nil and v ~= false and (type(v) ~= "table" or v.
 function Lerp(t, a, b) return a + (b - a) * t end
 function HSVToColor(h, s, v) return Color(255, 0, 0) end
 function Material(p) return { path = p } end
-function Vector(x, y, z) return { x = x or 0, y = y or 0, z = z or 0 } end
+local VecMT = {}
+VecMT.__index = VecMT
+VecMT.__add = function(a, b) return Vector(a.x + b.x, a.y + b.y, a.z + b.z) end
+VecMT.__mul = function(a, b) if type(a) == "number" then a, b = b, a end return Vector(a.x * b, a.y * b, a.z * b) end
+function Vector(x, y, z) return setmetatable({ x = x or 0, y = y or 0, z = z or 0 }, VecMT) end
 function Angle(p, y, r) return { p = p, y = y, r = r } end
 TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER, TEXT_ALIGN_RIGHT, TEXT_ALIGN_TOP, TEXT_ALIGN_BOTTOM = 0, 1, 2, 3, 4
 TOP, BOTTOM, LEFT, RIGHT, FILL, NODOCK = 4, 5, 1, 2, 3, 0
@@ -99,6 +103,12 @@ TEXFILTER = { ANISOTROPIC = 3 }
 render.PushFilterMag, render.PushFilterMin, render.PopFilterMag, render.PopFilterMin = function() end, function() end, function() end, function() end
 alphaMult = 1
 surface.SetAlphaMultiplier = function(a) alphaMult = a end
+surface.GetAlphaMultiplier = function() return alphaMult end
+-- What the crosshair points at (the HUD's "player you look at")
+lookHit, lookTraces = nil, 0
+function EyePos() return Vector(0, 0, 64) end
+function EyeVector() return Vector(1, 0, 0) end
+MASK_SHOT = 1174421507
 hudErrors = {}
 function ErrorNoHalt(m) hudErrors[#hudErrors + 1] = m end
 function math.AngleDifference(a, b) local d = (a - b + 180) % 360 - 180 return d end
@@ -372,6 +382,7 @@ def from_json(s):
 
 
 G.util = L.table_from({"TableToJSON": to_json, "JSONToTable": from_json})
+L.execute("util.TraceLine = function(t) lookTraces = lookTraces + 1 lastTrace = t return { Entity = lookHit } end")
 G.SURF.ClientCPCount = lambda track: 2
 for f in ["cl_hud.lua", "cl_visuals.lua"]:
     include(f)
@@ -749,6 +760,28 @@ me.GetObserverTarget = function() return other end
 me.yaw = 10 GM:HUDPaint() me.yaw = 25 GM:HUDPaint()
 specOn = Rect("spec") ~= nil
 me.GetObserverTarget = nil
+
+-- Looking at someone shows their name, rank and best time; it fades after looking away
+other.nw.surf_points, other.nw.surf_rankpos, other.nw.surf_title, other.nw.surf_mainpb = 420, 3, 4, 62.345
+lookHit = other
+GM:HUDPaint()
+lookOn = Rect("lookat") ~= nil and lastTrace.filter[1] == me and lastTrace.mask == MASK_SHOT
+lookHit = nil
+SetTime(104.3)
+GM:HUDPaint()
+lookHeld = Rect("lookat") ~= nil
+SetTime(105.5)
+GM:HUDPaint()
+lookGone = Rect("lookat") == nil
+other.nw.surf_replay, lookHit = true, other
+GM:HUDPaint()
+lookReplay = Rect("lookat") ~= nil
+other.nw.surf_replay, lookHit = nil, nil
+convars.surf_hideplayers, lookHit = true, other
+SetTime(110)
+GM:HUDPaint()
+lookHidden = Rect("lookat") == nil
+convars.surf_hideplayers, lookHit = false, nil
 me.dead = true
 GM:HUDPaint()
 deadHidesTimer = Rect("timer") == nil and Rect("keys") == nil
@@ -882,6 +915,8 @@ if ok:
     check(G.quietOff and G.balanced, "parts with nothing to show stay off, and every draw is undone")
     check(G.splitOn and G.splitGone and G.watchOn and G.watchGone, "splits and the spectator list come and go")
     check(G.specOn and G.deadHidesTimer, "spectating shows who you watch; the timer and keys hide while dead")
+    check(G.lookOn and G.lookHeld and G.lookGone and G.lookReplay and G.lookHidden,
+          f"looking at a player shows their info, fades after, and not with !hide ({G.lookOn}, {G.lookHeld}, {G.lookGone}, {G.lookReplay}, {G.lookHidden})")
     check(G.voteR is not None and G.voteR[1] + G.voteR[3] == 1920 - 16, "the map vote is a part of the HUD on the right")
     check(G.keysOff, "!keys hides the key display and saves it")
     check(G.editing and G.allShown, f"!hud opens the editor and shows every part ({G.missing})")

@@ -351,8 +351,8 @@ function Zones.Reload()
 end
 
 hook.Add("InitPostEntity", "surf_zones_init", function()
-	Zones.Load()
-	Zones.Spawn()
+	-- Protected: an error here would stop the other map-start hooks
+	if SURF.Try(Zones.Load) then SURF.Try(Zones.Spawn) end
 end)
 hook.Add("PostCleanupMap", "surf_zones_cleanup", Zones.Spawn)
 

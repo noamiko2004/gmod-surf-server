@@ -100,10 +100,12 @@ function GM:PlayerInitialSpawn(ply)
 	if ply:IsBot() then return end
 	if IsOwner(ply) and not ply:IsSuperAdmin() then ply:SetUserGroup("superadmin") end
 	ply:SetNW2Int("surf_state", SURF.STATE_IDLE)
-	SURF.DB.LoadPlayer(ply)
-	SURF.Shop.Load(ply)
-	SURF.Timer.SetTrack(ply, 0, true)
-	SURF.Ranks.Apply(ply)
+	-- Each step on its own: one that fails logs its error but doesn't skip the
+	-- rest (a failed shop load could leave the player without their rank)
+	SURF.Try(SURF.DB.LoadPlayer, ply)
+	SURF.Try(SURF.Shop.Load, ply)
+	SURF.Try(SURF.Timer.SetTrack, ply, 0, true)
+	SURF.Try(SURF.Ranks.Apply, ply)
 end
 
 -- The client says when its Lua is loaded, so net messages aren't dropped
@@ -123,7 +125,7 @@ function GM:PlayerSpawn(ply)
 	ply:UnSpectate()
 	player_manager.SetPlayerClass(ply, "player_default")
 	self:PlayerSetModel(ply)
-	ply:SetupHands()
+	SURF.SetupHands(ply)
 	ply:StripWeapons()
 
 	if ply:IsBot() then
