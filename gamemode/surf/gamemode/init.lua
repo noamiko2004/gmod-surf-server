@@ -13,6 +13,7 @@ AddCSLuaFile("cl_chat.lua")
 AddCSLuaFile("cl_hub.lua")
 AddCSLuaFile("cl_admin.lua")
 AddCSLuaFile("cl_challenges.lua")
+AddCSLuaFile("cl_race.lua")
 
 include("shared.lua")
 include("sh_rampfix.lua")

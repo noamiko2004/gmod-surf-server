@@ -388,7 +388,7 @@ for f in ["cl_hud.lua", "cl_visuals.lua"]:
     include(f)
 
 include("shared.lua")
-for f in ["cl_ui.lua", "cl_menus.lua", "cl_hub.lua", "cl_admin.lua", "cl_scoreboard.lua", "cl_mapvote.lua", "cl_challenges.lua"]:
+for f in ["cl_ui.lua", "cl_menus.lua", "cl_hub.lua", "cl_admin.lua", "cl_scoreboard.lua", "cl_mapvote.lua", "cl_challenges.lua", "cl_race.lua"]:
     include(f)
 
 failures = []
@@ -1022,6 +1022,88 @@ if ok:
     check(G.chWin is not None and G.chCards >= 1 and "say !nominate surf_mesa" in cmds, "the challenges window opens; the map of the day card nominates it")
     check("say !challenges" in cmds, "F1 > Challenges opens the challenges window")
     check(G.raceShown and G.raceGone, "the Race HUD part shows during a race only")
+
+# Race menu, the record ghost and hiding players while racing (cl_race.lua)
+ok = run(r"""
+-- Settings that remember what RunConsoleCommand sets, like the real convars
+cvars = {}
+function CreateClientConVar(name, def)
+	cvars[name] = cvars[name] or def
+	return { GetBool = function() return tonumber(cvars[name]) ~= 0 end, GetInt = function() return tonumber(cvars[name]) or 0 end }
+end
+local oldRCC = RunConsoleCommand
+function RunConsoleCommand(name, v, ...) if cvars[name] ~= nil and v ~= nil and select("#", ...) == 0 then cvars[name] = v end return oldRCC(name, v, ...) end
+util.Compress = function(s) return s end
+util.Decompress = function(s) return s end
+net.ReadData = function() return table.remove(netIn, 1) end
+math.NormalizeAngle = function(a) return (a + 180) % 360 - 180 end
+local vm = {}
+vm.__index = vm
+vm.__add = function(a, b) return Vector(a.x + b.x, a.y + b.y, a.z + b.z) end
+function vm:ToScreen() return { x = self.x, y = self.y, visible = true } end
+local plainVector = Vector
+function Vector(x, y, z) return setmetatable({ x = x or 0, y = y or 0, z = z or 0 }, vm) end
+drawn = 0
+function ClientsideModel() return { SetNoDraw = function() end, LookupSequence = function() return 1 end, ResetSequence = function() end,
+	SetPos = function(self, p) self.pos = p ghostAt = p end, SetAngles = function() end, SetCycle = function() end, DrawModel = function() drawn = drawn + 1 end } end
+render.SetBlend = function() end
+render.SetColorModulation = function() end
+RENDERGROUP_TRANSLUCENT = 2
+include("cl_race.lua")
+
+consoleCmds = {}
+Deliver("surf.Menu", "race", { map = "surf_kitsune", zoned = true, countdown = 3, invite = "Bob", ghost = false,
+	wr = { time = 61.5, name = "Bob" },
+	players = { { name = "Bob", sid = "76561190000000002" }, { name = "Busy", sid = "76561190000000003", state = "racing" } } })
+raceWin = SURF.UI.Open.race
+PaintTree(raceWin)
+hoverAll = true PaintTree(raceWin) hoverAll = false
+for _, b in ipairs(FindButtons(raceWin, "Countdown")) do b:DoClick() end
+for _, b in ipairs(FindButtons(raceWin, "Hide other players")) do b:DoClick() end
+for _, b in ipairs(FindButtons(raceWin, "Record ghost")) do b:DoClick() end
+busyClickable = #FindButtons(raceWin, "Busy") > 0 and FindButtons(raceWin, "Busy")[1].uiRow.onClick ~= nil
+for _, b in ipairs(FindButtons(raceWin, "Bob wants")) do b:DoClick() end
+Deliver("surf.Menu", "race", { map = "surf_kitsune", zoned = true, players = { { name = "Bob", sid = "76561190000000002" } } })
+for _, b in ipairs(FindButtons(SURF.UI.Open.race, "Bob")) do b:DoClick() end
+Deliver("surf.Menu", "race", { map = "surf_kitsune", players = {} })
+PaintTree(SURF.UI.Open.race)
+
+-- The ghost arrives in two pieces and follows your run
+Deliver("surf.Challenge", "race", { ghostOn = true })
+local raw = "0,0,0,0;100,0,0,90;200,0,0,90"
+Deliver("surf.Ghost", "k1", 2, 2, 0.4, "Bob", 1, #raw - 5, string.sub(raw, 6))
+ghostEarly = SURF.RaceClient.Ghost.pts == nil
+Deliver("surf.Ghost", "k1", 1, 2, 0.4, "Bob", 1, 5, string.sub(raw, 1, 5))
+ghostN = SURF.RaceClient.Ghost.n
+me.nw.surf_state = SURF.STATE_RUNNING
+me.nw.surf_start = CurTime() - 0.5
+hooks.PostDrawTranslucentRenderables.surf_race_ghost(false, false)
+ghostX = ghostAt and ghostAt.x
+hooks.HUDPaint.surf_race_ghost_name()
+cvars.surf_race_hide = "1"
+hidesOther = SURF.RaceHides(other)
+SURF.RaceClient.rivalSid = other.sid
+keepsRival = not SURF.RaceHides(other)
+SURF.RaceClient.rivalSid = nil
+me.nw.surf_style = "sw"
+offOnStyle = SURF.RaceClient.Ghost.Pose() == nil
+me.nw.surf_style = nil
+me.nw.surf_start = CurTime() - 10
+goneAfter = SURF.RaceClient.Ghost.Pose() == nil
+Deliver("surf.Ghost", "", 0, 0)
+cleared = SURF.RaceClient.Ghost.pts == nil
+me.nw.surf_state = nil me.nw.surf_start = nil
+Vector = plainVector
+""", "the race menu and the record ghost work")
+if ok:
+    cmds = list(G.consoleCmds.values())
+    check(G.cvars.surf_race_countdown == "5" and G.cvars.surf_race_hide == "1", "race settings change the countdown and hiding")
+    check("say !race wr on" in cmds and "say !accept" in cmds and "say !race 76561190000000002" in cmds and not G.busyClickable,
+          f"the race menu accepts, challenges by SteamID and toggles the ghost ({cmds})")
+    check(G.ghostEarly and G.ghostN == 3 and G.cvars.surf_race_ghost == "1", "the ghost is put together from its pieces")
+    check(G.drawn >= 1 and G.ghostX is not None and abs(G.ghostX - 50) < 1e-6, f"the ghost is drawn where the record was at that time ({G.ghostX})")
+    check(G.hidesOther and G.keepsRival, "hiding players while racing keeps your rival")
+    check(G.offOnStyle and G.goneAfter and G.cleared, "the ghost is off on other styles, gone after its finish, and cleared")
 
 print("\n%d failure(s)" % len(failures))
 sys.exit(1 if failures else 0)

@@ -83,7 +83,9 @@ in chat is `BRAND_NAME`.
   on their next join
 - 1v1 races (`!race <name>`, `!accept`, `!forfeit`; `sv_race.lua`): both go to
   the start, a countdown holds them, first to finish wins a few coins (the
-  first 5 wins a day pay)
+  first 5 wins a day pay). `!race` alone opens the race menu (players to
+  challenge, countdown, hiding other players); `!race wr` races a gold ghost
+  of the server record (`cl_race.lua`)
 - Cosmetic VIP: VIP trails, tag and name color, a gold [VIP] tag and name,
   and 50% more coins. No pay to win.
 
