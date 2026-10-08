@@ -1,5 +1,5 @@
 # Changelog
-## 2026-10-08 (v5.8): race menu and racing the record
+## 2026-10-08 (v5.9): race menu and racing the record
 - `!race` on its own opens a race menu: a player waiting to race you
   (accept or decline), everyone online to challenge with one click (busy ones
   greyed out), giving up your current race, the record ghost and settings.
