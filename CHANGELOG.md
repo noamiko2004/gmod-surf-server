@@ -1,4 +1,14 @@
 # Changelog
+## 2026-10-14: no more waking up as a spectator
+- Reading the shop or another menu (or typing in chat) for 5 minutes counted
+  as being away, so the AFK check moved you to the spectators, and the first
+  thing to watch is the record replay. Menus and chat now count as being
+  there, and so does the time your game takes to load.
+- If you really were away, any key now puts you straight back in the start
+  zone, and the screen says so instead of "Watching the server record
+  replay". Choosing to spectate (`!spec`, `!replay`, the scoreboard) is not
+  affected.
+
 ## 2026-10-08: F brightens dark spots instead of flattening the map
 - F (or `!light`) used to switch the map to fullbright for you. That throws
   away the map's own lighting, so most maps looked flat and darker. Now it

@@ -23,7 +23,9 @@ function Spec.Begin(ply)
 	ply:SpectateEntity(list[1])
 end
 
-function Spec.Toggle(ply)
+-- quiet: no chat line (the AFK move says why on its own)
+function Spec.Toggle(ply, quiet)
+	SURF.AFK.Clear(ply)
 	if ply:Team() == TEAM_SPECTATOR then
 		ply:SetTeam(TEAM_SURF)
 		ply:UnSpectate()
@@ -35,6 +37,7 @@ function Spec.Toggle(ply)
 		ply:KillSilent()
 		SURF.Trails.Apply(ply)
 		Spec.Begin(ply)
+		if quiet then return end
 		SURF.Chat(ply, SURF.Config.Accent, "[Spec] ", color_white, "Spectating. Click to switch players, jump to change view, !spec to go back.")
 	end
 end
@@ -42,6 +45,7 @@ end
 -- Spectate one player (from !spec <name>, the scoreboard or the admin panel)
 function Spec.Watch(ply, target)
 	if ply:Team() ~= TEAM_SPECTATOR then Spec.Toggle(ply) end
+	SURF.AFK.Clear(ply) -- chose to watch, so keys don't send them back
 	if (ply.SurfSpecMode or 1) == 3 then ply.SurfSpecMode = 1 end
 	ply:Spectate(MODES[ply.SurfSpecMode or 1])
 	ply:SpectateEntity(target)

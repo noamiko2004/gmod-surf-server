@@ -44,7 +44,8 @@ in chat is `BRAND_NAME`.
 - Chat hints: typing `!` lists the matching commands with what they do, and
   Tab completes them
 - `!discord` shows and opens the invite (DISCORD_URL, else the bot's invite)
-- Players away for 5 minutes move to the spectators and don't block `!rtv`
+- Players away for 5 minutes move to the spectators and don't block `!rtv`;
+  any key brings them back, and time in menus or typing in chat counts as being there
 - Practice: `!saveloc` / `!tele`, `!stage <n>` (timer turns off)
 - Main menu on F1 (`!menu`): your stats and this map, records, top players,
   maps (search, tier filter, nominate), styles, settings and a searchable
