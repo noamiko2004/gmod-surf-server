@@ -1518,5 +1518,21 @@ check(not any(r["action"] == "spectate" for r in log) and not any(r["action"] ==
       "spectating and refused actions aren't logged")
 check(any(r["action"] == "ban" and r["source"] == "web" for r in log), "website actions are in the same log")
 
+# The record replay bot is dressed as its own character: suit, head hidden
+# for the film camera the clients draw
+L.execute(r"""
+replayBot = MakePlayer("WR Replay", "90071996842377216")
+function replayBot:IsBot() return true end
+function replayBot:LookupBone(name) if name == "ValveBiped.Bip01_Head1" then return 6 end end
+function replayBot:ManipulateBoneScale(b, v) self.boneScale = { b = b, v = v } end
+hook.Run("PlayerSpawn", replayBot)
+human = MakePlayer("Human", "76561197960287931")
+function human:ManipulateBoneScale() self.touched = true end
+hook.Run("PlayerSpawn", human)
+""")
+rb = G.replayBot
+check(rb.model == "models/player/gman_high.mdl" and rb.boneScale and rb.boneScale.b == 6 and rb.boneScale.v.x == 0
+      and not G.human.touched, "the replay bot spawns in a suit with its head hidden (for the camera head); players don't")
+
 print("\n%d failure(s)" % len(failures))
 sys.exit(1 if failures else 0)

@@ -18,6 +18,28 @@
 - An update that couldn't install something (GitHub or Steam down) waits a
   day before trying again, so the server is never restarted every 15 minutes.
 
+## 2026-10-14: shop keeps its place, and shows your whole look
+- Clicking an item in the shop no longer jumps the list back to the top.
+  Picking, buying and equipping only redraw the preview, and double-clicking
+  an item you have puts it on or takes it off.
+- The preview is now you in 3D with everything you have on: your skin, hat,
+  trail behind your feet, and your chat tag and name color over your head.
+  The item you pick is tried on in its slot ("Trying on ..."), so you see it
+  with the rest of your look before buying. Drag to turn, scroll to zoom
+  between your whole body and your head.
+- 49 new items: 9 trails (Lime and Teal Laser, Rose and Emerald Plasma, Frost
+  Beam, Lava Tube, Blue Lightning, and Golden Smoke and Pink Love for VIPs),
+  7 hats (Takeout Box, Cactus, Lampshade, Propeller Cap, Saw Blade, Breen's
+  Globe, Gold Propeller for VIPs), 12 skins (the Counter-Strike crew: Phoenix,
+  Guerilla, Arctic Avenger, SAS, GSG-9, GIGN, SWAT and Elite Crew for VIPs,
+  plus female Metro Police, Stripped Soldier, Fast Zombie, Zombine), 9 chat
+  tags, 7 name colors and 5 finish sounds. The new hats' positions on the
+  head are a first guess; Admin > Shop on the website can hide one that sits
+  wrong.
+- The record replay bot is its own character now: a man in a suit with an
+  old film camera for a head, which looks wherever the record holder was
+  looking, with a blinking red REC light. Nobody else can get it.
+
 ## 2026-10-14: no more waking up as a spectator
 - Reading the shop or another menu (or typing in chat) for 5 minutes counted
   as being away, so the AFK check moved you to the spectators, and the first

@@ -149,6 +149,21 @@ function S.ApplyLooks(ply)
 	ApplySkin(ply)
 end
 
+-- The record replay bot is its own character that no player can look like:
+-- a suit with an old film camera for a head (drawn by cl_shop.lua). Runs a
+-- tick after spawning, once the gamemode has set the bot's model.
+S.ReplayModel = "models/player/gman_high.mdl"
+hook.Add("PlayerSpawn", "surf_replay_look", function(ply)
+	if not ply:IsBot() then return end
+	timer.Simple(0, function()
+		if not IsValid(ply) or not ply:Alive() then return end
+		util.PrecacheModel(S.ReplayModel)
+		ply:SetModel(S.ReplayModel)
+		local head = ply:LookupBone("ValveBiped.Bip01_Head1")
+		if head then ply:ManipulateBoneScale(head, Vector(0, 0, 0)) end
+	end)
+end)
+
 function S.Load(ply)
 	local sid = ply:SteamID64()
 	ply:SetNW2Int("surf_coins", S.Balance(sid))
@@ -393,7 +408,7 @@ function S.MenuData(ply, tab, refresh)
 	return {
 		coins = S.Balance(ply:SteamID64()), owned = owned, equipped = S.Equipped(ply), vip = SURF.IsVIP(ply),
 		tab = tab or "trail", refresh = refresh or nil, url = SURF.Config.StoreURL, rates = SURF.Config.Coins,
-		expires = ply.SurfVIPExpires, vipPackages = SURF.Config.VIPPackages,
+		expires = ply.SurfVIPExpires, vipPackages = SURF.Config.VIPPackages, model = S.ModelFor(ply),
 	}
 end
 

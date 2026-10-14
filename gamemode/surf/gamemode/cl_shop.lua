@@ -1,6 +1,7 @@
 -- The shop menu (!shop, F3, !vip), hats on players, and admin price changes.
--- Left: categories and VIP. Middle: the items. Right: a live preview of the
--- selected item (3D for hats and skins) with its Buy / Equip button.
+-- Left: categories and VIP. Middle: the items. Right: your look in 3D with
+-- everything you have on and the selected item tried on, and its Buy / Equip
+-- button.
 -- Built with the shared theme in cl_ui.lua.
 local Menus = SURF.Menus
 local UI = SURF.UI
@@ -71,8 +72,59 @@ function SURF.DrawHat(ent, it)
 	hat:SetRenderAngles()
 end
 
+-- The record replay bot's own head, which nobody else can get: an old film
+-- camera (the Sandbox camera prop) that looks where the record holder looked,
+-- with a blinking red REC light. The server hides the bot's real head.
+local CAMERA_HEAD = "models/dav0r/camera.mdl"
+local CAMERA_SIZE = 15 -- longest side in units, a bit bigger than a head
+local recGlow = Material("sprites/light_glow02_add")
+
+local function HeadCenter(ent)
+	local b = ent:LookupBone("ValveBiped.Bip01_Head1")
+	local m = b and ent:GetBoneMatrix(b)
+	if m then return m:GetTranslation() + Vector(0, 0, 4) end
+	return ent:EyePos()
+end
+
+function SURF.DrawCameraHead(ent, ang)
+	local cam = HatEnt(CAMERA_HEAD)
+	if not cam then return end
+	local mins, maxs = cam:GetModelBounds()
+	if not mins then return end
+	local size = math.max(maxs.x - mins.x, maxs.y - mins.y, maxs.z - mins.z)
+	local scale = size > 0 and CAMERA_SIZE / size or 1
+	-- put the middle of the model (not its origin) on the middle of the head
+	local mid = (mins + maxs) * 0.5
+	local function World(lx, ly, lz)
+		local v = Vector(lx, ly, lz) * scale
+		v:Rotate(ang)
+		return v
+	end
+	local origin = HeadCenter(ent) - World(mid.x, mid.y, mid.z)
+	local m = Matrix()
+	m:Scale(Vector(1, 1, 1) * scale)
+	cam:EnableMatrix("RenderMultiply", m)
+	cam:SetRenderOrigin(origin)
+	cam:SetRenderAngles(ang)
+	cam:SetupBones()
+	cam:DrawModel()
+	cam:SetRenderOrigin()
+	cam:SetRenderAngles()
+	if RealTime() % 1.2 < 0.7 then
+		render.SetMaterial(recGlow)
+		local light = origin + World(mid.x + (maxs.x - mid.x) * 0.6, mid.y, maxs.z + 0.5)
+		render.DrawSprite(light, 5, 5, Color(255, 30, 30))
+		render.DrawSprite(light, 2, 2, Color(255, 200, 200))
+	end
+end
+
 hook.Add("PostPlayerDraw", "surf_hats", function(ply)
 	if not ply:Alive() then return end
+	if ply:GetNW2Bool("surf_replay", false) then
+		local a = ply:EyeAngles()
+		SURF.DrawCameraHead(ply, Angle(math.Clamp(a.p, -30, 30), a.y, 0))
+		return
+	end
 	local id = ply:GetNW2String("surf_hat", "")
 	if id == "" then return end
 	if ply == LocalPlayer() and not ply:ShouldDrawLocalPlayer() then return end
@@ -127,8 +179,21 @@ local function DrawName(it, text, font, x, y, alignCenter)
 	end
 end
 
--- A chat line: [tag] [Title] Name: gg
-local function DrawChatLine(x, y, tag, nameIt)
+-- Cuts a name to fit `room` pixels, by whole characters, with "..."
+local function FitName(name, font, room)
+	surface.SetFont(font)
+	if surface.GetTextSize(name) <= room then return name end
+	local out = ""
+	for _, code in utf8.codes(name) do
+		local nxt = out .. utf8.char(code)
+		if surface.GetTextSize(nxt .. "...") > room then break end
+		out = nxt
+	end
+	return out .. "..."
+end
+
+-- A chat line: [tag] [Title] Name: gg wp (the name cut to end before `right`)
+local function DrawChatLine(x, y, tag, nameIt, right)
 	local ply = LocalPlayer()
 	local title = SURF.Config.Titles[ply:GetNW2Int("surf_title", 1)] or SURF.Config.Titles[1]
 	local parts = {}
@@ -140,19 +205,23 @@ local function DrawChatLine(x, y, tag, nameIt)
 		x = x + surface.GetTextSize(p[1])
 	end
 	local name = ply:Nick()
+	if right then name = FitName(name, "SurfUI_Body", right - x - UI.TextWidth(": gg wp", "SurfUI_Body")) end
+	surface.SetFont("SurfUI_Body")
 	if nameIt then DrawName(nameIt, name, "SurfUI_Body", x, y)
 	else draw.SimpleText(name, "SurfUI_Body", x, y, Color(160, 210, 255), TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER) end
 	surface.SetFont("SurfUI_Body")
 	x = x + surface.GetTextSize(name)
-	draw.SimpleText(": gg, nice run", "SurfUI_Body", x, y, color_white, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
+	draw.SimpleText(": gg wp", "SurfUI_Body", x, y, color_white, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
 end
 
 -- Item state ----------------------------------------------------------------
 
+-- An item only counts as on when you may use it, like the server's
+-- S.CanUse: a VIP item stays equipped after VIP runs out but isn't shown
 local function State(it, data, owned)
-	local on = (data.equipped or {})[it.cat] == it.id
 	local free = SURF.ItemFree(it)
 	local have = free or owned[it.key] or (it.vip and data.vip)
+	local on = have and (data.equipped or {})[it.cat] == it.id
 	return on, have, free
 end
 
@@ -171,10 +240,28 @@ end
 
 -- Menu ----------------------------------------------------------------------
 
-local BuildBody
+local BuildBody, ShowPreview
 
--- Categories down the left, with how many items of each you have
-local function Sidebar(f, data, owned)
+-- How many items of each category you have, for the sidebar
+local function Counts(data, owned)
+	local out = {}
+	for _, c in ipairs(SURF.ShopCategories) do
+		local have, total = 0, 0
+		for _, it in ipairs(c.list) do
+			if Visible(it, owned) then
+				total = total + 1
+				local _, h = State(it, data, owned)
+				if h then have = have + 1 end
+			end
+		end
+		out[c.id] = { have = have, total = total }
+	end
+	return out
+end
+
+-- Categories down the left, with how many items of each you have. It reads
+-- f.data and f.counts while painting, so a refresh doesn't rebuild it.
+local function Sidebar(f)
 	local side = vgui.Create("DPanel", f)
 	side:Dock(LEFT)
 	side:SetWide(S(190))
@@ -185,14 +272,6 @@ local function Sidebar(f, data, owned)
 	for _, c in ipairs(SURF.ShopCategories) do tabs[#tabs + 1] = { id = c.id, name = c.name, list = c.list } end
 	tabs[#tabs + 1] = { id = "vip", name = "VIP" }
 	for _, t in ipairs(tabs) do
-		local have, total = 0, 0
-		for _, it in ipairs(t.list or {}) do
-			if Visible(it, owned) then
-				total = total + 1
-				local _, h = State(it, data, owned)
-				if h then have = have + 1 end
-			end
-		end
 		local b = vgui.Create("DButton", side)
 		b:Dock(TOP)
 		b:DockMargin(0, 0, 0, S(2))
@@ -210,17 +289,19 @@ local function Sidebar(f, data, owned)
 			end
 			local tcol = t.id == "vip" and GOLD or ((cur or hv > 0.5) and C.text or DIM)
 			if t.list then
+				local n = (f.counts or {})[t.id] or { have = 0, total = 0 }
 				draw.SimpleText(t.name, "SurfUI_Body", S(14), h / 2 - S(8), tcol, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
-				draw.SimpleText(have .. " / " .. total .. " yours", "SurfUI_Small", S(14), h / 2 + S(10), MUTED, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
+				draw.SimpleText(n.have .. " / " .. n.total .. " yours", "SurfUI_Small", S(14), h / 2 + S(10), MUTED, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
 			else
 				draw.SimpleText(t.name, "SurfUI_Body", S(14), h / 2, tcol, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
-				if data.vip then draw.SimpleText("active", "SurfUI_Small", w - S(12), h / 2, GOLD, TEXT_ALIGN_RIGHT, TEXT_ALIGN_CENTER) end
+				if (f.data or {}).vip then draw.SimpleText("active", "SurfUI_Small", w - S(12), h / 2, GOLD, TEXT_ALIGN_RIGHT, TEXT_ALIGN_CENTER) end
 			end
 		end
 		b.DoClick = function()
 			if f.tab == t.id then return end
 			UI.Click()
 			f.tab, f.sel = t.id, nil
+			f.lookZoom = t.id == "hat" and 1 or 0
 			BuildBody(f)
 		end
 	end
@@ -240,135 +321,203 @@ local function Equip(cat, id)
 	net.Start("surf.ShopEquip") net.WriteString(cat) net.WriteString(id) net.SendToServer()
 end
 
--- Preview of the selected item, with its action button
-local function Preview(parent, it, data, owned)
-	local p = vgui.Create("DPanel", parent)
-	p:Dock(RIGHT)
-	p:SetWide(S(290))
-	p:DockMargin(S(14), 0, 0, 0)
-	p.Paint = function(_, w, h) draw.RoundedBox(8, 0, 0, w, h, C.panel) end
-	if not it then
-		UI.Empty(p, "Pick an item to see it")
-		return
-	end
-	-- name, price and button along the bottom (docked before the stage)
-	local info = vgui.Create("DPanel", p)
-	info:Dock(BOTTOM)
-	info:SetTall(S(132))
-	info:DockPadding(S(14), 0, S(14), S(14))
-	local on, have, free = State(it, data, owned)
-	info.Paint = function(_, w)
-		surface.SetDrawColor(C.line)
-		surface.DrawRect(S(14), 0, w - S(28), 1)
-		local name = it.cat == "tag" and ("[" .. it.name .. "]") or it.name
-		draw.SimpleText(UI.Fit(name, "SurfUI_Title", w - S(28)), "SurfUI_Title", S(14), S(26), it.cat == "tag" and it.color or C.text, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
-		local sub
-		if on then sub = "You have it on."
-		elseif have then sub = free and "Free for everyone." or (owned[it.key] and "Yours." or "Free with your VIP.")
-		elseif it.price then sub = string.Comma(it.price) .. " coins" .. (it.vip and ", or free with VIP" or "")
-		else sub = "Only for VIPs." end
-		draw.SimpleText(sub, "SurfUI_Body", S(14), S(56), (it.price and not have) and GOLD or DIM, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
-	end
-	local act
-	if on then
-		act = UI.Button(info, "Take it off", "ghost", function() Equip(it.cat, "none") end)
-	elseif have then
-		act = UI.Button(info, "Put it on", "primary", function() Equip(it.cat, it.id) end)
-	elseif it.price then
-		local armed = 0
-		local short = (data.coins or 0) < it.price
-		act = UI.Button(info, function()
-			if short then return "Need " .. string.Comma(it.price - (data.coins or 0)) .. " more coins" end
-			return armed > CurTime() and "Click again to buy" or ("Buy for " .. string.Comma(it.price))
-		end, "gold", function()
-			if armed > CurTime() then
-				armed = 0
-				net.Start("surf.ShopBuy") net.WriteString(it.key) net.SendToServer()
-			else
-				armed = CurTime() + 3
-			end
-		end)
-		if short then act:SetEnabled(false) end
-	else
-		act = UI.Button(info, "See VIP", "gold", function()
-			local f = parent:GetParent()
-			f.tab = "vip"
-			BuildBody(f)
-		end)
-	end
-	act:Dock(BOTTOM)
-	act:SetTall(S(42))
+-- What the preview player wears: everything you have on, with the selected
+-- item tried on in its slot
+local LOOK_SLOTS = { "skin", "hat", "trail", "tag", "color" }
+local FALLBACK_MODEL = "models/player/group01/male_07.mdl"
 
-	local stage
-	if it.cat == "skin" or it.cat == "hat" then
-		stage = vgui.Create("DModelPanel", p)
-		stage:SetModel(it.cat == "skin" and it.model or LocalPlayer():GetModel())
-		local ent = stage:GetEntity()
-		if IsValid(ent) then
-			local seq = ent:LookupSequence("idle_all_01")
-			if seq and seq > 0 then ent:ResetSequence(seq) end
-		end
-		if it.cat == "hat" then
-			stage:SetFOV(32)
-			stage:SetCamPos(Vector(70, 0, 66))
-			stage:SetLookAt(Vector(0, 0, 63))
-			stage.PostDrawModel = function(_, e) SURF.DrawHat(e, it) end
+local function Look(f, it)
+	local data, owned = f.data or {}, f.owned or {}
+	local eq = data.equipped or {}
+	local look = {}
+	for _, cat in ipairs(LOOK_SLOTS) do
+		if it and it.cat == cat then
+			look[cat] = it
 		else
-			stage:SetFOV(38)
-			stage:SetCamPos(Vector(110, 0, 48))
-			stage:SetLookAt(Vector(0, 0, 36))
-		end
-		-- turns slowly; drag to turn it yourself
-		stage.yaw = 25
-		stage.LayoutEntity = function(self, e)
-			if self.Depressed then
-				local x = gui.MouseX()
-				self.yaw = self.yaw + (x - (self.lastX or x)) * 0.6
-				self.lastX = x
-			else
-				self.lastX = nil
-				self.yaw = self.yaw + FrameTime() * 20
-			end
-			e:SetAngles(Angle(0, self.yaw, 0))
-			self:RunAnimation()
-		end
-		local paint = stage.Paint
-		stage.Paint = function(self, w, h)
-			draw.RoundedBoxEx(8, 0, 0, w, h, Color(0, 0, 0, 70), true, true, false, false)
-			paint(self, w, h)
-			draw.SimpleText("Drag to turn", "SurfUI_Small", w - S(12), S(16), MUTED, TEXT_ALIGN_RIGHT, TEXT_ALIGN_CENTER)
-		end
-	else
-		stage = vgui.Create("DPanel", p)
-		stage.Paint = function(_, w, h)
-			draw.RoundedBox(8, S(10), S(10), w - S(20), h - S(20), Color(0, 0, 0, 90))
-			if it.cat == "trail" then
-				DrawTrail(it, S(10), S(10), w - S(20), h - S(20))
-			elseif it.cat == "tag" then
-				draw.SimpleText("In chat", "SurfUI_Small", S(22), S(30), DIM)
-				DrawChatLine(S(22), h / 2, it, SURF.NameColorOf(LocalPlayer()))
-			elseif it.cat == "color" then
-				DrawName(it, LocalPlayer():Nick(), "SurfUI_Big", w / 2, h / 2 - S(14), true)
-				DrawChatLine(S(22), h / 2 + S(32), SURF.ChatTagOf(LocalPlayer()), it)
-			elseif it.cat == "sound" then
-				draw.SimpleText("Plays where you are", "SurfUI_Small", w / 2, h / 2 - S(42), DIM, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
-				draw.SimpleText("when you finish a run", "SurfUI_Small", w / 2, h / 2 - S(24), DIM, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
-			end
-		end
-		if it.cat == "sound" then
-			local play = UI.Button(stage, "Play", "primary", function() surface.PlaySound(it.sound) end)
-			play:SetSize(S(110), S(38))
-			stage.PerformLayout = function(self, w, h) play:SetPos(w / 2 - S(55), h / 2) end
+			local id = eq[cat]
+			local cur = id and id ~= "none" and SURF.ItemByKey[cat .. ":" .. id]
+			if cur and select(2, State(cur, data, owned)) then look[cat] = cur end
 		end
 	end
-	stage:Dock(FILL)
+	-- the model you will spawn as (the server sends it; a spectator still has
+	-- the model of before), else the one you have now
+	local mdl = data.model
+	if not mdl or mdl == "" then mdl = LocalPlayer():GetModel() end
+	if not mdl or mdl == "" or mdl == "models/player.mdl" then mdl = FALLBACK_MODEL end
+	look.model = look.skin and look.skin.model or mdl
+	look.trying = it ~= nil and not State(it, data, owned)
+	return look
 end
 
-local function Tile(grid, it, data, owned, f)
+-- The trail behind the preview player, like util.SpriteTrail draws it in game
+-- (16 wide at the feet, thinning out)
+local function DrawTrail3D(ent, it)
+	if not it or not it.mat then return end
+	local pos, fwd, right = ent:GetPos(), ent:GetForward(), ent:GetRight()
+	local c = it.color or color_white
+	local n, t = 16, RealTime()
+	render.SetMaterial(TrailMat(it))
+	render.StartBeam(n + 1)
+	for i = 0, n do
+		local k = i / n
+		local p = pos - fwd * (6 + 40 * k) + right * (math.sin(t * 2 - k * 3) * 6 * k)
+		p.z = p.z + 5 + math.sin(t * 3 - k * 4) * 3 * k
+		render.AddBeam(p, 16 * (1 - k) + 0.5, k, Color(c.r, c.g, c.b, 255 * (1 - k * 0.8)))
+	end
+	render.EndBeam()
+end
+
+-- [Tag] Name over the preview player, in the name color
+local function DrawNameplate(look, w, y)
+	local name = LocalPlayer():Nick()
+	local tagText = look.tag and ("[" .. look.tag.name .. "] ") or ""
+	local font = "SurfUI_Head"
+	if UI.TextWidth(tagText .. name, font) > w - S(24) then font = "SurfUI_Body" end
+	local tw = tagText ~= "" and UI.TextWidth(tagText, font) or 0
+	name = FitName(name, font, math.max(w - S(24) - tw, S(40)))
+	local x = w / 2 - (tw + UI.TextWidth(name, font)) / 2
+	if look.tag then draw.SimpleText(tagText, font, x, y, look.tag.color, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER) end
+	if look.color then DrawName(look.color, name, font, x + tw, y)
+	else draw.SimpleText(name, font, x + tw, y, C.text, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER) end
+end
+
+-- The player in everything they have on, turning slowly; drag to turn it,
+-- scroll to zoom between the whole body and the head
+local function LookStage(parent, f, it, look)
+	local stage = vgui.Create("DModelPanel", parent)
+	stage.look = look
+	stage:SetModel(look.model)
+	local ent = stage:GetEntity()
+	if IsValid(ent) then
+		local seq = ent:LookupSequence("idle_all_01")
+		if seq and seq > 0 then ent:ResetSequence(seq) end
+		local me = LocalPlayer()
+		local pc = me.GetPlayerColor and me:GetPlayerColor()
+		if pc then ent.GetPlayerColor = function() return pc end end
+	end
+	f.lookYaw = f.lookYaw or 25
+	f.lookZoom = f.lookZoom or 0
+	stage.zoom = f.lookZoom
+	local function Camera(self)
+		local k = self.zoom
+		self:SetFOV(Lerp(k, 40, 32))
+		-- aimed above the middle, so tall hats stay under the nameplate
+		self:SetCamPos(Vector(Lerp(k, 140, 84), 0, Lerp(k, 52, 80)))
+		self:SetLookAt(Vector(0, 0, Lerp(k, 48, 76)))
+	end
+	Camera(stage)
+	stage.LayoutEntity = function(self, e)
+		if self.Depressed then
+			local x = gui.MouseX()
+			f.lookYaw = f.lookYaw + (x - (self.lastX or x)) * 0.6
+			self.lastX = x
+		else
+			self.lastX = nil
+			f.lookYaw = f.lookYaw + FrameTime() * 20
+		end
+		self.zoom = Lerp(math.min(FrameTime() * 10, 1), self.zoom, f.lookZoom)
+		Camera(self)
+		e:SetAngles(Angle(0, f.lookYaw, 0))
+		self:RunAnimation()
+	end
+	stage.OnMouseWheeled = function(_, delta)
+		f.lookZoom = math.Clamp(f.lookZoom + delta * 0.25, 0, 1)
+		return true
+	end
+	stage.PostDrawModel = function(_, e)
+		DrawTrail3D(e, look.trail)
+		SURF.DrawHat(e, look.hat)
+	end
+	local paint = stage.Paint
+	stage.Paint = function(self, w, h)
+		draw.RoundedBoxEx(8, 0, 0, w, h, Color(0, 0, 0, 70), true, true, false, false)
+		paint(self, w, h)
+		local label = look.trying and ("Trying on " .. it.name) or "Your look"
+		draw.SimpleText(UI.Fit(label, "SurfUI_Small", w - S(24)), "SurfUI_Small", S(12), S(16), look.trying and GOLD or DIM, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
+		DrawNameplate(look, w, S(44))
+		if it and (it.cat == "tag" or it.cat == "color") then
+			draw.RoundedBox(6, S(8), h - S(66), w - S(16), S(32), Color(0, 0, 0, 110))
+			DrawChatLine(S(16), h - S(50), look.tag, look.color, w - S(16))
+		end
+		draw.SimpleText("Drag to turn, scroll to zoom", "SurfUI_Tiny", w / 2, h - S(14), MUTED, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+	end
+	if it and it.cat == "sound" then
+		local play = UI.Button(stage, "Play sound", "primary", function() surface.PlaySound(it.sound) end)
+		play:SetSize(S(130), S(36))
+		local layout = stage.PerformLayout
+		stage.PerformLayout = function(self, w, h)
+			if layout then layout(self, w, h) end
+			play:SetPos(w / 2 - S(65), h - S(72))
+		end
+	end
+	return stage
+end
+
+-- The right column: your look with the selected item on, its name and price,
+-- and its Buy / Equip button. Rebuilt on its own when you pick an item, so
+-- the item list keeps its scroll position.
+ShowPreview = function(f)
+	local p = f.look
+	if not IsValid(p) then return end
+	p:Clear()
+	local data, owned = f.data, f.owned
+	local it = SURF.ItemByKey[f.sel or ""]
+	-- name, price and button along the bottom (docked before the stage)
+	if it then
+		local info = vgui.Create("DPanel", p)
+		info:Dock(BOTTOM)
+		info:SetTall(S(132))
+		info:DockPadding(S(14), 0, S(14), S(14))
+		local on, have, free = State(it, data, owned)
+		info.Paint = function(_, w)
+			surface.SetDrawColor(C.line)
+			surface.DrawRect(S(14), 0, w - S(28), 1)
+			local name = it.cat == "tag" and ("[" .. it.name .. "]") or it.name
+			draw.SimpleText(UI.Fit(name, "SurfUI_Title", w - S(28)), "SurfUI_Title", S(14), S(26), it.cat == "tag" and it.color or C.text, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
+			local sub
+			if on then sub = "You have it on."
+			elseif have then sub = free and "Free for everyone." or (owned[it.key] and "Yours." or "Free with your VIP.")
+			elseif it.price then sub = string.Comma(it.price) .. " coins" .. (it.vip and ", or free with VIP" or "")
+			else sub = "Only for VIPs." end
+			draw.SimpleText(sub, "SurfUI_Body", S(14), S(56), (it.price and not have) and GOLD or DIM, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
+		end
+		local act
+		if on then
+			act = UI.Button(info, "Take it off", "ghost", function() Equip(it.cat, "none") end)
+		elseif have then
+			act = UI.Button(info, "Put it on", "primary", function() Equip(it.cat, it.id) end)
+		elseif it.price then
+			local armed = 0
+			local short = (data.coins or 0) < it.price
+			act = UI.Button(info, function()
+				if short then return "Need " .. string.Comma(it.price - (data.coins or 0)) .. " more coins" end
+				return armed > CurTime() and "Click again to buy" or ("Buy for " .. string.Comma(it.price))
+			end, "gold", function()
+				if armed > CurTime() then
+					armed = 0
+					net.Start("surf.ShopBuy") net.WriteString(it.key) net.SendToServer()
+				else
+					armed = CurTime() + 3
+				end
+			end)
+			if short then act:SetEnabled(false) end
+		else
+			act = UI.Button(info, "See VIP", "gold", function()
+				f.tab, f.sel = "vip", nil
+				BuildBody(f)
+			end)
+		end
+		act:Dock(BOTTOM)
+		act:SetTall(S(42))
+	end
+	f.stage = LookStage(p, f, it, Look(f, it))
+	f.stage:Dock(FILL)
+end
+
+local function Tile(grid, it, f)
 	local t = grid:Add("DButton")
 	t:SetSize(S(128), S(118))
 	t:SetText("")
-	local on = State(it, data, owned)
 	if it.cat == "skin" or it.cat == "hat" then
 		local icon = vgui.Create("SpawnIcon", t)
 		icon:SetSize(S(64), S(64))
@@ -377,7 +526,9 @@ local function Tile(grid, it, data, owned, f)
 		icon:SetMouseInputEnabled(false)
 		icon:SetTooltip(false)
 	end
+	-- state comes from f.data each frame, so a buy or equip shows without a rebuild
 	t.Paint = function(self, w, h)
+		local on = State(it, f.data, f.owned)
 		local sel = f.sel == it.key
 		local hv = UI.Hover(self, self:IsHovered())
 		local acc = UI.Accent()
@@ -401,18 +552,19 @@ local function Tile(grid, it, data, owned, f)
 		if it.cat ~= "tag" then
 			draw.SimpleText(UI.Fit(it.name, "SurfUI_Small", w - S(8)), "SurfUI_Small", w / 2, S(84), C.text, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
 		end
-		local txt, col = PriceText(it, data, owned)
+		local txt, col = PriceText(it, f.data, f.owned)
 		draw.SimpleText(txt, "SurfUI_Small", w / 2, S(102), col, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
 		if it.hidden then draw.SimpleText("retired", "SurfUI_Tiny", w - S(6), S(4), MUTED, TEXT_ALIGN_RIGHT) end
 	end
 	t.DoClick = function()
+		if it.cat == "sound" then surface.PlaySound(it.sound) end
+		if f.sel == it.key then return end
 		UI.Click()
 		f.sel = it.key
-		if it.cat == "sound" then surface.PlaySound(it.sound) end
-		BuildBody(f)
+		ShowPreview(f)
 	end
 	t.DoDoubleClick = function()
-		local _, have = State(it, data, owned)
+		local on, have = State(it, f.data, f.owned)
 		if have then Equip(it.cat, on and "none" or it.id) end
 	end
 end
@@ -492,13 +644,15 @@ local function VIPBody(body, data)
 	end
 end
 
+-- Rebuilds everything right of the sidebar: on opening, and on a new tab
 BuildBody = function(f)
 	local data = f.data
 	if IsValid(f.body) then f.body:Remove() end
+	f.look, f.grid, f.stage = nil, nil, nil
 	local body = vgui.Create("DPanel", f)
 	body:Dock(FILL)
 	body.Paint = nil
-	f.body = body
+	f.body, f.bodyTab = body, f.tab
 	if f.tab == "vip" then return VIPBody(body, data) end
 	local owned = f.owned
 	local cat
@@ -511,13 +665,21 @@ BuildBody = function(f)
 		local eq = (data.equipped or {})[cat.id]
 		f.sel = (eq and eq ~= "none" and SURF.ItemByKey[cat.id .. ":" .. eq]) and (cat.id .. ":" .. eq) or (items[1] and items[1].key)
 	end
-	Preview(body, SURF.ItemByKey[f.sel or ""], data, owned)
+	-- the preview column first, so the item list fills what is left
+	local look = vgui.Create("DPanel", body)
+	look:Dock(RIGHT)
+	look:SetWide(S(290))
+	look:DockMargin(S(14), 0, 0, 0)
+	look.Paint = function(_, w, h) draw.RoundedBox(8, 0, 0, w, h, C.panel) end
+	f.look = look
+	ShowPreview(f)
 	local scroll = UI.Scroll(body)
 	local grid = vgui.Create("DIconLayout", scroll)
 	grid:Dock(FILL)
 	grid:SetSpaceX(S(8))
 	grid:SetSpaceY(S(8))
-	for _, it in ipairs(items) do Tile(grid, it, data, owned, f) end
+	for _, it in ipairs(items) do Tile(grid, it, f) end
+	f.grid = grid
 end
 
 function Menus.shop(data)
@@ -532,17 +694,25 @@ function Menus.shop(data)
 			end,
 		})
 		shopFrame.tab = data.tab or "trail"
+		shopFrame.lookZoom = shopFrame.tab == "hat" and 1 or 0
 	elseif not data.refresh then
-		shopFrame.tab = data.tab or shopFrame.tab
+		local tab = data.tab or shopFrame.tab
+		if tab ~= shopFrame.tab then shopFrame.lookZoom = tab == "hat" and 1 or 0 end
+		shopFrame.tab = tab
 		shopFrame.sel = nil
 	end
 	local f = shopFrame
 	f.data = data
 	f.owned = {}
 	for _, k in ipairs(data.owned or {}) do f.owned[k] = true end
-	if IsValid(f.side) then f.side:Remove() end
-	if IsValid(f.body) then f.body:Remove() end
-	f.side = Sidebar(f, data, f.owned)
+	f.counts = Counts(data, f.owned)
+	if not IsValid(f.side) then f.side = Sidebar(f) end
+	-- After buying or equipping, the server sends the new state. Keep the
+	-- item list where it is scrolled to and only redraw the preview.
+	if data.refresh and IsValid(f.grid) and IsValid(f.look) and f.bodyTab == f.tab then
+		ShowPreview(f)
+		return
+	end
 	BuildBody(f)
 end
 
