@@ -179,8 +179,21 @@ local function DrawName(it, text, font, x, y, alignCenter)
 	end
 end
 
--- A chat line: [tag] [Title] Name: gg
-local function DrawChatLine(x, y, tag, nameIt)
+-- Cuts a name to fit `room` pixels, by whole characters, with "..."
+local function FitName(name, font, room)
+	surface.SetFont(font)
+	if surface.GetTextSize(name) <= room then return name end
+	local out = ""
+	for _, code in utf8.codes(name) do
+		local nxt = out .. utf8.char(code)
+		if surface.GetTextSize(nxt .. "...") > room then break end
+		out = nxt
+	end
+	return out .. "..."
+end
+
+-- A chat line: [tag] [Title] Name: gg wp (the name cut to end before `right`)
+local function DrawChatLine(x, y, tag, nameIt, right)
 	local ply = LocalPlayer()
 	local title = SURF.Config.Titles[ply:GetNW2Int("surf_title", 1)] or SURF.Config.Titles[1]
 	local parts = {}
@@ -192,6 +205,8 @@ local function DrawChatLine(x, y, tag, nameIt)
 		x = x + surface.GetTextSize(p[1])
 	end
 	local name = ply:Nick()
+	if right then name = FitName(name, "SurfUI_Body", right - x - UI.TextWidth(": gg wp", "SurfUI_Body")) end
+	surface.SetFont("SurfUI_Body")
 	if nameIt then DrawName(nameIt, name, "SurfUI_Body", x, y)
 	else draw.SimpleText(name, "SurfUI_Body", x, y, Color(160, 210, 255), TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER) end
 	surface.SetFont("SurfUI_Body")
@@ -201,10 +216,12 @@ end
 
 -- Item state ----------------------------------------------------------------
 
+-- An item only counts as on when you may use it, like the server's
+-- S.CanUse: a VIP item stays equipped after VIP runs out but isn't shown
 local function State(it, data, owned)
-	local on = (data.equipped or {})[it.cat] == it.id
 	local free = SURF.ItemFree(it)
 	local have = free or owned[it.key] or (it.vip and data.vip)
+	local on = have and (data.equipped or {})[it.cat] == it.id
 	return on, have, free
 end
 
@@ -322,7 +339,10 @@ local function Look(f, it)
 			if cur and select(2, State(cur, data, owned)) then look[cat] = cur end
 		end
 	end
-	local mdl = LocalPlayer():GetModel()
+	-- the model you will spawn as (the server sends it; a spectator still has
+	-- the model of before), else the one you have now
+	local mdl = data.model
+	if not mdl or mdl == "" then mdl = LocalPlayer():GetModel() end
 	if not mdl or mdl == "" or mdl == "models/player.mdl" then mdl = FALLBACK_MODEL end
 	look.model = look.skin and look.skin.model or mdl
 	look.trying = it ~= nil and not State(it, data, owned)
@@ -354,6 +374,7 @@ local function DrawNameplate(look, w, y)
 	local font = "SurfUI_Head"
 	if UI.TextWidth(tagText .. name, font) > w - S(24) then font = "SurfUI_Body" end
 	local tw = tagText ~= "" and UI.TextWidth(tagText, font) or 0
+	name = FitName(name, font, math.max(w - S(24) - tw, S(40)))
 	local x = w / 2 - (tw + UI.TextWidth(name, font)) / 2
 	if look.tag then draw.SimpleText(tagText, font, x, y, look.tag.color, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER) end
 	if look.color then DrawName(look.color, name, font, x + tw, y)
@@ -380,8 +401,9 @@ local function LookStage(parent, f, it, look)
 	local function Camera(self)
 		local k = self.zoom
 		self:SetFOV(Lerp(k, 40, 32))
-		self:SetCamPos(Vector(Lerp(k, 120, 70), 0, Lerp(k, 44, 66)))
-		self:SetLookAt(Vector(0, 0, Lerp(k, 36, 63)))
+		-- aimed above the middle, so tall hats stay under the nameplate
+		self:SetCamPos(Vector(Lerp(k, 140, 84), 0, Lerp(k, 52, 80)))
+		self:SetLookAt(Vector(0, 0, Lerp(k, 48, 76)))
 	end
 	Camera(stage)
 	stage.LayoutEntity = function(self, e)
@@ -415,7 +437,7 @@ local function LookStage(parent, f, it, look)
 		DrawNameplate(look, w, S(44))
 		if it and (it.cat == "tag" or it.cat == "color") then
 			draw.RoundedBox(6, S(8), h - S(66), w - S(16), S(32), Color(0, 0, 0, 110))
-			DrawChatLine(S(16), h - S(50), look.tag, look.color)
+			DrawChatLine(S(16), h - S(50), look.tag, look.color, w - S(16))
 		end
 		draw.SimpleText("Drag to turn, scroll to zoom", "SurfUI_Tiny", w / 2, h - S(14), MUTED, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
 	end

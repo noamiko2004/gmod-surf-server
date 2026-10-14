@@ -263,6 +263,28 @@ check(abs(G2.zoom - 0.25) < 1e-9, "scrolling on the preview zooms")
 check(G2.sentEquip and G2.sentDouble, "the preview button and double-clicking a tile send equip messages")
 check(not G2.same4 and G2.look4.model == G2.skinSel.model and G2.look4.hat.id == "cone",
       "a skin is previewed on the model with your hat on")
+# A VIP item still equipped after VIP ran out is a try-on, not "your look";
+# the preview body is the model the server says you will spawn as
+L.execute(r"""
+SURF.Menus.shop({ coins = 0, owned = {}, equipped = { hat = "halo" }, vip = false, tab = "hat", url = "",
+	model = "models/player/group01/female_02.mdl" })
+expiredSel, expiredLook = f.sel, f.stage.look
+-- a long name is cut to fit the nameplate and chat line (no paint errors)
+me.Nick = function() return "A Very Long Steam Name That Goes On And On" end
+fitted = nil
+local simple = draw.SimpleText
+draw.SimpleText = function(t, ...) if tostring(t):find("%.%.%.$") then fitted = t end end
+data.tab = "tag"
+SURF.Menus.shop(data)
+paintAll()
+draw.SimpleText = simple
+me.Nick = function() return "Tester" end
+""")
+check(G.expiredSel == "hat:halo" and G.expiredLook.trying and G.expiredLook.hat.id == "halo"
+      and G.expiredLook.model == "models/player/group01/female_02.mdl",
+      "an expired VIP hat shows as a try-on, on the model you will spawn as")
+check(G.fitted is not None and len(G.fitted) < 30, f"long names are cut with ... ({G.fitted})")
+
 # The replay bot wears the film camera head (and no shop hat), with the REC light
 L.execute(r"""
 drawn, sprites = {}, 0

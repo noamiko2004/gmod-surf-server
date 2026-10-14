@@ -408,7 +408,7 @@ function S.MenuData(ply, tab, refresh)
 	return {
 		coins = S.Balance(ply:SteamID64()), owned = owned, equipped = S.Equipped(ply), vip = SURF.IsVIP(ply),
 		tab = tab or "trail", refresh = refresh or nil, url = SURF.Config.StoreURL, rates = SURF.Config.Coins,
-		expires = ply.SurfVIPExpires, vipPackages = SURF.Config.VIPPackages,
+		expires = ply.SurfVIPExpires, vipPackages = SURF.Config.VIPPackages, model = S.ModelFor(ply),
 	}
 end
 
