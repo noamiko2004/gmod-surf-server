@@ -22,6 +22,7 @@ vmt.__index = vmt
 vmt.__add = function(a, b) return Vector(a.x + b.x, a.y + b.y, a.z + b.z) end
 vmt.__mul = function(a, b) if type(a) == "number" then a, b = b, a end return Vector(a.x * b, a.y * b, a.z * b) end
 vmt.__sub = function(a, b) return Vector(a.x - b.x, a.y - b.y, a.z - b.z) end
+function vmt:Rotate() end
 function Vector(x, y, z) return setmetatable({ x = x or 0, y = y or 0, z = z or 0 }, vmt) end
 local amt = {}
 amt.__index = amt
@@ -79,7 +80,13 @@ ent = { LookupSequence = function() return 3 end, ResetSequence = noop, SetAngle
 	GetAttachment = function() return { Pos = Vector(0, 0, 64), Ang = Angle() } end,
 	GetPos = function() return Vector() end, GetForward = function() return Vector(1, 0, 0) end,
 	GetRight = function() return Vector(0, 1, 0) end }
-function ClientsideModel() return setmetatable({}, { __index = function() return noop end }) end
+drawn = {}
+function ClientsideModel(mdl)
+	local e = { mdl = mdl }
+	function e:GetModelBounds() return Vector(-6, -3, -4), Vector(6, 3, 5) end
+	function e:DrawModel() drawn[#drawn + 1] = self.mdl end
+	return setmetatable(e, { __index = function(_, k) if k:sub(1, 1):match("%u") then return noop end end })
+end
 me = { nw = { surf_title = 1 } }
 function me:Nick() return "Tester" end
 function me:GetModel() return "models/player/group01/male_02.mdl" end
@@ -256,6 +263,25 @@ check(abs(G2.zoom - 0.25) < 1e-9, "scrolling on the preview zooms")
 check(G2.sentEquip and G2.sentDouble, "the preview button and double-clicking a tile send equip messages")
 check(not G2.same4 and G2.look4.model == G2.skinSel.model and G2.look4.hat.id == "cone",
       "a skin is previewed on the model with your hat on")
+# The replay bot wears the film camera head (and no shop hat), with the REC light
+L.execute(r"""
+drawn, sprites = {}, 0
+render.DrawSprite = function() sprites = sprites + 1 end
+bot = { nw = { surf_replay = true, surf_hat = "cone" } }
+function bot:Alive() return true end
+function bot:GetNW2Bool(k, d) local v = self.nw[k] if v == nil then return d end return v end
+function bot:GetNW2String(k, d) return self.nw[k] or d end
+function bot:EyeAngles() return Angle(80, 90, 0) end
+function bot:LookupBone() return 6 end
+function bot:GetBoneMatrix() return { GetTranslation = function() return Vector(0, 0, 60) end } end
+function bot:EyePos() return Vector(0, 0, 64) end
+local ok, err = pcall(hooks.PostPlayerDraw, bot)
+botErr = not ok and tostring(err) or nil
+botDrawn = table.concat(drawn, ",")
+botSprites = sprites
+""")
+check(G.botErr is None and G.botDrawn == "models/dav0r/camera.mdl" and G.botSprites > 0,
+      f"the replay bot gets the film camera head and REC light, not a shop hat ({G.botErr} {G.botDrawn} {G.botSprites})")
 errs = list(G.errors.values())
 check(not errs, f"every panel paints and every button clicks without errors ({errs[:5]})")
 check(G.painted > 200, f"enough panels were painted ({G.painted})")

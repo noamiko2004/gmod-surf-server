@@ -72,8 +72,59 @@ function SURF.DrawHat(ent, it)
 	hat:SetRenderAngles()
 end
 
+-- The record replay bot's own head, which nobody else can get: an old film
+-- camera (the Sandbox camera prop) that looks where the record holder looked,
+-- with a blinking red REC light. The server hides the bot's real head.
+local CAMERA_HEAD = "models/dav0r/camera.mdl"
+local CAMERA_SIZE = 15 -- longest side in units, a bit bigger than a head
+local recGlow = Material("sprites/light_glow02_add")
+
+local function HeadCenter(ent)
+	local b = ent:LookupBone("ValveBiped.Bip01_Head1")
+	local m = b and ent:GetBoneMatrix(b)
+	if m then return m:GetTranslation() + Vector(0, 0, 4) end
+	return ent:EyePos()
+end
+
+function SURF.DrawCameraHead(ent, ang)
+	local cam = HatEnt(CAMERA_HEAD)
+	if not cam then return end
+	local mins, maxs = cam:GetModelBounds()
+	if not mins then return end
+	local size = math.max(maxs.x - mins.x, maxs.y - mins.y, maxs.z - mins.z)
+	local scale = size > 0 and CAMERA_SIZE / size or 1
+	-- put the middle of the model (not its origin) on the middle of the head
+	local mid = (mins + maxs) * 0.5
+	local function World(lx, ly, lz)
+		local v = Vector(lx, ly, lz) * scale
+		v:Rotate(ang)
+		return v
+	end
+	local origin = HeadCenter(ent) - World(mid.x, mid.y, mid.z)
+	local m = Matrix()
+	m:Scale(Vector(1, 1, 1) * scale)
+	cam:EnableMatrix("RenderMultiply", m)
+	cam:SetRenderOrigin(origin)
+	cam:SetRenderAngles(ang)
+	cam:SetupBones()
+	cam:DrawModel()
+	cam:SetRenderOrigin()
+	cam:SetRenderAngles()
+	if RealTime() % 1.2 < 0.7 then
+		render.SetMaterial(recGlow)
+		local light = origin + World(mid.x + (maxs.x - mid.x) * 0.6, mid.y, maxs.z + 0.5)
+		render.DrawSprite(light, 5, 5, Color(255, 30, 30))
+		render.DrawSprite(light, 2, 2, Color(255, 200, 200))
+	end
+end
+
 hook.Add("PostPlayerDraw", "surf_hats", function(ply)
 	if not ply:Alive() then return end
+	if ply:GetNW2Bool("surf_replay", false) then
+		local a = ply:EyeAngles()
+		SURF.DrawCameraHead(ply, Angle(math.Clamp(a.p, -30, 30), a.y, 0))
+		return
+	end
 	local id = ply:GetNW2String("surf_hat", "")
 	if id == "" then return end
 	if ply == LocalPlayer() and not ply:ShouldDrawLocalPlayer() then return end
