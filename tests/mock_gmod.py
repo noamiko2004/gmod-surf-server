@@ -148,6 +148,7 @@ TEAM_SPECTATOR = 1002
 MOVETYPE_WALK, MOVETYPE_NOCLIP, MOVETYPE_NONE = 2, 8, 0
 IN_JUMP, IN_DUCK, IN_FORWARD, IN_BACK, IN_MOVELEFT, IN_MOVERIGHT, IN_ATTACK, IN_ATTACK2 = 2, 4, 8, 16, 512, 1024, 1, 2048
 OBS_MODE_IN_EYE, OBS_MODE_CHASE, OBS_MODE_ROAMING = 4, 5, 6
+OBS_MODE_NONE, IN_SCORE = 0, 65536
 COLLISION_GROUP_IN_VEHICLE = 10
 bit = require("bit")
 unpack = unpack or table.unpack
@@ -304,6 +305,7 @@ function MakePlayer(name, sid)
 	function p:EyeAngles() return self.eye or Angle(0, 0, 0) end
 	function p:SendLua() end
 	function p:GetObserverTarget() return nil end
+	function p:GetObserverMode() return self.obs or OBS_MODE_NONE end
 	function p:IsAdmin() return false end
 	function p:IsSuperAdmin() return false end
 	function p:IsUserGroup() return false end
@@ -568,6 +570,42 @@ SURF.AFK.Check()
 """)
 check(len(G.active) == 1 and G.active[1].name == "Bob", "Alice is AFK after 5 minutes, Bob moved")
 check(list(G.specToggles.values()) == ["Alice"] and any("[AFK]" in c for c in G.chats.values()), "AFK player moved to spectators")
+
+# Away players: any key brings them back; menus, chat and loading count as being here
+L.execute(r"""
+movedFlag, movedNW = a.SurfAFKMoved == true, a:GetNW2Bool("surf_afk", false)
+specToggles = {}
+hooks.KeyPress.surf_afk_back(a, IN_SCORE)
+afterScore = #specToggles
+a.team = TEAM_SPECTATOR
+hooks.KeyPress.surf_afk_back(a, IN_JUMP)
+backToggles, backFlag, backNW = #specToggles, a.SurfAFKMoved, a:GetNW2Bool("surf_afk", false)
+a.team = 1
+-- Watching someone in first person turns your view with theirs: only keys count
+SetCurTime(6000)
+hooks.SetupMove.surf_afk(b, MakeMove({ buttons = IN_FORWARD + IN_JUMP, yaw = 90 }))
+b.obs = OBS_MODE_IN_EYE
+SetCurTime(6100)
+hooks.SetupMove.surf_afk(b, MakeMove({ buttons = IN_FORWARD + IN_JUMP, yaw = 0 }))
+turnedWhileWatching = b.SurfActiveAt
+b.obs = nil
+hooks.SetupMove.surf_afk(b, MakeMove({ buttons = IN_FORWARD + IN_JUMP, yaw = 45 }))
+turnedSurfing = b.SurfActiveAt
+-- A menu open: the client's ping counts, at most every 10 s
+SetCurTime(7000)
+netHandlers["surf.Active"](0, a)
+ping1 = a.SurfActiveAt
+SetCurTime(7005)
+netHandlers["surf.Active"](0, a)
+ping2 = a.SurfActiveAt
+SetCurTime(7300)
+hook.Run("SurfPlayerReady", a)
+readyTouch = a.SurfActiveAt
+""")
+check(G.movedFlag and G.movedNW and any("Press any key to surf again" in c for c in G.chats.values()), "the AFK move tells the player how to come back")
+check(G.afterScore == 0 and G.backToggles == 1 and G.backFlag is None and not G.backNW, "any key but the scoreboard brings an away player back to surfing")
+check(G.turnedWhileWatching == 6000 and G.turnedSurfing == 6100, "turning with the player you watch isn't activity, turning yourself is")
+check(G.ping1 == 7000 and G.ping2 == 7000 and G.readyTouch == 7300, "menus (the client's ping) and finishing loading count as being here")
 
 # The HUD's spectator list: the names of who watches each player (the rest of
 # the tests keep the stubbed SURF.Spec)

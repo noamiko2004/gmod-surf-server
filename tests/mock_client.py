@@ -1208,5 +1208,44 @@ if ok:
     check(len(vivid) == 2 and near(vivid[0], 1.05) and near(vivid[1], 3), f"the map light brightens after the Vivid preset ({vivid})")
     check(G.offAgain and "off" in str(list(G.lastChat.values())[-1]), "!light again turns the map light off")
 
+# Away from keys: the HUD says how to come back, and menus count as being here (cl_init.lua)
+L.execute(init[init.index("-- Using a menu or typing in chat"):init.index('hook.Add("ChatTextChanged", "surf_active"')])
+ok = run(r"""
+drawnTexts = {}
+local oldText = draw.SimpleText
+draw.SimpleText = function(t, ...) drawnTexts[#drawnTexts + 1] = t return oldText(t, ...) end
+me.team, me.nw.surf_afk = TEAM_SPECTATOR, true
+GM:HUDPaint()
+awayShown = false
+for _, t in ipairs(drawnTexts) do if t == "You were away. Press any key to surf again" then awayShown = true end end
+me.team, me.nw.surf_afk = nil, nil
+draw.SimpleText = oldText
+
+local function Pings() local n = 0 for _, m in ipairs(sentNet) do if m.name == "surf.Active" then n = n + 1 end end return n end
+cursor, gameUI = false, false
+vgui.CursorVisible = function() return cursor end
+gui.IsGameUIVisible = function() return gameUI end
+sentNet = {}
+SetTime(2000)
+mouseX = 300 timers.surf_active()
+noCursor = Pings()
+cursor = true
+mouseX = 310 timers.surf_active()
+firstPing = Pings()
+mouseX = 320 SetTime(2005) timers.surf_active()
+throttled = Pings()
+SetTime(2030) timers.surf_active()
+laterPing = Pings() -- the move at 2005 is reported once 20 s have passed
+SetTime(2060) timers.surf_active()
+stillMouse = Pings()
+mouseX = 330 timers.surf_active()
+thirdPing = Pings()
+cursor = false
+""", "the away message and the menu activity ping work")
+if ok:
+    check(G.awayShown, "a player moved for being away sees how to come back")
+    got = (G.noCursor, G.firstPing, G.throttled, G.laterPing, G.stillMouse, G.thirdPing)
+    check(got == (0, 1, 1, 2, 2, 3), f"moving the mouse in a menu tells the server you're here, at most every 20 s ({got})")
+
 print("\n%d failure(s)" % len(failures))
 sys.exit(1 if failures else 0)

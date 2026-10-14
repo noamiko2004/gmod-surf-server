@@ -456,6 +456,7 @@ HUD.Add("info", {
 -- Spectating ------------------------------------------------------------------------
 
 local function SpecText(c)
+	if c.me:GetNW2Bool("surf_afk", false) and c.me:Team() == TEAM_SPECTATOR then return "You were away. Press any key to surf again" end
 	if c.target ~= c.me then
 		return c.replay and "Watching the server record replay" or ("Spectating " .. c.target:Nick())
 	end

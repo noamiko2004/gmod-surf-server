@@ -178,6 +178,7 @@ function R.Spectate(ply)
 		return
 	end
 	if ply:Team() ~= TEAM_SPECTATOR then SURF.Spec.Toggle(ply) end
+	SURF.AFK.Clear(ply) -- chose to watch, so keys don't send them back
 	ply:Spectate(OBS_MODE_IN_EYE)
 	ply:SpectateEntity(R.bot)
 end

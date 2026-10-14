@@ -131,3 +131,22 @@ hook.Add("InitPostEntity", "surf_ready", function()
 	net.Start("surf.Ready")
 	net.SendToServer()
 end)
+
+-- Using a menu or typing in chat counts as being here. The server's AFK check
+-- only sees keys and turning in the game, so it would move someone reading
+-- the shop to the spectators; this tells it they're around.
+local busy, lastPing, lastX, lastY = false, -60, 0, 0
+timer.Create("surf_active", 1, 0, function()
+	if vgui.CursorVisible() or gui.IsGameUIVisible() then
+		local x, y = gui.MouseX(), gui.MouseY()
+		if x ~= lastX or y ~= lastY then busy = true end
+		lastX, lastY = x, y
+	end
+	if busy and RealTime() - lastPing >= 20 then
+		busy, lastPing = false, RealTime()
+		net.Start("surf.Active")
+		net.SendToServer()
+	end
+end)
+hook.Add("VGUIMousePressed", "surf_active", function() busy = true end)
+hook.Add("ChatTextChanged", "surf_active", function() busy = true end)
