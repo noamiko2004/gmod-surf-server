@@ -1,4 +1,14 @@
 # Changelog
+## 2026-10-14: shop keeps its place, and shows your whole look
+- Clicking an item in the shop no longer jumps the list back to the top.
+  Picking, buying and equipping only redraw the preview, and double-clicking
+  an item you have puts it on or takes it off.
+- The preview is now you in 3D with everything you have on: your skin, hat,
+  trail behind your feet, and your chat tag and name color over your head.
+  The item you pick is tried on in its slot ("Trying on ..."), so you see it
+  with the rest of your look before buying. Drag to turn, scroll to zoom
+  between your whole body and your head.
+
 ## 2026-10-08: F brightens dark spots instead of flattening the map
 - F (or `!light`) used to switch the map to fullbright for you. That throws
   away the map's own lighting, so most maps looked flat and darker. Now it
