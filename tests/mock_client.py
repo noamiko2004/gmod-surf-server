@@ -126,6 +126,7 @@ convars = { surf_hideplayers = false, surf_showkeys = true }
 function GetConVar(n) if convars[n] == nil then return nil end return { GetBool = function() return convars[n] end } end
 SURF = SURF or {}
 function GetGlobal2Int(k, d) return d or 0 end
+function GetGlobal2Float(k, d) return d or 0 end
 game = { GetMap = function() return "surf_kitsune" end, MaxPlayers = function() return 24 end }
 
 -- net: messages the client sends, and receivers the tests call
@@ -1246,6 +1247,29 @@ if ok:
     check(G.awayShown, "a player moved for being away sees how to come back")
     got = (G.noCursor, G.firstPing, G.throttled, G.laterPing, G.stillMouse, G.thirdPing)
     check(got == (0, 1, 1, 2, 2, 3), f"moving the mouse in a menu tells the server you're here, at most every 20 s ({got})")
+
+# Server update countdown banner (cl_hud.lua, set by the game's update command)
+ok = run(r"""
+GetGlobal2Float = function(k, d) if k == "surf_update_at" then return updateAt or d end return d end
+drawnTexts = {}
+local oldText = draw.SimpleText
+draw.SimpleText = function(t, ...) drawnTexts[#drawnTexts + 1] = t return oldText(t, ...) end
+updateAt = nil
+GM:HUDPaint()
+bannerOff = SURF.HUD.byId.update.rect == nil
+updateAt = CurTime() + 12.3
+GM:HUDPaint()
+bannerOn = SURF.HUD.byId.update.rect ~= nil
+bannerText = false
+for _, t in ipairs(drawnTexts) do if t == "Server update in 13 s" then bannerText = true end end
+updateAt = CurTime() - 1
+GM:HUDPaint()
+bannerGone = SURF.HUD.byId.update.rect == nil
+updateAt = nil
+draw.SimpleText = oldText
+""", "the update countdown banner draws")
+if ok:
+    check(G.bannerOff and G.bannerOn and G.bannerText and G.bannerGone, "the update countdown shows only while it runs, with the seconds left")
 
 print("\n%d failure(s)" % len(failures))
 sys.exit(1 if failures else 0)

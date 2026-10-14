@@ -478,6 +478,28 @@ HUD.Add("spec", {
 	end,
 })
 
+-- Server update countdown (the update command in sv_portal.lua) ---------------------
+
+local function UpdateLeft(c)
+	local at = GetGlobal2Float("surf_update_at", 0)
+	if at > CurTime() then return math.ceil(at - CurTime()) end
+	if c.preview then return 30 end
+end
+
+HUD.Add("update", {
+	name = "Update countdown",
+	w = 460, h = 58,
+	pos = { 0.5, 0, 0, 92 },
+	show = function(c) return UpdateLeft(c) ~= nil end,
+	draw = function(w, h, c)
+		HUD.Box(w, h)
+		surface.SetDrawColor(GOLD)
+		surface.DrawOutlinedRect(0, 0, w, h, 2)
+		draw.SimpleText("Server update in " .. (UpdateLeft(c) or 0) .. " s", "SurfLarge", w / 2, 20, GOLD, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+		draw.SimpleText("You will be disconnected. Rejoin in a few minutes!", "SurfSmall", w / 2, 42, color_white, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+	end,
+})
+
 -- Who is watching (sv_spectate.lua keeps the count and up to 8 names on the
 -- watched player) ---------------------------------------------------------------
 

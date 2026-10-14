@@ -45,6 +45,12 @@ as_gmod() {
   if [[ "$(id -un)" == "$GMOD_USER" ]]; then "$@"; else sudo -u "$GMOD_USER" -H "$@"; fi
 }
 
+# scripts/updater.py with this server's paths (players online, update timing)
+updater() {
+  REPO_DIR="$REPO_DIR" GMOD_HOME="$GMOD_HOME" GMOD_USER="$GMOD_USER" SERVER_DIR="$SERVER_DIR" \
+    CSS_DIR="$CSS_DIR" STEAMCMD_DIR="$STEAMCMD_DIR" python3 "$REPO_DIR/scripts/updater.py" "$@"
+}
+
 steamcmd_update() {
   log "Updating Garry's Mod dedicated server (app 4020)"
   as_gmod "$STEAMCMD_DIR/steamcmd.sh" +force_install_dir "$SERVER_DIR" +login anonymous +app_update 4020 validate +quit

@@ -123,7 +123,7 @@ case "\${1:-}" in
   update)
     if systemctl is-active --quiet surfline-update; then echo "An update is already running"; exit 0; fi
     systemctl reset-failed surfline-update 2>/dev/null || true
-    systemd-run --unit=surfline-update --collect /bin/bash -c 'bash $REPO_DIR/scripts/update.sh >> $GMOD_HOME/update.log 2>&1'
+    systemd-run --unit=surfline-update --collect --setenv=UPDATE_WHY="started on the website" /bin/bash -c 'bash $REPO_DIR/scripts/update.sh --yes >> $GMOD_HOME/update.log 2>&1'
     echo "Update started"
     ;;
   logs) journalctl -u $SERVICE_NAME -n 300 --no-pager ;;

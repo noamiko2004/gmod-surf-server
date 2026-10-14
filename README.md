@@ -167,6 +167,26 @@ can also join with `connect surf.example.com`. `set-domain.sh off` goes back
 to the IP. A name that doesn't point at the server is never used, so a typo
 can't take the site down.
 
+## Updates
+
+New versions install by themselves. Every 15 minutes `scripts/autoupdate.sh`
+looks for new changes on GitHub and (once an hour) new Garry's Mod or CS:S
+builds on Steam. When there is something new it waits for an empty server.
+After 2 days of waiting it also goes ahead with 3 or fewer players on, and
+after 4 days no matter what. The admin page on the website shows what is
+waiting, and `update.log` has a line when it starts waiting.
+
+Every update, automatic or not, gives the players on a 30-second countdown in
+game and then disconnects them with a message that the server is updating (so
+nobody just loses connection), stops joins in the last seconds, and restarts
+the game and the website on the new code. It then checks that the website's
+footer shows the new version. The Discord bot restarts by itself when its
+files change.
+
+To update right away, press Update on the website's admin page, or run
+`sudo bash /home/gmod/surfline/scripts/update.sh` in the console. Both ask
+first when players are on and say how many. `update.sh --yes` doesn't ask.
+
 ## Tests
 
 `python3 tests/mock_gmod.py` (needs `pip install lupa`) runs the server-side
@@ -177,6 +197,8 @@ splits, records, bonuses, ranks, the map vote lists and the portal bridge.
 `python3 tests/test_portal.py` runs the web portal against fake game data, a
 fake Steam login and a fake control helper.
 `python3 tests/test_tebex.py` runs the Tebex poller against a fake Tebex API.
+`python3 tests/test_updater.py` runs the update rules, the in-game warning and
+`update.sh` end to end in a sandbox (fake game, systemctl and SteamCMD, a real git remote).
 `python3 tests/test_challenges.py` runs the challenges, map of the day,
 streaks, achievements and races on the same mock.
 `python3 tests/mock_client.py` builds and paints every client menu against
@@ -189,7 +211,9 @@ stubbed Derma to catch client Lua errors.
 ```
 config.env.example      settings + secrets template (copy to config.env)
 scripts/install.sh      one-time VPS setup (SteamCMD, GMOD, CS:S, systemd, cron, firewall)
-scripts/update.sh       git pull + SteamCMD update + deploy + restart (nightly at 05:00)
+scripts/update.sh       git pull + SteamCMD update + deploy + restart of the game and website
+scripts/autoupdate.sh   every 15 minutes: runs update.sh once something new is out and the
+                        server is empty enough (rules in scripts/updater.py)
 scripts/deploy.sh       copy gamemode/configs into the server
 scripts/backup.sh       sv.db + data backups (nightly at 04:30, keeps 14)
 scripts/maps.py         installs surf maps from the Workshop (maps/sources.txt)

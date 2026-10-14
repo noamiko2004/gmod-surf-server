@@ -47,6 +47,12 @@ if [[ $EUID -eq 0 ]]; then
   printf '#!/bin/sh\nexec python3 %s/scripts/health.py "$@"\n' "$REPO_DIR" > /usr/local/bin/surfcheck
   chmod 755 /usr/local/bin/surfcheck
   printf '*/10 * * * * root python3 %s/scripts/health.py --quiet >/dev/null 2>&1\n' "$REPO_DIR" > /etc/cron.d/surf-health
+  # Backups at 04:30. Updates: every 15 minutes autoupdate.sh looks for one and
+  # installs it when the server is empty enough (it used to be 05:00 every night)
+  cat > /etc/cron.d/gmod-surf <<CRON
+30 4 * * * $GMOD_USER bash $REPO_DIR/scripts/backup.sh >> $GMOD_HOME/backup.log 2>&1
+*/15 * * * * root bash $REPO_DIR/scripts/autoupdate.sh >> $GMOD_HOME/update.log 2>&1
+CRON
 fi
 
 log "Deploying gamemode"

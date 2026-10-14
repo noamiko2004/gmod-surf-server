@@ -211,6 +211,35 @@ ACTIONS.vipprice = function(c)
 	return true, price == 0 and ("removed the " .. days .. " day VIP package") or string.format("%d days of VIP cost %d coins", days, price)
 end
 
+-- Server update (scripts/updater.py): a countdown on everyone's screen, then
+-- each player is disconnected with a message saying why instead of just losing
+-- the connection. Nobody can join in the last seconds.
+local updateMsg = "The server is updating to a new version. It is back in a few minutes, just rejoin!"
+ACTIONS.update = function(c)
+	local secs = math.Clamp(math.floor(tonumber(c.seconds) or 30), 5, 300)
+	local reason = Clean(c.reason)
+	if reason ~= "" then updateMsg = reason end
+	SetGlobal2Float("surf_update_at", CurTime() + secs)
+	local gold = Color(255, 200, 40)
+	SURF.Chat(nil, gold, "[Update] ", color_white, string.format("The server restarts for an update in %d seconds. Your times and coins are saved.", secs))
+	if secs > 10 then
+		timer.Create("surf_update_10", secs - 10, 1, function()
+			SURF.Chat(nil, gold, "[Update] ", color_white, "Restarting in 10 seconds. Rejoin in a few minutes!")
+		end)
+	end
+	timer.Create("surf_update_kick", secs, 1, function()
+		for _, p in ipairs(player.GetHumans()) do p:Kick(updateMsg) end
+	end)
+	-- In case the update never stops the server, joining works again later
+	timer.Create("surf_update_clear", secs + 300, 1, function() SetGlobal2Float("surf_update_at", 0) end)
+	return true, string.format("update countdown of %d s for %d players", secs, #player.GetHumans())
+end
+
+hook.Add("CheckPassword", "surf_update", function()
+	local at = GetGlobal2Float("surf_update_at", 0)
+	if at > 0 and CurTime() > at - 10 then return false, updateMsg end
+end)
+
 -- Record keys: surf_x, surf_x#b2, surf_x@sw, surf_x#b2@sw
 local function ValidKey(key)
 	local base, style = string.match(key, "^(.-)@(%w+)$")

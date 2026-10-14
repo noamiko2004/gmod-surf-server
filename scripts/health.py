@@ -357,7 +357,7 @@ def check_updates(r, home, now):
         with open(path, encoding="utf-8", errors="replace") as f:
             lines = f.readlines()[-3000:]
     except OSError:
-        r.add(WARN, "Updates", "No update.log yet (the nightly update never ran)")
+        r.add(WARN, "Updates", "No update.log yet (no update ran yet)")
         return
     last_i, last_t = None, None
     for i, line in enumerate(lines):
@@ -373,15 +373,34 @@ def check_updates(r, home, now):
         if "Pulling latest server files" in lines[i] or "Backing up before update" in lines[i]:
             start = i
             break
-    probs = [l.strip() for l in lines[start:last_i] if PROBLEM.search(l)]
+    # (indented lines are the list of installed changes, whatever their titles say)
+    probs = [l.strip() for l in lines[start:last_i] if PROBLEM.search(l) and not l.startswith("  ")]
     age = now - last_t
-    lvl = WARN if age > 1.5 * DAY or probs else OK
     msg = f"Last update finished {ago(age)}"
     if probs:
         msg += f" with {len(probs)} problem lines: {probs[0][:100]}"
+    # Updates run when something new is out and the server is empty enough
+    # (scripts/updater.py checks every 15 minutes), so an old last update is fine
+    # while that check runs
+    try:
+        with open(os.path.join(home, "update_state.json"), encoding="utf-8") as f:
+            st = json.load(f)
+    except (OSError, ValueError):
+        st = {}
+    st = st if isinstance(st, dict) else {}
+    checked, due = st.get("checked") or 0, st.get("due_since")
+    lvl = WARN if probs else OK
+    if not checked:
+        lvl = WARN if age > 1.5 * DAY else lvl
+    elif now - checked > 3600:
+        lvl = WARN
+        msg += f"; the automatic update check last ran {ago(now - checked)}"
+    elif due:
+        msg += f"; an update is waiting for fewer players since {ago(now - due)}"
+        lvl = WARN if now - due > 4.5 * DAY else lvl
     r.add(lvl, "Updates", msg, probs[:10])
     if not os.path.isfile("/etc/cron.d/gmod-surf"):
-        r.add(WARN, "Updates", "Nightly update and backup are not scheduled (/etc/cron.d/gmod-surf missing)")
+        r.add(WARN, "Updates", "Automatic updates and backups are not scheduled (/etc/cron.d/gmod-surf missing)")
 
 
 def check_backups(r, home, now):
@@ -457,7 +476,7 @@ def check_version(r, repo):
     code, out = run(["git", "-C", repo, "ls-remote", "origin", "refs/heads/main"], timeout=15)
     remote = out.split()[0][:len(head)] if code == 0 and out.strip() else ""
     if remote and remote != head:
-        r.add(WARN, "Version", f"Running {head}; GitHub has {remote} (run update.sh, or wait for the 05:00 update)")
+        r.add(WARN, "Version", f"Running {head}; GitHub has {remote} (it installs by itself once the server is empty, or run update.sh)")
     else:
         r.add(OK, "Version", f"Running {head}" + (", same as GitHub" if remote else ""))
     return head

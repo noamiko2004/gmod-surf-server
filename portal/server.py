@@ -507,7 +507,8 @@ def p_admin_ctl(ctx, form):
         return ctx.flash_redirect("/admin", "err", f"{op.capitalize()} failed: {out.strip()[-300:]}")
     if op == "restart":
         return ctx.flash_redirect("/admin", "ok", "Restarting the game server. It is back in about a minute.")
-    return ctx.flash_redirect("/admin", "ok", "Update started in the background. Follow it under Logs > update.log.")
+    return ctx.flash_redirect("/admin", "ok", "Update started. Anyone on gets a 30-second countdown first. The website restarts too, "
+                              "so this page may not load for a moment. Follow it under Logs > update.log.")
 
 
 GET_ROUTES = [

@@ -46,12 +46,6 @@ sed -e "s|@GMOD_USER@|$GMOD_USER|g" -e "s|@REPO_DIR@|$REPO_DIR|g" -e "s|@SERVER_
 systemctl daemon-reload
 systemctl enable "$SERVICE_NAME"
 
-log "Installing cron jobs (nightly update+restart at 05:00, backups at 04:30)"
-cat > /etc/cron.d/gmod-surf <<EOF
-30 4 * * * $GMOD_USER bash $REPO_DIR/scripts/backup.sh >> $GMOD_HOME/backup.log 2>&1
-0 5 * * * root bash $REPO_DIR/scripts/update.sh >> $GMOD_HOME/update.log 2>&1
-EOF
-
 log "Configuring firewall"
 ufw allow OpenSSH
 ufw allow "$PORT"/udp

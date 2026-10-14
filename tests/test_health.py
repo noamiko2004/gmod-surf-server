@@ -103,11 +103,34 @@ with tempfile.TemporaryDirectory() as home:
     with open(os.path.join(home, "update.log"), "w") as f:
         f.write("[2026-10-05 05:00:01] Pulling latest server files (now at x)\n"
                 "[2026-10-05 05:00:02] WARNING: could not get the new version from GitHub\n"
+                "[2026-10-05 05:08:59] Installed 1 change:\n"
+                "  abc1234 Fix the error when a download failed\n"
                 "[2026-10-05 05:09:00] Update complete. Version x\n")
     now = time.mktime(time.strptime("2026-10-05 12:00:00", "%Y-%m-%d %H:%M:%S"))
     r = H.Report()
     H.check_updates(r, home, now)
     check(r.items[0][0] == H.WARN and "1 problem" in r.items[0][2], "update problems reported")
+
+    # Updates only run when something is new: an old last update is fine while
+    # the 15-minute check runs, not when it stopped or an update waits too long
+    with open(os.path.join(home, "update.log"), "w") as f:
+        f.write("[2026-10-01 05:00:01] Pulling latest server files (now at x)\n"
+                "[2026-10-01 05:09:00] Update complete. Version x\n")
+    def updates_with(state):
+        with open(os.path.join(home, "update_state.json"), "w") as f:
+            json.dump(state, f)
+        r = H.Report()
+        H.check_updates(r, home, now)
+        return r.items[0]
+    r = H.Report()
+    H.check_updates(r, home, now)
+    check(r.items[0][0] == H.WARN, "an old update without the automatic check is a warning")
+    check(updates_with({"checked": now - 300})[0] == H.OK, "an old update is fine while the automatic check runs")
+    item = updates_with({"checked": now - 7200})
+    check(item[0] == H.WARN and "check last ran" in item[2], "a stopped automatic check is a warning")
+    item = updates_with({"checked": now - 300, "due_since": now - 86400})
+    check(item[0] == H.OK and "waiting" in item[2], "a waiting update is shown")
+    check(updates_with({"checked": now - 300, "due_since": now - 5 * 86400})[0] == H.WARN, "an update waiting too long is a warning")
 
     # bridge: old files waiting are a stuck reader
     data = os.path.join(home, "data")

@@ -898,6 +898,31 @@ check("SURF health check line" in lg.body and not no_raw(lg.body) and lg.body.fi
 check(any(a.get("kind") == "ctl" and a.get("op") == "restart" for a in map(json.loads, open(os.path.join(data, "portal", "audit.log")))),
       "ctl actions are audited")
 
+# The Update button says who is on first; the card shows what the automatic update waits for
+write_status(status())
+dash = get("/admin", cookies=OWN)
+m = re.search(r'data-confirm="([^"]*)"><input type="hidden" name="csrf"[^>]*><input type="hidden" name="op" value="update"', dash.body)
+check(dash.status == 200 and m and "3 players are on the server now (Alice" in m.group(1) and "30-second" in m.group(1) and not no_raw(dash.body),
+      f"the Update confirm names the players on, escaped ({m and m.group(1)[:200]})")
+write_status(status(players=[]))
+dash = get("/admin", cookies=OWN)
+check("Nobody is on the server. Update now?" in dash.body, "with nobody on, the confirm says so")
+STATE = os.path.join(logs, "update_state.json")
+json.dump({"due": ["2 new changes from GitHub", "<b>x</b>"], "due_since": int(time.time()) - 3600, "players": 4, "checked": int(time.time())}, open(STATE, "w"))
+dash = get("/admin", cookies=OWN)
+check("Update ready: 2 new changes from GitHub" in dash.body and "waits for an empty server (4 on" in dash.body and "3 or fewer" in dash.body
+      and "<b>x</b>" not in dash.body, "the card shows the waiting update and when it goes ahead anyway")
+json.dump({"due": ["Garry&#x27;s Mod update"], "due_since": int(time.time()) - 60, "players": 0}, open(STATE, "w"))
+check("installs by itself within 15 minutes" in get("/admin", cookies=OWN).body, "with nobody on, it says the update comes within 15 minutes")
+json.dump({"last_update": int(time.time()) - 600, "checked": int(time.time())}, open(STATE, "w"))
+check("Up to date. The last update finished" in get("/admin", cookies=OWN).body, "an up-to-date server says so")
+open(STATE, "w").write("not json")
+check(get("/admin", cookies=OWN).status == 200, "a broken state file doesn't break the admin page")
+os.remove(STATE)
+r = req("POST", "/admin/ctl", cookies=OWN, form={"op": "update", "csrf": CSRF}, ip="10.0.5.1")
+check(r.status == 303, "update still runs the ctl")
+write_status(status())
+
 # ------------------------------------------------------------------ other admin pages
 for path in ["/admin/players", "/admin/players?q=Ali", "/admin/players?q=%25_", f"/admin/players?sid={A}", "/admin/players?sid=bad",
              "/admin/bans", "/admin/vip", "/admin/maps", "/admin/logs"]:

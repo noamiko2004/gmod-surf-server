@@ -900,6 +900,26 @@ cmd("9_unban", {"action": "unban", "steamid": "76561190000000002"})
 L.execute('SURF.Portal.RunCommands()')
 check(L.eval('hooks.CheckPassword.surf_bans("76561190000000002")') is None, "unban lets the player back in")
 
+# Server update (scripts/updater.py): a countdown, then everyone is disconnected
+# with a message, and nobody can join in the last seconds
+L.execute('for _, p in ipairs(humans) do p.kicked = nil end')
+cmd("9_update", {"action": "update", "seconds": 30, "reason": "The server is updating. Back soon!", "by": "update"})
+L.execute('chats = {} SetCurTime(9000) SURF.Portal.RunCommands()')
+res = {r["id"]: r for r in map(json.loads, vfs["surfline/portal/results.txt"].strip().split("\n"))}
+check(res["9_update"]["ok"] and G.globals2.surf_update_at == 9030 and any("restarts for an update in 30 seconds" in c for c in G.chats.values()),
+      "the update command starts a 30-second countdown everyone sees")
+check(L.eval('hooks.CheckPassword.surf_update("76561190000000005")') is None, "players can still join early in the countdown")
+L.execute('SetCurTime(9025)')
+refused = L.eval('{ hooks.CheckPassword.surf_update("76561190000000005") }')
+check(refused[1] is False and "updating" in refused[2], "nobody can join in the last seconds")
+L.execute('chats = {} timers.surf_update_10()')
+check(any("10 seconds" in c for c in G.chats.values()), "a second warning 10 seconds before")
+L.execute('timers.surf_update_kick()')
+kicked = [L.eval(f'humans[{i}].kicked') for i in range(1, int(L.eval('#humans')) + 1)]
+check(kicked and all(k == "The server is updating. Back soon!" for k in kicked), f"everyone is disconnected with the message ({kicked})")
+L.execute('timers.surf_update_clear()')
+check(L.eval('hooks.CheckPassword.surf_update("76561190000000005")') is None, "joining works again if the server never went down")
+
 # Discord bridge: files in surfline/discord/ shared with the bot
 OUTBOX, INBOX = "surfline/discord/to_discord/", "surfline/discord/to_game/"
 def bridge_events():

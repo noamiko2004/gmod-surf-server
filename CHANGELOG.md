@@ -1,4 +1,23 @@
 # Changelog
+## 2026-10-14: updates wait for an empty server and warn players first
+- The automatic update no longer restarts the server at 05:00 every night.
+  Every 15 minutes it looks for something new (changes on GitHub, a new
+  Garry's Mod or CS:S build on Steam) and installs it once nobody is on. If
+  players keep it busy, after 2 days it also goes ahead with 3 or fewer on,
+  and after 4 days no matter what. Nothing new means no restart at all.
+- Every update gives the players on a 30-second countdown (on screen and in
+  chat), then disconnects them with "The server is updating to a new version.
+  It is back in a few minutes, just rejoin!" instead of a lost connection.
+  Nobody can join in the last 10 seconds.
+- Updating by hand asks first when players are on and says who: the website's
+  Update button shows them in its confirm box, and `update.sh` in the console
+  asks for a y. The admin page also says what the automatic update is waiting
+  for and when it goes ahead anyway.
+- Every update restarts the website on the new code and checks that its
+  footer shows the new version (update.log says so, or warns).
+- An update that couldn't install something (GitHub or Steam down) waits a
+  day before trying again, so the server is never restarted every 15 minutes.
+
 ## 2026-10-14: no more waking up as a spectator
 - Reading the shop or another menu (or typing in chat) for 5 minutes counted
   as being away, so the AFK check moved you to the spectators, and the first

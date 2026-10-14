@@ -4,8 +4,8 @@ import os
 import time
 
 from .actions import COIN_RATES, describe, parse_ctl_status, run_ctl
-from .fmt import (MAPKEY_RE, e, fmt_clock, fmt_date, fmt_duration, fmt_int, fmt_time, to_int, to_str, track_label,
-                  valid_steamid)
+from .fmt import (MAPKEY_RE, e, fmt_clock, fmt_date, fmt_datetime, fmt_duration, fmt_int, fmt_time, to_int, to_str,
+                  track_label, valid_steamid)
 from .store import tail_lines
 from .views import (avatar, csrf_field, empty, icon, key_label, layout, map_url, player_link, player_url,
                     q, style_tag, tier_badge, title_chip, track_url, when)
@@ -109,6 +109,37 @@ def recent_commands(ctx, limit=15):
     return f'<ul class="cmdlist">{"".join(items)}</ul>'
 
 
+UPDATE_WAIT_FEW, UPDATE_WAIT_ANY = 2 * 86400, 4 * 86400  # scripts/updater.py
+
+
+def update_note(app):
+    """What the automatic update (scripts/updater.py, every 15 minutes) is up to,
+    from its state file, or ''."""
+    try:
+        with open(os.path.join(app.logs_dir, "update_state.json"), encoding="utf-8") as f:
+            st = json.load(f)
+    except (OSError, ValueError):
+        return ""
+    if not isinstance(st, dict):
+        return ""
+    due = [to_str(x, "", 120) for x in (st.get("due") or []) if isinstance(x, str)][:5]
+    since = to_int(st.get("due_since"))
+    if due and since:
+        players = to_int(st.get("players"))
+        what = "Update ready: " + ", ".join(due) + ". "
+        if not players:
+            return what + "It installs by itself within 15 minutes, since nobody is on."
+        few, anyway = since + UPDATE_WAIT_FEW, since + UPDATE_WAIT_ANY
+        if time.time() < few:
+            return (what + f"It waits for an empty server ({players} on at the last check). From {fmt_datetime(few)} "
+                    f"it also installs with 3 or fewer on, and from {fmt_datetime(anyway)} no matter what.")
+        return what + f"It waits for 3 or fewer players ({players} on at the last check), and installs from {fmt_datetime(anyway)} no matter what."
+    last = to_int(st.get("last_update"))
+    if last:
+        return f"Up to date. The last update finished {fmt_datetime(last)}. New versions install by themselves when the server is empty."
+    return ""
+
+
 def ctl_card(ctx):
     ok, out = run_ctl(ctx.app.ctl, "status")
     if not ok:
@@ -121,13 +152,24 @@ def ctl_card(ctx):
     upd = s.get("update_running") == "yes"
     since = f'<p class="muted small">since {e(s.get("since"))}</p>' if s.get("since") else ""
     upd_html = ('<span class="pill pill-busy"><span class="spinner" aria-hidden="true"></span>Update running</span>' if upd else "")
+    # Updating with players on: say who, and that they get a countdown first
+    on = ctx.app.store.status()["players"]
+    if on:
+        names = ", ".join(to_str(p.get("name"), "?", 32) for p in on[:8]) + (" and more" if len(on) > 8 else "")
+        upd_confirm = (f"{len(on)} player{'s are' if len(on) != 1 else ' is'} on the server now ({names}). They get a 30-second "
+                       "countdown in game, then they are disconnected with a message that the server is updating. Update now anyway?")
+    else:
+        upd_confirm = ("Nobody is on the server. Update now? It updates Garry's Mod, the maps, the gamemode and this website, "
+                       "then restarts them, which takes a few minutes.")
     btns = (f'<form method="post" action="/admin/ctl" data-confirm="Restart the game server now? Everyone gets disconnected for about a minute.">'
             f'{csrf_field(ctx)}<input type="hidden" name="op" value="restart"><button class="btn btn-danger" type="submit">{icon("refresh")}<span>Restart</span></button></form>'
-            f'<form method="post" action="/admin/ctl" data-confirm="Start an update now? It updates GMOD, maps and the gamemode, then restarts the server.">'
+            f'<form method="post" action="/admin/ctl" data-confirm="{e(upd_confirm)}">'
             f'{csrf_field(ctx)}<input type="hidden" name="op" value="update"><button class="btn btn-ghost" type="submit"{" disabled" if upd else ""}>{icon("download")}<span>Update</span></button></form>')
+    note = update_note(ctx.app)
+    note_html = f'<p class="muted small update-note">{e(note)}</p>' if note else ""
     html = (f'<section class="card server-card"><header class="card-h"><h2>{icon("bolt")}Game server</h2>{upd_html}</header>'
             f'<div class="server-state"><span class="state-dot sd-{cls}"></span><div><p class="big">{e(label)}</p>{since}</div></div>'
-            f'<div class="btn-row">{btns}</div></section>')
+            f'<div class="btn-row">{btns}</div>{note_html}</section>')
     return html, s
 
 
