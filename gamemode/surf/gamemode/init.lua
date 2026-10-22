@@ -40,6 +40,7 @@ include("sv_admin.lua")
 include("sv_achievements.lua")
 include("sv_challenges.lua")
 include("sv_race.lua")
+include("sv_joinguard.lua")
 
 -- Make clients download the current map's workshop addon and any extras
 local function AddWorkshopDownloads()

@@ -309,5 +309,55 @@ M.main()
 got = [f for f in os.listdir(os.path.join(gm6, "maps"))]
 check(len(got) == 5, f"after 9 fail, the rest are kept rather than all removed ({len(got)})")
 
+# The server's .bsp is always the copy players download (map_ws.txt), or they
+# get "Client's map differs from the server's"
+gm7, work7, repo7 = os.path.join(tmp, "gm7"), os.path.join(tmp, "work7"), os.path.join(tmp, "repo7")
+for d in (os.path.join(repo7, "zones"), os.path.join(repo7, "maps"), gm7, work7):
+    os.makedirs(d)
+for m in ("surf_dupa", "surf_dupb"):
+    open(os.path.join(repo7, "zones", m + ".json"), "w").write("[]")
+ITEMS.update({
+    "401": {"consumer_app_id": 4000, "title": "surf_dupa", "subscriptions": 90, "time_updated": 1},
+    "402": {"consumer_app_id": 4000, "title": "surf_dupb", "subscriptions": 80, "time_updated": 1},
+})
+CONTENT.update({
+    "401": ("gma", gma([("maps/surf_dupa.bsp", b"A-401")])),
+    # 402 also carries an older surf_dupa
+    "402": ("gma", gma([("maps/surf_dupb.bsp", b"B-402"), ("maps/surf_dupa.bsp", b"A-old-402")])),
+})
+open(os.path.join(repo7, "maps", "sources.txt"), "w").write("401\n402\n")
+sys.argv = ["maps.py", "--repo", repo7, "--garrysmod", gm7, "--steamcmd", "x", "--workdir", work7]
+M.main()
+ws = open(os.path.join(gm7, "data", "surfline", "map_ws.txt")).read().split()
+dupa = os.path.join(gm7, "maps", "surf_dupa.bsp")
+check(ws == ["surf_dupa", "401", "surf_dupb", "402"] and open(dupa, "rb").read() == b"A-401",
+      f"a map another item also carries keeps the copy players download ({ws}, {open(dupa, 'rb').read()})")
+
+# An install from before this fix where both items claim the map: installed again from its own item
+st = json.load(open(os.path.join(work7, "installed.json")))
+st["402"]["maps"].append("surf_dupa")
+json.dump(st, open(os.path.join(work7, "installed.json"), "w"))
+open(dupa, "wb").write(b"A-old-402")
+calls.clear()
+M.main()
+ws = open(os.path.join(gm7, "data", "surfline", "map_ws.txt")).read().split()
+check(open(dupa, "rb").read() == b"A-401" and ws == ["surf_dupa", "401", "surf_dupb", "402"],
+      f"a map two items claimed is installed again from the one players get ({ws}, {calls})")
+
+# A .bsp replaced by something else on the server is installed again
+open(dupa, "wb").write(b"changed")
+calls.clear()
+M.main()
+check(open(dupa, "rb").read() == b"A-401" and "401" in sum(calls, []), f"a changed .bsp is installed again ({calls})")
+
+# Maps players failed to join (join_failed.txt from the game) are downloaded again
+open(os.path.join(gm7, "data", "surfline", "join_failed.txt"), "w").write("surf_dupb\n")
+calls.clear()
+M.main()
+check(sum(calls, []) == ["402"] and not os.path.exists(os.path.join(gm7, "data", "surfline", "join_failed.txt")),
+      f"a map players couldn't join is downloaded again and the list cleared ({calls})")
+check(open(os.path.join(gm7, "maps", "surf_dupb.bsp"), "rb").read() == b"B-402" and open(dupa, "rb").read() == b"A-401",
+      "and the other map in that item is left alone")
+
 print(f"\n{len(fails)} failure(s)")
 sys.exit(1 if fails else 0)

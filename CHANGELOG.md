@@ -1,4 +1,17 @@
 # Changelog
+## 2026-10-22: no more "Client's map differs from the server's"
+- Some Workshop items carry a second map besides their own. The map installer
+  unpacked those too, so a map's .bsp on the server could come from a
+  different item than the one players download (map_ws.txt), and joining
+  failed with "Client's map differs from the server's" (seen on
+  surf_utopia_njv). An item now only installs a map no other item is the
+  source of. Maps two items claim, or whose file isn't the size its item
+  unpacked, are installed again from the item players download.
+- With nobody able to join, the map never changed. Now when two joins in a
+  row fail (or one whose reason names the map) and nobody is playing, the
+  server switches to another map, logs a `[SURF] error` the health check
+  shows, and lists the map in data/surfline/join_failed.txt so the next
+  update downloads it again (sv_joinguard.lua).
 ## 2026-10-14: updates wait for an empty server and warn players first
 - The automatic update no longer restarts the server at 05:00 every night.
   Every 15 minutes it looks for something new (changes on GitHub, a new

@@ -134,6 +134,14 @@ and Admin > Maps list what was left out and why. If more than half of the
 checked maps fail, they are kept instead (that points at a fault in the check),
 and maps.log says so. Bump `SCAN_VERSION` in maps.py to re-check every map.
 
+Players download each map from the Workshop item listed in
+`data/surfline/map_ws.txt`, so the server's .bsp must be that item's copy.
+An item only installs maps no other item is the source of, and a map two
+items claim, or whose file changed size, is installed again. If players can't
+get into a map (two failed joins in a row with nobody playing), the server
+switches map and lists it in `data/surfline/join_failed.txt`; the next update
+downloads those again.
+
 Maps listed in `maps/blocked_maps.txt`, and maps an admin hid in game with
 `!hidemap`, are never offered in votes or `!maps`, and the next update deletes
 them from the server. After a restart the server starts on a random easy map
