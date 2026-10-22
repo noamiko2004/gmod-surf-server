@@ -327,6 +327,148 @@ write_status([])
 U.auto()
 check(len(started()) == 5, "...once a day at most")
 
+# --- maps: a new version of an installed map's Workshop item
+# The Workshop API's answer is parsed like Steam sends it
+api = {"code": 200}
+
+
+class API(http.server.BaseHTTPRequestHandler):
+    def do_POST(self):
+        n = int(self.headers.get("Content-Length") or 0)
+        fields = dict(x.split("=", 1) for x in self.rfile.read(n).decode().split("&"))
+        ids = [v for k, v in fields.items() if k.startswith("publishedfileids")]
+        details = [{"publishedfileid": i, "result": 1, "time_updated": 5000} if i != "999" else {"publishedfileid": i, "result": 9}
+                   for i in ids]
+        body = json.dumps({"response": {"result": 1, "publishedfiledetails": details}}).encode()
+        self.send_response(api["code"])
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *a):
+        pass
+
+
+apisrv = http.server.HTTPServer(("127.0.0.1", 0), API)
+threading.Thread(target=apisrv.serve_forever, daemon=True).start()
+U.WORKSHOP_API = f"http://127.0.0.1:{apisrv.server_address[1]}/"
+check(U.workshop_times(["111", "999"]) == {"111": 5000}, "the Workshop's last-changed times are read (items it doesn't know are skipped)")
+check(len(U.workshop_times([str(i) for i in range(150)])) == 150, "more than 100 items are asked in parts")
+api["code"] = 500
+check(U.workshop_times(["111"]) is None, "a Workshop that can't be asked gives None")
+apisrv.shutdown()
+
+open(steam_reply, "w").write(STEAM_OUT % ("101", "50"))  # Steam answers again
+data = os.path.join(server, "garrysmod", "data", "surfline")
+os.makedirs(os.path.join(home, "workshop"))
+open(os.path.join(data, "map_ws.txt"), "w").write("surf_a 111\nsurf_b 222\nsurf_c 333\n")
+
+
+def install_maps(**times):
+    json.dump({fid: {"updated": t, "maps": [m], "title": m} for m, fid, t in
+               [("surf_a", "111", times.get("a", 1000)), ("surf_b", "222", times.get("b", 2000)), ("surf_c", "333", times.get("c", 3000))]},
+              open(os.path.join(home, "workshop", "installed.json"), "w"))
+
+
+install_maps()
+ws = {"111": 1000, "222": 2000, "333": 3000}
+ws_calls = []
+
+
+def fake_ws(ids):
+    ws_calls.append(list(ids))
+    if ws.get("raise"):
+        raise RuntimeError("boom")
+    return None if ws.get("down") else {k: v for k, v in ws.items() if k.isdigit()}
+
+
+U.workshop_times = fake_ws
+outdated_file = os.path.join(data, "outdated_maps.txt")
+now[0] += 2 * D
+write_status([])
+U.auto()
+n0 = len(started())
+check(ws_calls and ws_calls[-1] == ["111", "222", "333"] and "due_since" not in state() and not os.path.exists(outdated_file),
+      "maps on their newest Workshop version: nothing due")
+
+ws["222"] = 2500  # surf_b's author uploaded a new version
+now[0] += 1800
+game["players"] = [player(1), player(2)]
+write_status(game["players"])
+U.auto()
+st = state()
+check(len(started()) == n0 and "new Workshop version of surf_b" in st.get("due", []) and st.get("due_kinds") == ["maps"],
+      f"a new map version with players on waits ({st.get('due')})")
+check(open(outdated_file).read() == "surf_b\n", "and the map sits out votes meanwhile (outdated_maps.txt)")
+calls = len(ws_calls)
+now[0] += 900
+write_status(game["players"])
+U.auto()
+check(len(ws_calls) == calls, "the Workshop is asked at most every 30 minutes")
+game["players"] = []
+now[0] += 900
+write_status([])
+U.auto()
+check(len(started()) == n0 + 1 and "empty" in started()[-1], "it installs once the server is empty")
+install_maps(b=2500)  # update.sh ran maps.sh
+U.done(before)
+st = state()
+check(not os.path.exists(outdated_file) and "maps" not in st.get("hold", {}) and "due_since" not in st,
+      "installed: the map is back in votes and nothing is due")
+
+# A map update the update didn't manage to install waits a day
+ws["333"] = 3500
+now[0] += 1800
+write_status([])
+U.auto()
+check(len(started()) == n0 + 2, "an outdated map on an empty server updates right away")
+U.done(before)  # maps.sh couldn't download it
+st = state()
+check(st.get("hold", {}).get("maps") == now[0] + D and open(outdated_file).read() == "surf_c\n",
+      "not installed: it waits a day and stays out of votes")
+now[0] += 1800
+write_status([])
+U.auto()
+check(len(started()) == n0 + 2, "...so the server isn't restarted every 15 minutes")
+now[0] += D
+write_status([])
+U.auto()
+check(len(started()) == n0 + 3, "a day later it is tried again")
+install_maps(b=2500, c=3500)
+U.done(before)
+check(not os.path.exists(outdated_file), "installed the second time")
+
+# Steam's Workshop can't be asked: the last answer is kept, nothing breaks
+ws["down"] = True
+now[0] += 1800
+write_status([])
+U.auto()
+check(len(started()) == n0 + 3 and state().get("maps_latest", {}).get("333") == 3500, "the Workshop down changes nothing")
+del ws["down"]
+
+# A map players couldn't join (sv_joinguard.lua) is downloaded again
+join_failed = os.path.join(data, "join_failed.txt")
+open(join_failed, "w").write("surf_a\n")
+now[0] += 900
+write_status([])
+U.auto()
+check(len(started()) == n0 + 4 and state().get("due") == ["a fresh copy of surf_a (players couldn't join it)"],
+      "a map players couldn't join is downloaded again")
+os.remove(join_failed)  # maps.py handled it
+U.done(before)
+check("joinfail" not in state().get("hold", {}), "handled: nothing held")
+
+# A fault in the map check never stops other updates
+ws["raise"] = True
+push_change(tmp, origin, "d")
+now[0] += 1800
+write_status([])
+U.auto()
+check(len(started()) == n0 + 5, "a broken map check doesn't block a GitHub update")
+del ws["raise"]
+sh("git", "pull", "-q", cwd=repo)
+U.done(before)
+
 # --- the in-game warning
 game.update(players=[player(1), player(2)], answer="ok", commands=[])
 write_status(game["players"])

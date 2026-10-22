@@ -1,4 +1,17 @@
 # Changelog
+## 2026-10-22: new map versions on the Workshop install by themselves
+- When a map's author uploads a new version on the Workshop, players download
+  it, but the server kept its old copy until some other update came along, so
+  joining failed with "Client's map differs from the server's". The automatic
+  update now asks the Workshop every 30 minutes and treats a new map version
+  like any other update: it installs once the server is empty (or after 2 days
+  with 3 or fewer on, 4 days no matter what), with the 30-second countdown.
+- Until then that map sits out votes and nominations. If it is the map being
+  played, players are told, and the vote for the next map starts 2 minutes
+  later without an extend option.
+- Maps players couldn't join (join_failed.txt) also make an update due, so
+  they are downloaded again soon rather than with the next change.
+
 ## 2026-10-22: no more "Client's map differs from the server's"
 - Some Workshop items carry a second map besides their own. The map installer
   unpacked those too, so a map's .bsp on the server could come from a

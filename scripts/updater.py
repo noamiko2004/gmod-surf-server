@@ -12,10 +12,13 @@ itself; this decides when and talks to the game.
   updater.py done REV    update.sh finished (REV = the commit it started from)
   updater.py site REV    checks the website restarted on commit REV
 
-When an update is due, the automatic one waits for an empty server. After two
-days of waiting it also goes ahead with 3 or fewer players on, and after four
-days whatever the count. Its state is $GMOD_HOME/update_state.json, which the
-website's admin page shows.
+An update is due when there are new changes on GitHub, a new Garry's Mod or
+CS:S build on Steam, or a new version of a map's Workshop item (players would
+download it and get "Client's map differs from the server's" until the server
+has it too; those maps sit out map votes meanwhile). The automatic update then
+waits for an empty server. After two days of waiting it also goes ahead with 3
+or fewer players on, and after four days whatever the count. Its state is
+$GMOD_HOME/update_state.json, which the website's admin page shows.
 
 Paths come from the environment (common.sh sets them): REPO_DIR, GMOD_HOME,
 GMOD_USER, SERVER_DIR, CSS_DIR, STEAMCMD_DIR.
@@ -28,6 +31,7 @@ import secrets
 import subprocess
 import sys
 import time
+import urllib.parse
 import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -37,7 +41,9 @@ GMOD_USER = os.environ.get("GMOD_USER") or "gmod"
 SERVER_DIR = os.environ.get("SERVER_DIR") or os.path.join(HOME, "server")
 CSS_DIR = os.environ.get("CSS_DIR") or os.path.join(HOME, "css")
 STEAMCMD = os.path.join(os.environ.get("STEAMCMD_DIR") or os.path.join(HOME, "steamcmd"), "steamcmd.sh")
-PORTAL_DATA = os.environ.get("PORTAL_DATA") or os.path.join(SERVER_DIR, "garrysmod", "data", "surfline", "portal")
+DATA_DIR = os.path.join(SERVER_DIR, "garrysmod", "data", "surfline")
+PORTAL_DATA = os.environ.get("PORTAL_DATA") or os.path.join(DATA_DIR, "portal")
+MAPS_INSTALLED = os.path.join(HOME, "workshop", "installed.json")  # scripts/maps.sh keeps it
 STATE_FILE = os.path.join(HOME, "update_state.json")
 SITE_URL = os.environ.get("PORTAL_LOCAL_URL") or "http://127.0.0.1:8090/"
 
@@ -47,11 +53,13 @@ WAIT_ANY = 4 * DAY      # after this, nothing does
 FEW = 3
 WARN_SECONDS = int(os.environ.get("UPDATE_WARN_SECONDS") or 30)
 STEAM_EVERY = 3600      # how often Steam is asked for new Garry's Mod builds
+MAPS_EVERY = 1800       # how often the Workshop is asked whether installed maps changed
 STEAM_BLIND = DAY       # Steam unreadable this long: update anyway, as the old nightly did
 RETRY_AFTER = DAY       # something an update didn't manage to install waits this long
 LOG_WAIT_EVERY = 3 * 3600
 STATUS_FRESH = 30       # status.json older than this: the game isn't running
 
+WORKSHOP_API = "https://api.steampowered.com/ISteamRemoteStorage/GetPublishedFileDetails/v1/"
 KICK_MESSAGE = "The server is updating to a new version. It is back in a few minutes, just rejoin!"
 # Steam app id -> (name, install folder)
 APPS = {"4020": ("Garry's Mod", SERVER_DIR), "232330": ("Counter-Strike: Source content", CSS_DIR)}
@@ -263,6 +271,131 @@ def steam_latest():
     return parse_app_info(r.stdout or "")
 
 
+# ------------------------------------------------------------------ maps
+
+def read_names(path):
+    """The first word of each line, without # comments."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            return [ln.split("#", 1)[0].split()[0] for ln in f if ln.split("#", 1)[0].strip()]
+    except OSError:
+        return []
+
+
+def map_sources():
+    """{map: Workshop item} for the maps players download (map_ws.txt, which
+    scripts/maps.py writes)."""
+    out = {}
+    try:
+        with open(os.path.join(DATA_DIR, "map_ws.txt"), encoding="utf-8", errors="replace") as f:
+            for ln in f:
+                parts = ln.split()
+                if len(parts) >= 2 and parts[1].isdigit():
+                    out[parts[0]] = parts[1]
+    except OSError:
+        pass
+    return out
+
+
+def workshop_times(ids):
+    """{Workshop item: when it last changed} from Steam, or None if Steam
+    couldn't be asked."""
+    out = {}
+    for i in range(0, len(ids), 100):
+        part = ids[i:i + 100]
+        fields = {"itemcount": len(part)}
+        for j, fid in enumerate(part):
+            fields[f"publishedfileids[{j}]"] = fid
+        req = urllib.request.Request(WORKSHOP_API, data=urllib.parse.urlencode(fields).encode())
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                details = json.load(r)["response"].get("publishedfiledetails") or []
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            return None
+        for d in details:
+            if isinstance(d, dict) and d.get("result") == 1 and isinstance(d.get("time_updated"), int):
+                out[str(d.get("publishedfileid"))] = d["time_updated"]
+    return out
+
+
+def outdated_maps(latest):
+    """Installed maps whose Workshop item changed after the server got its copy.
+    Players download the new one, so they'd get "Client's map differs from the
+    server's" until the next update installs it."""
+    try:
+        with open(MAPS_INSTALLED, encoding="utf-8") as f:
+            installed = json.load(f)
+    except (OSError, ValueError):
+        return []
+    if not isinstance(installed, dict):
+        return []
+    out = []
+    for m, fid in sorted(map_sources().items()):
+        info, new = installed.get(fid), latest.get(fid)
+        if not isinstance(info, dict) or not isinstance(new, int):
+            continue  # not installed by maps.py, or Steam didn't say
+        have = info.get("updated")
+        if not isinstance(have, int) or new > have:
+            out.append(m)
+    return out
+
+
+def write_outdated(maps):
+    """outdated_maps.txt keeps those maps out of map votes until they're
+    installed (sv_mapvote.lua)."""
+    path = os.path.join(DATA_DIR, "outdated_maps.txt")
+    text = "".join(m + "\n" for m in maps)
+    try:
+        with open(path, encoding="utf-8") as f:
+            if f.read() == text:
+                return
+    except OSError:
+        if not maps:
+            return
+    if not os.path.isdir(DATA_DIR):
+        return
+    if not maps:
+        os.remove(path)
+        return
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(text)
+    os.chmod(tmp, 0o644)
+    if is_root():  # like the game's other files there
+        s = os.stat(DATA_DIR)
+        try:
+            os.chown(tmp, s.st_uid, s.st_gid)
+        except OSError:
+            pass
+    os.replace(tmp, path)
+
+
+def names(maps, most=3):
+    return ", ".join(maps[:most]) + (f" and {len(maps) - most} more" if len(maps) > most else "")
+
+
+def map_news(st, t, hold):
+    """Map items for whats_new; keeps st["maps_latest"] and outdated_maps.txt
+    up to date."""
+    items = []
+    if t - st.get("maps_checked", 0) >= MAPS_EVERY:
+        st["maps_checked"] = t
+        ids = sorted(set(map_sources().values()))
+        latest = workshop_times(ids) if ids else {}
+        if latest is not None:
+            st["maps_latest"] = latest
+    old = outdated_maps(st.get("maps_latest") or {})
+    write_outdated(old)
+    if old and t >= hold.get("maps", 0):
+        items.append({"kind": "maps", "text": f"new Workshop version of {names(old)}"})
+    # Maps players couldn't join (sv_joinguard.lua lists them); the map
+    # installer downloads them again
+    failed = read_names(os.path.join(DATA_DIR, "join_failed.txt"))
+    if failed and t >= hold.get("joinfail", 0):
+        items.append({"kind": "joinfail", "text": f"a fresh copy of {names(failed)} (players couldn't join it)"})
+    return items
+
+
 def whats_new(st, t):
     """What an update would install now: [{"kind", "text"}]. Updates the Steam
     fields of st."""
@@ -284,6 +417,10 @@ def whats_new(st, t):
             items.append({"kind": app, "text": name + " update"})
     if t - st.get("steam_ok", st["steam_since"]) >= STEAM_BLIND and t >= hold.get("steam", 0):
         items.append({"kind": "steam", "text": "Garry's Mod check (Steam's version couldn't be read for a day)"})
+    try:
+        items += map_news(st, t, hold)
+    except Exception as ex:  # never let the map check stop other updates
+        log(f"Couldn't check the maps for Workshop updates: {ex!r}")
     return items
 
 
@@ -388,6 +525,17 @@ def done(before):
             missed.append(name)
     if "steam" in (st.get("due_kinds") or []):
         hold["steam"] = t + RETRY_AFTER
+    try:
+        still = outdated_maps(st.get("maps_latest") or {})
+        write_outdated(still)
+        if still:
+            hold["maps"] = t + RETRY_AFTER
+            missed.append(f"the new Workshop version of {names(still)}")
+        if read_names(os.path.join(DATA_DIR, "join_failed.txt")):
+            hold["joinfail"] = t + RETRY_AFTER
+            missed.append("the maps players couldn't join")
+    except Exception as ex:
+        log(f"Couldn't check the maps: {ex!r}")
     for k in ("due_since", "due", "due_kinds", "logged", "players", "started"):
         st.pop(k, None)
     st["hold"], st["last_update"], st["version"] = hold, t, git_short()

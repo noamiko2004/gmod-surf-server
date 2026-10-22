@@ -184,6 +184,15 @@ After 2 days of waiting it also goes ahead with 3 or fewer players on, and
 after 4 days no matter what. The admin page on the website shows what is
 waiting, and `update.log` has a line when it starts waiting.
 
+A new version of an installed map on the Workshop counts as something new too:
+players download the new copy, so until the server has it they get "Client's
+map differs from the server's". The Workshop is asked every 30 minutes. While
+the update waits, that map sits out votes and nominations
+(`data/surfline/outdated_maps.txt`), and if it is the map being played, the
+vote for the next map starts 2 minutes later. Maps players couldn't join
+(`data/surfline/join_failed.txt`) make an update due the same way, so they are
+downloaded again soon.
+
 Every update, automatic or not, gives the players on a 30-second countdown in
 game and then disconnects them with a message that the server is updating (so
 nobody just loses connection), stops joins in the last seconds, and restarts

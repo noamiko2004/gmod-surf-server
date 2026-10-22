@@ -846,6 +846,51 @@ SURF.Zones.Load()
 ''')
 check(not G.adminLeaveTimer and "surfline/admin_map.txt" not in vfs, "a map an admin loaded with !map stays, to place zones")
 
+# A map whose Workshop item has a new version the server doesn't have yet
+# (scripts/updater.py lists it) sits out votes; the map being played gets an early vote
+vfs["surfline/outdated_maps.txt"] = "surf_mesa\nsurf_kitsune\n"
+L.execute('''
+playable5 = SURF.MapVote.Playable()
+chats = {}
+savedNow = CurTime()
+mapname = "surf_kitsune"
+humansSaved = humans
+humans = {}
+timers.surf_outdated_leave()
+outdatedEmpty = SURF.MapVote.outdatedAt == nil
+humans = humansSaved
+timers.surf_outdated_leave()
+outdatedNotice = not SURF.MapVote.active and SURF.MapVote.outdatedAt ~= nil
+SetCurTime(savedNow + 60)
+timers.surf_outdated_leave()
+outdatedEarly = SURF.MapVote.active
+SetCurTime(savedNow + 121)
+timers.surf_outdated_leave()
+outdatedActive = SURF.MapVote.active
+outdatedChoices = SURF.MapVote.choices
+SURF.MapVote.active = false
+SetCurTime(savedNow + 300)
+timers.surf_outdated_leave()
+outdatedOnce = not SURF.MapVote.active
+SURF.MapVote.outdatedAt, SURF.MapVote.outdatedVoted = nil, nil
+SetCurTime(savedNow)
+''')
+playable5 = list(G.playable5.values())
+check("surf_mesa" not in playable5 and "surf_kitsune" not in playable5 and "surf_lessons" in playable5,
+      f"maps waiting for their new Workshop version leave the vote pool ({playable5})")
+check(G.outdatedEmpty, "an empty server doesn't announce anything (the update comes right away)")
+check(G.outdatedNotice and not G.outdatedEarly and any("got an update on the Workshop" in c for c in G.chats.values()),
+      "players on an outdated map are told the vote comes in 2 minutes")
+choices = list(G.outdatedChoices.values())
+check(G.outdatedActive and "__extend" not in choices and "surf_kitsune" not in choices and "surf_mesa" not in choices,
+      f"then the vote starts, without extend or outdated maps ({choices})")
+check(G.outdatedOnce, "only once per map")
+del vfs["surfline/outdated_maps.txt"]
+L.execute('''
+playable6 = SURF.MapVote.Playable()
+''')
+check("surf_mesa" in list(G.playable6.values()), "once installed (the list is gone) the map is back in votes")
+
 # Server records are logged for the portal
 recs = db.execute("select map, name, time, prev_time from surf_records order by id").fetchall()
 check(("surf_kitsune", "Bob", 58.5, 60.0) in recs and ("surf_kitsune", "Alice", 60.0, 0.0) in recs, f"surf_records logs each new record ({recs})")

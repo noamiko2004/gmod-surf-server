@@ -74,6 +74,12 @@ end
 
 function MV.HiddenByAdmin() return ReadNames(HIDDEN_FILE) end
 
+-- Maps whose Workshop item got a new version the server doesn't have yet
+-- (scripts/updater.py lists them until the next update installs it). Players
+-- would download the new copy and get "Client's map differs from the
+-- server's", so these sit out votes and nominations until then.
+function MV.Outdated() return ReadNames("surfline/outdated_maps.txt") end
+
 function MV.SetHidden(map, hide)
 	local list = ReadNames(HIDDEN_FILE)
 	list[map] = hide and true or nil
@@ -84,13 +90,14 @@ function MV.SetHidden(map, hide)
 end
 
 -- Maps players can vote for and nominate, and the only ones picked
--- automatically: never a map without a start and an end, never a hidden one.
--- Admins can still load any installed map with !map (to place zones).
+-- automatically: never a map without a start and an end, never a hidden one,
+-- never one waiting for its new Workshop version. Admins can still load any
+-- installed map with !map (to place zones).
 function MV.Playable()
-	local known, bad, hidden = SURF.Zones.KnownZoned(), SURF.Zones.KnownBad(), MV.Hidden()
+	local known, bad, hidden, outdated = SURF.Zones.KnownZoned(), SURF.Zones.KnownBad(), MV.Hidden(), MV.Outdated()
 	local zoned = {}
 	for _, m in ipairs(MV.MapList()) do
-		if not hidden[m] and MV.HasZones(m, known, bad) then zoned[#zoned + 1] = m end
+		if not hidden[m] and not outdated[m] and MV.HasZones(m, known, bad) then zoned[#zoned + 1] = m end
 	end
 	return zoned
 end
@@ -278,6 +285,24 @@ hook.Add("InitPostEntity", "surf_nozones_leave", function()
 		SURF.Chat(nil, SURF.Config.Accent, "[Vote] ", color_white, "This map has no working start and end zones, so let's pick another one.")
 		MV.Start(false)
 	end)
+end)
+
+-- The map being played got a new Workshop version: players joining now get the
+-- new copy and can't get in until the server installs it, so the vote for the
+-- next map comes early (2 minutes' notice, no extend option).
+local OUTDATED_NOTICE = 120
+timer.Create("surf_outdated_leave", 30, 0, function()
+	if MV.active or MV.outdatedVoted or #player.GetHumans() == 0 then return end
+	if not MV.Outdated()[game.GetMap()] then return end
+	if not MV.outdatedAt then
+		MV.outdatedAt = CurTime() + OUTDATED_NOTICE
+		SURF.Chat(nil, SURF.Config.Accent, "[Vote] ", color_white, "This map just got an update on the Workshop, " ..
+			"so new players can't join it until the server installs it. The vote for the next map starts in 2 minutes.")
+		return
+	end
+	if CurTime() < MV.outdatedAt then return end
+	MV.outdatedVoted = true
+	MV.Start(false)
 end)
 
 -- If the server boots on a non-surf map (e.g. the gm_construct fallback while
