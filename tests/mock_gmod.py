@@ -1534,5 +1534,47 @@ rb = G.replayBot
 check(rb.model == "models/player/gman_high.mdl" and rb.boneScale and rb.boneScale.b == 6 and rb.boneScale.v.x == 0
       and not G.human.touched, "the replay bot spawns in a suit with its head hidden (for the camera head); players don't")
 
+# Players who never make it into the game: with nobody playing, the server
+# leaves the map and lists it for the next update (sv_joinguard.lua)
+L.execute(r"""
+gameevent = { Listen = function() end }
+math.random = function(n) return 1 end
+include("sv_joinguard.lua")
+humans = {}
+mapname = "surf_kitsune"
+lastConsole = nil
+file.Delete("surfline/join_failed.txt")
+hook.Run("player_connect", { userid = 5, bot = 0 })
+hook.Run("player_disconnect", { userid = 5, reason = "Disconnect by user." })
+jgOne = lastConsole
+hook.Run("player_connect", { userid = 6, bot = 0 })
+hook.Run("player_disconnect", { userid = 6, reason = "Disconnect by user." })
+jgTwo = lastConsole
+jgList = file.Read("surfline/join_failed.txt", "DATA")
+-- one failure naming the map is enough
+lastConsole = nil
+hook.Run("player_connect", { userid = 7, bot = 0 })
+hook.Run("player_disconnect", { userid = 7, reason = "Client's map differs from the server's" })
+jgMap = lastConsole
+jgList2 = file.Read("surfline/join_failed.txt", "DATA")
+-- someone is playing: failures are that player's own problem, the map stays
+lastConsole = nil
+playing = MakePlayer("Playing", "76561197960287999")
+function playing:UserID() return 9 end
+humans = { playing }
+hook.Run("PlayerInitialSpawn", playing)
+for id = 10, 12 do
+  hook.Run("player_connect", { userid = id, bot = 0 })
+  hook.Run("player_disconnect", { userid = id, reason = "Client's map differs from the server's" })
+end
+jgPlaying = lastConsole
+humans = {}
+""")
+check(G.jgOne is None and G.jgTwo and G.jgTwo.startswith("changelevel surf_") and G.jgTwo != "changelevel surf_kitsune",
+      f"two failed joins on an empty server switch to another map ({G.jgOne}, {G.jgTwo})")
+check(G.jgList == "surf_kitsune\n" and G.jgList2 == "surf_kitsune\n", f"and list the map once for the next update ({G.jgList!r})")
+check(G.jgMap is not None, "one failed join that names the map is enough")
+check(G.jgPlaying is None, "the map stays while someone is playing on it")
+
 print("\n%d failure(s)" % len(failures))
 sys.exit(1 if failures else 0)

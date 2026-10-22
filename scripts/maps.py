@@ -349,6 +349,38 @@ def main():
                 log(f"removed blocked map {m}")
             info["maps"].remove(m)
             removed = True
+    # Players download each map from the Workshop item in map_ws.txt, so the
+    # server's .bsp must be that item's copy, or they get "Client's map differs
+    # from the server's". Install again any map that two items claim, whose
+    # file isn't the size its item unpacked, or that players failed to join
+    # (the game lists those in join_failed.txt).
+    join_failed_path = os.path.join(data_dir, "join_failed.txt")
+    join_failed = set(read_list(join_failed_path))
+    owners = {}
+    for fid, info in state.items():
+        for m in info.get("maps", []):
+            owners.setdefault(m, []).append(fid)
+    for m, fids in sorted(owners.items()):
+        bsp = os.path.join(args.garrysmod, "maps", m + ".bsp")
+        size = state[fids[0]].get("sizes", {}).get(m)
+        if len(fids) > 1:
+            why = f"it came from {len(fids)} Workshop items ({', '.join(sorted(fids))})"
+        elif size is not None and os.path.exists(bsp) and os.path.getsize(bsp) != size:
+            why = "the file on the server isn't the copy its Workshop item has"
+        elif m in join_failed:
+            why = "players failed to join it"
+        else:
+            continue
+        log(f"installing {m} again: {why}")
+        if os.path.exists(bsp):
+            os.remove(bsp)
+        for fid in fids:
+            state[fid]["maps"].remove(m)
+            state[fid].pop("sizes", {}).pop(m, None)
+            state[fid]["updated"] = None  # download it again
+        removed = True
+    if os.path.exists(join_failed_path):
+        os.remove(join_failed_path)
     if removed:
         json.dump(state, open(state_path, "w"), indent=1)
     installed_maps = {m for info in state.values() for m in info.get("maps", [])
@@ -400,9 +432,15 @@ def main():
         shutil.rmtree(staging, ignore_errors=True)
         os.makedirs(staging)
         maps, files = extract(load_gma(path), args.garrysmod, staging)
-        good, bad, kept = [], {}, {}
+        good, bad, kept, sizes = [], {}, {}, {}
         for m in maps:
             src = os.path.join(staging, m + ".bsp")
+            others = [f for f, i in state.items() if f != fid and m in i.get("maps", [])]
+            if others and picks.get(m) != fid:
+                # Another item is this map's source: keep its copy, which is the
+                # one players download, instead of overwriting it with this one
+                log(f"  {m} skipped: it is installed from {others[0]}")
+                continue
             why = None
             if checking:
                 try:
@@ -428,8 +466,12 @@ def main():
                 os.makedirs(os.path.dirname(dest), exist_ok=True)
                 os.replace(src, dest)
                 good.append(m)
+                sizes[m] = os.path.getsize(dest)
+                for f in others:  # this item is now the map's source
+                    state[f]["maps"].remove(m)
+                    state[f].get("sizes", {}).pop(m, None)
         shutil.rmtree(staging, ignore_errors=True)
-        state[fid] = {"updated": d.get("time_updated"), "maps": good, "title": d.get("title")}
+        state[fid] = {"updated": d.get("time_updated"), "maps": good, "sizes": sizes, "title": d.get("title")}
         if checking:
             state[fid]["scan"] = SCAN_VERSION
         if bad:
